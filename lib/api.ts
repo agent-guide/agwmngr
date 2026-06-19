@@ -1,0 +1,1073 @@
+import { API_BASE_URL, clearSession, getToken } from "./auth";
+
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+/**
+ * Fetch wrapper for authenticated admin API calls.
+ * Automatically injects the Bearer session token.
+ * On 401, clears the session and redirects to /login.
+ * Paths starting with /admin/ are proxied via /api/admin/.
+ */
+export async function adminFetch<T = unknown>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const token = getToken();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(options.headers as Record<string, string>),
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const url = path.startsWith("/admin/")
+    ? `${API_BASE_URL}/api${path}`
+    : `${API_BASE_URL}${path}`;
+
+  const res = await fetch(url, { ...options, headers });
+
+  if (res.status === 401 && token) {
+    clearSession();
+    if (typeof window !== "undefined") {
+      window.location.replace("/login");
+    }
+    throw new ApiError(401, "Session expired");
+  }
+
+  if (!res.ok) {
+    let msg = res.statusText;
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body.error) msg = body.error;
+    } catch {
+      // ignore parse errors
+    }
+    throw new ApiError(res.status, msg);
+  }
+
+  if (res.status === 204) return undefined as T;
+  const text = await res.text();
+  if (!text.trim()) return undefined as T;
+  return JSON.parse(text) as T;
+}
+
+/**
+ * Unauthenticated POST for the login endpoint.
+ */
+export async function login(
+  username: string,
+  password: string,
+): Promise<{ token: string; username: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/admin/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+
+  let msg = res.statusText;
+  if (!res.ok) {
+    try {
+      const body = (await res.json()) as { error?: string };
+      if (body.error) msg = body.error;
+    } catch {
+      // ignore parse errors
+    }
+    throw new ApiError(res.status, msg);
+  }
+
+  return res.json() as Promise<{ token: string; username: string }>;
+}
+
+// ---- Provider types ----
+
+export interface ProviderTypeItem {
+  provider_type: string;
+  enabled: boolean;
+}
+
+export interface ProviderItem {
+  id: string;
+  provider_type: string;
+  api_key?: string;
+  base_url?: string;
+  default_model?: string;
+  options?: Record<string, unknown>;
+  read_only?: boolean;
+}
+
+// ---- Provider API functions ----
+
+// Provider types are process capabilities configured only at gateway startup
+// (Caddyfile `provider_types {}` block or daemon flags). The gateway exposes
+// `GET /admin/llm/provider_types` as a read-only inspection endpoint; there are no
+// runtime enable/disable endpoints.
+export async function listProviderTypes(): Promise<ProviderTypeItem[]> {
+  const res = await adminFetch<{ items: ProviderTypeItem[] }>("/admin/llm/provider_types");
+  return res.items ?? [];
+}
+
+export async function listProviders(providerType?: string): Promise<ProviderItem[]> {
+  const query = providerType ? `?provider_type=${encodeURIComponent(providerType)}` : "";
+  const res = await adminFetch<{ items: ProviderItem[] }>(`/admin/llm/providers${query}`);
+  return res.items ?? [];
+}
+
+export async function createProvider(payload: {
+  id: string;
+  provider_type: string;
+  api_key?: string;
+  base_url?: string;
+  default_model?: string;
+}): Promise<ProviderItem> {
+  return adminFetch<ProviderItem>("/admin/llm/providers", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateProvider(
+  id: string,
+  payload: {
+    provider_type: string;
+    api_key?: string;
+    base_url?: string;
+    default_model?: string;
+  },
+): Promise<ProviderItem> {
+  return adminFetch<ProviderItem>(`/admin/llm/providers/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify({ id, ...payload }),
+  });
+}
+
+export async function deleteProvider(id: string): Promise<void> {
+  await adminFetch(`/admin/llm/providers/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+// ---- Credential types ----
+
+export interface CredentialItem {
+  id: string;
+  provider_type: string;
+  provider_id?: string;
+  source: string;
+  label?: string;
+  attributes?: Record<string, string>;
+  disabled?: boolean;
+  unavailable?: boolean;
+  read_only: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CredentialCreatePayload {
+  // Credential type is required by the gateway: "api_key" or "cliauth_token".
+  type: "api_key" | "cliauth_token";
+  provider_id: string;
+  label?: string;
+  attributes?: Record<string, string>;
+}
+
+export interface CredentialUpdatePayload {
+  label?: string;
+  attributes?: Record<string, string>;
+  disabled?: boolean;
+}
+
+// ---- Credential API functions ----
+
+export async function listCredentials(params?: { provider_type?: string; source?: string }): Promise<CredentialItem[]> {
+  const query = new URLSearchParams();
+  if (params?.provider_type) query.set("provider_type", params.provider_type);
+  if (params?.source) query.set("source", params.source);
+  const qs = query.toString() ? `?${query.toString()}` : "";
+  const res = await adminFetch<{ items: CredentialItem[] }>(`/admin/credentials${qs}`);
+  return res.items ?? [];
+}
+
+export async function createCredential(payload: CredentialCreatePayload): Promise<CredentialItem> {
+  return adminFetch<CredentialItem>("/admin/credentials", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateCredential(id: string, payload: CredentialUpdatePayload): Promise<CredentialItem> {
+  return adminFetch<CredentialItem>(`/admin/credentials/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteCredential(id: string): Promise<void> {
+  await adminFetch(`/admin/credentials/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+// ---- CLI Auth Authenticator types ----
+
+export type AuthenticatorSource = "caddyfile" | "runtime";
+
+export interface NetworkConfig {
+  request_timeout_seconds?: number;
+  max_retries?: number;
+  retry_delay_seconds?: number;
+  max_idle_connections?: number;
+  max_idle_connections_per_host?: number;
+  idle_keep_alive_timeout_seconds?: number;
+  proxy_url?: string;
+  extra_headers?: Record<string, string>;
+}
+
+export interface AuthenticatorConfig {
+  callback_port?: number;
+  no_browser?: boolean;
+  device_flow?: boolean;
+  network?: NetworkConfig;
+}
+
+export interface AuthenticatorState {
+  name: string;
+  provider_type?: string;
+  source?: AuthenticatorSource;
+  read_only: boolean;
+  enabled: boolean;
+  config: AuthenticatorConfig;
+}
+
+// ---- CLI Auth Authenticator API functions ----
+
+export async function listCLIAuthAuthenticators(): Promise<AuthenticatorState[]> {
+  const res = await adminFetch<{ items: AuthenticatorState[] }>("/admin/cliauth/authenticators");
+  return res.items ?? [];
+}
+
+export interface UpdateCLIAuthAuthenticatorRequest {
+  enabled?: boolean;
+  config?: AuthenticatorConfig;
+}
+
+export async function updateCLIAuthAuthenticator(
+  name: string,
+  req: UpdateCLIAuthAuthenticatorRequest,
+): Promise<{ status: string; authenticator: AuthenticatorState }> {
+  return adminFetch(`/admin/cliauth/authenticators/${encodeURIComponent(name)}`, {
+    method: "PUT",
+    body: JSON.stringify(req),
+  });
+}
+
+// ---- CLI Auth Refresher types ----
+
+export interface CLIAuthRefresherStatus {
+  enabled: boolean;
+}
+
+// ---- CLI Auth Refresher API functions ----
+
+export async function getCLIAuthRefresherStatus(): Promise<CLIAuthRefresherStatus> {
+  return adminFetch<CLIAuthRefresherStatus>("/admin/cliauth/refresher");
+}
+
+export async function enableCLIAuthRefresher(): Promise<{ status: string; enabled: boolean }> {
+  return adminFetch("/admin/cliauth/refresher/enable", { method: "POST" });
+}
+
+export async function disableCLIAuthRefresher(): Promise<{ status: string; enabled: boolean }> {
+  return adminFetch("/admin/cliauth/refresher/disable", { method: "POST" });
+}
+
+// ---- CLI Auth Login types ----
+
+export interface CLIAuthLoginStartResponse {
+  login_id: string;
+  status: string;
+  authenticator_name: string;
+  message: string;
+}
+
+export interface CLIAuthLoginStatus {
+  login_id: string;
+  authenticator_name: string;
+  status: string; // "running" | "succeeded" | "failed"
+  started_at: string;
+  finished_at?: string;
+  phase?: string;
+  message?: string;
+  verification_url?: string;
+  user_code?: string;
+  error?: string;
+  credential_id?: string;
+}
+
+// ---- CLI Auth Login API functions ----
+
+export async function startCLIAuthLogin(
+  authenticatorName: string,
+  payload?: { provider_id?: string },
+): Promise<CLIAuthLoginStartResponse> {
+  return adminFetch<CLIAuthLoginStartResponse>(
+    `/admin/cliauth/authenticators/${encodeURIComponent(authenticatorName)}/login`,
+    { method: "POST", body: payload ? JSON.stringify(payload) : undefined },
+  );
+}
+
+export async function getCLIAuthLoginStatus(loginId: string): Promise<CLIAuthLoginStatus> {
+  return adminFetch<CLIAuthLoginStatus>(`/admin/cliauth/logins/${encodeURIComponent(loginId)}`);
+}
+
+// ---- Model types ----
+
+export interface ModelCapabilities {
+  streaming?: boolean;
+  tools?: boolean;
+}
+
+export interface DiscoveredModel {
+  provider_id: string;
+  provider_type: string;
+  upstream_model: string;
+  display_name?: string;
+  description?: string;
+  capabilities?: ModelCapabilities;
+  status: string;
+  fetched_at: string;
+  last_error?: string;
+}
+
+export interface ManagedConcreteModel {
+  provider_id: string;
+  upstream_model: string;
+  credential_scope?: string;
+  enabled: boolean;
+  capability_overrides?: ModelCapabilities | null;
+  provider_type?: string;
+  display_name?: string;
+  description?: string;
+  capabilities?: ModelCapabilities;
+  snapshot_status?: string;
+  fetched_at?: string;
+  last_error?: string;
+}
+
+export interface ManagedModelPayload {
+  provider_id: string;
+  upstream_model: string;
+  credential_scope?: string;
+  enabled?: boolean;
+  capability_overrides?: ModelCapabilities | null;
+}
+
+export interface RefreshModelsResponse {
+  provider_id: string;
+  items: DiscoveredModel[];
+}
+
+// ---- Model API functions ----
+
+export async function listDiscoveredModels(providerID: string): Promise<DiscoveredModel[]> {
+  const res = await adminFetch<{ items: DiscoveredModel[] }>(
+    `/admin/llm/models/providers/${encodeURIComponent(providerID)}/discovered`,
+  );
+  return res.items ?? [];
+}
+
+export async function refreshProviderModels(providerID: string): Promise<RefreshModelsResponse> {
+  return adminFetch<RefreshModelsResponse>(
+    `/admin/llm/models/providers/${encodeURIComponent(providerID)}/refresh`,
+    { method: "POST" },
+  );
+}
+
+export async function listManagedModels(providerID?: string): Promise<ManagedConcreteModel[]> {
+  const query = providerID ? `?provider_id=${encodeURIComponent(providerID)}` : "";
+  const res = await adminFetch<{ items: ManagedConcreteModel[] }>(`/admin/llm/models/managed${query}`);
+  return res.items ?? [];
+}
+
+export async function getManagedModel(providerID: string, upstreamModel: string): Promise<ManagedConcreteModel> {
+  return adminFetch<ManagedConcreteModel>(
+    `/admin/llm/models/managed/${encodeURIComponent(providerID)}/${encodeURIComponent(upstreamModel)}`,
+  );
+}
+
+export async function createManagedModel(payload: ManagedModelPayload): Promise<ManagedConcreteModel> {
+  return adminFetch<ManagedConcreteModel>("/admin/llm/models/managed", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateManagedModel(
+  providerID: string,
+  upstreamModel: string,
+  payload: ManagedModelPayload,
+): Promise<ManagedConcreteModel> {
+  return adminFetch<ManagedConcreteModel>(
+    `/admin/llm/models/managed/${encodeURIComponent(providerID)}/${encodeURIComponent(upstreamModel)}`,
+    { method: "PUT", body: JSON.stringify(payload) },
+  );
+}
+
+export async function deleteManagedModel(providerID: string, upstreamModel: string): Promise<void> {
+  await adminFetch(
+    `/admin/llm/models/managed/${encodeURIComponent(providerID)}/${encodeURIComponent(upstreamModel)}`,
+    { method: "DELETE" },
+  );
+}
+
+// ---- LLM Route types ----
+// Mirrors the gateway LLMRouteView / AgentRouteConfig schema served at /admin/llm/routes.
+
+export type RouteProtocol = "openai" | "anthropic" | "cc" | string;
+export type RouteTargetPolicyKind = "direct-provider" | "logical-model";
+export type RouteSelectionStrategy = "auto" | "weighted" | "priority";
+
+export interface RouteModelCandidate {
+  provider_id: string;
+  upstream_model: string;
+  weight?: number;
+  priority?: number;
+  default?: boolean;
+}
+
+export interface RouteModelTarget {
+  name: string;
+  strategy?: RouteSelectionStrategy;
+  default_candidate?: string;
+  candidates?: RouteModelCandidate[];
+}
+
+export interface RouteTargetPolicy {
+  type?: RouteTargetPolicyKind;
+  provider_id?: string;
+  provider_target?: { provider_id: string };
+  default_model?: string;
+  model_selector_strategy?: RouteSelectionStrategy;
+  fallback?: { enabled?: boolean; max_num?: number };
+  model_targets?: RouteModelTarget[];
+}
+
+export interface RouteMatchPolicy {
+  host?: string;
+  path_prefix?: string;
+  methods?: string[];
+}
+
+export interface LLMRoute {
+  id: string;
+  kind?: string;
+  protocol?: RouteProtocol;
+  description?: string;
+  disabled: boolean;
+  match_policy: RouteMatchPolicy;
+  target_policy: RouteTargetPolicy;
+  auth_policy: { require_virtual_key: boolean };
+  created_at: string;
+  updated_at: string;
+  source?: string;
+  read_only?: boolean;
+}
+
+export type LLMRoutePayload = Omit<LLMRoute, "created_at" | "updated_at" | "source" | "read_only">;
+
+export interface LLMApiHandlerEntry {
+  llm_api_handler_type: string;
+}
+
+// ---- LLM Route API functions ----
+
+export async function listLLMRoutes(): Promise<LLMRoute[]> {
+  const res = await adminFetch<{ items: LLMRoute[] }>("/admin/llm/routes");
+  return res.items ?? [];
+}
+
+export async function listLLMApiHandlerTypes(): Promise<LLMApiHandlerEntry[]> {
+  const res = await adminFetch<{ items: LLMApiHandlerEntry[] }>("/admin/llm/api_handler_types");
+  return res.items ?? [];
+}
+
+export async function createLLMRoute(payload: LLMRoutePayload): Promise<LLMRoute> {
+  return adminFetch<LLMRoute>("/admin/llm/routes", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateLLMRoute(id: string, payload: LLMRoutePayload): Promise<LLMRoute> {
+  return adminFetch<LLMRoute>(`/admin/llm/routes/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteLLMRoute(id: string): Promise<void> {
+  await adminFetch(`/admin/llm/routes/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export async function enableLLMRoute(id: string): Promise<void> {
+  await adminFetch(`/admin/llm/routes/${encodeURIComponent(id)}/enable`, { method: "POST" });
+}
+
+export async function disableLLMRoute(id: string): Promise<void> {
+  await adminFetch(`/admin/llm/routes/${encodeURIComponent(id)}/disable`, { method: "POST" });
+}
+
+// ============================================================================
+// MCP (Model Context Protocol) — Resource Access surface
+// Mirrors the gateway /admin/mcp/* admin API.
+// ============================================================================
+
+// ---- MCP Service types ----
+
+export type MCPTransport = "stdio" | "sse" | "streamable_http";
+export type MCPAuthType = "api_key" | "oauth2" | "basic" | "bearer" | "";
+
+export interface MCPAuthConfig {
+  type?: MCPAuthType;
+  api_key?: string;
+  username?: string;
+  password?: string;
+}
+
+export interface MCPService {
+  id: string;
+  name: string;
+  transport: MCPTransport;
+  command?: string;
+  args?: string[];
+  url?: string;
+  post_url?: string;
+  env?: Record<string, string>;
+  auto_auth?: boolean;
+  auth?: MCPAuthConfig;
+  disabled?: boolean;
+  description?: string;
+  created_at?: string;
+  updated_at?: string;
+  source?: string;
+  read_only?: boolean;
+}
+
+export type MCPServicePayload = Omit<MCPService, "created_at" | "updated_at" | "source" | "read_only">;
+
+// ---- MCP discovery / inspection types ----
+
+export interface MCPTool {
+  name: string;
+  description?: string;
+  input_schema?: unknown;
+}
+
+export interface MCPToolResult {
+  content?: unknown;
+  structured_content?: unknown;
+  is_error?: boolean;
+  _meta?: Record<string, unknown>;
+}
+
+export interface MCPResource {
+  uri: string;
+  name: string;
+  description?: string;
+  mime_type?: string;
+}
+
+export interface MCPResourceTemplate {
+  name: string;
+  title?: string;
+  uriTemplate: string;
+  description?: string;
+  mimeType?: string;
+}
+
+export interface MCPResourceContent {
+  uri: string;
+  mime_type?: string;
+  text?: string;
+  blob?: string;
+}
+
+export interface MCPPrompt {
+  name: string;
+  description?: string;
+}
+
+export interface MCPSession {
+  id: string;
+  service_id: string;
+  upstream_session_id?: string;
+  transport: string;
+  state: string; // "connecting" | "ready" | "error" | "closed"
+  created_at: string;
+  last_used_at: string;
+}
+
+// ---- MCP runtime types ----
+
+export interface MCPInFlightRequest {
+  route_id: string;
+  request_id?: unknown;
+  request_key?: string;
+  method: string;
+  progress_token?: unknown;
+  started_at: string;
+  cancelled_at?: string;
+  cancel_reason?: string;
+}
+
+export interface MCPProgressNotification {
+  route_id: string;
+  progress_token?: unknown;
+  request_key?: string;
+  progress: number;
+  total?: number;
+  message?: string;
+  last_method?: string;
+  updated_at: string;
+}
+
+export interface MCPCompletedRequest {
+  route_id: string;
+  request_key?: string;
+  method: string;
+  started_at: string;
+  completed_at: string;
+  cancelled?: boolean;
+  cancel_reason?: string;
+  error?: string;
+}
+
+export interface MCPRuntimeView {
+  in_flight: MCPInFlightRequest[];
+  progress: MCPProgressNotification[];
+}
+
+// ---- MCP Route types ----
+
+export interface MCPRoute {
+  id: string;
+  kind?: string;
+  protocol?: string;
+  description?: string;
+  disabled: boolean;
+  match_policy: RouteMatchPolicy;
+  auth_policy: { require_virtual_key: boolean };
+  service_id: string;
+  created_at: string;
+  updated_at: string;
+  source?: string;
+  read_only?: boolean;
+}
+
+export type MCPRoutePayload = Pick<
+  MCPRoute,
+  "id" | "description" | "disabled" | "match_policy" | "auth_policy" | "service_id"
+>;
+
+// ---- MCP Service API functions ----
+
+export async function listMCPServices(): Promise<MCPService[]> {
+  const res = await adminFetch<{ items: MCPService[] }>("/admin/mcp/services");
+  return res.items ?? [];
+}
+
+export async function getMCPService(id: string): Promise<MCPService> {
+  return adminFetch<MCPService>(`/admin/mcp/services/${encodeURIComponent(id)}`);
+}
+
+export async function createMCPService(payload: MCPServicePayload): Promise<MCPService> {
+  return adminFetch<MCPService>("/admin/mcp/services", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateMCPService(id: string, payload: MCPServicePayload): Promise<MCPService> {
+  return adminFetch<MCPService>(`/admin/mcp/services/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteMCPService(id: string): Promise<void> {
+  await adminFetch(`/admin/mcp/services/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export async function getMCPServiceCapabilities(id: string): Promise<unknown> {
+  return adminFetch(`/admin/mcp/services/${encodeURIComponent(id)}/capabilities`);
+}
+
+export async function getMCPServiceSession(id: string): Promise<MCPSession | null> {
+  const res = await adminFetch<{ session: MCPSession | null }>(
+    `/admin/mcp/services/${encodeURIComponent(id)}/sessions`,
+  );
+  return res.session ?? null;
+}
+
+export async function listMCPTools(id: string): Promise<MCPTool[]> {
+  const res = await adminFetch<{ items: MCPTool[] }>(
+    `/admin/mcp/services/${encodeURIComponent(id)}/tools`,
+  );
+  return res.items ?? [];
+}
+
+export async function callMCPTool(
+  id: string,
+  payload: { name: string; arguments?: Record<string, unknown> },
+): Promise<MCPToolResult> {
+  return adminFetch<MCPToolResult>(`/admin/mcp/services/${encodeURIComponent(id)}/tools/call`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listMCPResources(id: string): Promise<MCPResource[]> {
+  const res = await adminFetch<{ items: MCPResource[] }>(
+    `/admin/mcp/services/${encodeURIComponent(id)}/resources`,
+  );
+  return res.items ?? [];
+}
+
+export async function listMCPResourceTemplates(id: string): Promise<MCPResourceTemplate[]> {
+  const res = await adminFetch<{ items: MCPResourceTemplate[] }>(
+    `/admin/mcp/services/${encodeURIComponent(id)}/resource-templates`,
+  );
+  return res.items ?? [];
+}
+
+export async function readMCPResource(id: string, uri: string): Promise<{ contents: MCPResourceContent[] }> {
+  return adminFetch(`/admin/mcp/services/${encodeURIComponent(id)}/resources/read`, {
+    method: "POST",
+    body: JSON.stringify({ uri }),
+  });
+}
+
+export async function listMCPPrompts(id: string): Promise<MCPPrompt[]> {
+  const res = await adminFetch<{ items: MCPPrompt[] }>(
+    `/admin/mcp/services/${encodeURIComponent(id)}/prompts`,
+  );
+  return res.items ?? [];
+}
+
+// ---- MCP Runtime API functions ----
+
+export async function getMCPRuntime(): Promise<MCPRuntimeView> {
+  return adminFetch<MCPRuntimeView>("/admin/mcp/runtime");
+}
+
+export async function listMCPHistory(routeId?: string): Promise<MCPCompletedRequest[]> {
+  const query = routeId ? `?route_id=${encodeURIComponent(routeId)}` : "";
+  const res = await adminFetch<{ items: MCPCompletedRequest[] }>(`/admin/mcp/runtime/history${query}`);
+  return res.items ?? [];
+}
+
+// ---- MCP Route API functions ----
+
+export async function listMCPRoutes(): Promise<MCPRoute[]> {
+  const res = await adminFetch<{ items: MCPRoute[] }>("/admin/mcp/routes");
+  return res.items ?? [];
+}
+
+export async function createMCPRoute(payload: MCPRoutePayload): Promise<MCPRoute> {
+  return adminFetch<MCPRoute>("/admin/mcp/routes", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateMCPRoute(id: string, payload: MCPRoutePayload): Promise<MCPRoute> {
+  return adminFetch<MCPRoute>(`/admin/mcp/routes/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteMCPRoute(id: string): Promise<void> {
+  await adminFetch(`/admin/mcp/routes/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+// ============================================================================
+// ACP (Agent Control Protocol) — Agent Control surface
+// Mirrors the gateway /admin/acp/* admin API.
+// ============================================================================
+
+// ---- ACP Service types ----
+
+export type ACPAgentType = "codex" | "opencode";
+export type ACPPermissionMode = "deny" | "auto_approve" | "interactive";
+
+export interface ACPCodexConfig {
+  mode?: string; // "adapter" | "app_server" (app_server deferred)
+  adapter_command?: string;
+  adapter_args?: string[];
+  app_server_command?: string | null;
+  app_server_args?: string[] | null;
+  default_profile?: string;
+  initial_auth_mode?: string;
+  trace_json?: boolean;
+  retry_turn_on_crash?: boolean;
+}
+
+export interface ACPService {
+  id: string;
+  name: string;
+  agent_type: ACPAgentType;
+  cwd: string;
+  allowed_roots?: string[];
+  default_model?: string;
+  env?: Record<string, string>;
+  config_overrides?: Record<string, string>;
+  idle_ttl?: number;
+  permission_mode?: ACPPermissionMode;
+  disabled?: boolean;
+  description?: string;
+  created_at?: string;
+  updated_at?: string;
+  codex?: ACPCodexConfig;
+  source?: string;
+  read_only?: boolean;
+}
+
+export type ACPServicePayload = Omit<ACPService, "created_at" | "updated_at" | "source" | "read_only">;
+
+// ---- ACP session / transcript types ----
+
+export interface ACPSessionInfo {
+  session_id: string;
+  cwd: string;
+  title?: string;
+  updated_at?: string;
+  _meta?: unknown;
+}
+
+export interface ACPListSessionsResponse {
+  sessions: ACPSessionInfo[];
+  next_cursor?: string;
+}
+
+export interface ACPTranscriptMessage {
+  role: string; // "user" | "assistant" | "reasoning"
+  text: string;
+}
+
+export interface ACPTranscriptResponse {
+  session_id: string;
+  messages: ACPTranscriptMessage[];
+}
+
+// ---- ACP runtime types ----
+
+export interface ACPInFlightTurn {
+  scope: string;
+}
+
+export interface ACPSessionMetadata {
+  config_options?: unknown;
+  available_commands?: unknown;
+  session_info?: unknown;
+  mode?: unknown;
+  usage?: unknown;
+}
+
+export interface ACPPooledInstanceInfo {
+  scope: string;
+  session_id?: string;
+  alive: boolean;
+  active: boolean;
+  last_used?: string;
+  idle_ttl?: number;
+  metadata?: ACPSessionMetadata;
+}
+
+export interface ACPPendingPermissionInfo {
+  request_id: string;
+  service_id: string;
+  session_id?: string;
+  created_at: string;
+  data?: unknown;
+}
+
+export interface ACPRuntimeOverview {
+  in_flight: ACPInFlightTurn[];
+  instances: ACPPooledInstanceInfo[];
+  pending_permissions: ACPPendingPermissionInfo[];
+}
+
+export interface ACPPermissionDecision {
+  request_id: string;
+  outcome: "selected" | "cancelled";
+  option_id?: string;
+}
+
+// ---- ACP Route types ----
+
+export interface ACPRoute {
+  id: string;
+  kind?: string;
+  protocol?: string;
+  description?: string;
+  disabled: boolean;
+  match_policy: RouteMatchPolicy;
+  auth_policy: { require_virtual_key: boolean };
+  service_id: string;
+  created_at: string;
+  updated_at: string;
+  source?: string;
+  read_only?: boolean;
+}
+
+export type ACPRoutePayload = Pick<
+  ACPRoute,
+  "id" | "description" | "disabled" | "match_policy" | "auth_policy" | "service_id"
+>;
+
+// ---- ACP Service API functions ----
+
+export async function listACPServices(): Promise<ACPService[]> {
+  const res = await adminFetch<{ items: ACPService[] }>("/admin/acp/services");
+  return res.items ?? [];
+}
+
+export async function getACPService(id: string): Promise<ACPService> {
+  return adminFetch<ACPService>(`/admin/acp/services/${encodeURIComponent(id)}`);
+}
+
+export async function createACPService(payload: ACPServicePayload): Promise<ACPService> {
+  return adminFetch<ACPService>("/admin/acp/services", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateACPService(id: string, payload: ACPServicePayload): Promise<ACPService> {
+  return adminFetch<ACPService>(`/admin/acp/services/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteACPService(id: string): Promise<void> {
+  await adminFetch(`/admin/acp/services/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export async function listACPServiceSessions(
+  id: string,
+  params?: { cwd?: string; cursor?: string },
+): Promise<ACPListSessionsResponse> {
+  const query = new URLSearchParams();
+  if (params?.cwd) query.set("cwd", params.cwd);
+  if (params?.cursor) query.set("cursor", params.cursor);
+  const qs = query.toString() ? `?${query.toString()}` : "";
+  return adminFetch<ACPListSessionsResponse>(
+    `/admin/acp/services/${encodeURIComponent(id)}/sessions${qs}`,
+  );
+}
+
+export async function getACPSessionTranscript(
+  id: string,
+  sessionId: string,
+  cwd?: string,
+): Promise<ACPTranscriptResponse> {
+  const qs = cwd ? `?cwd=${encodeURIComponent(cwd)}` : "";
+  return adminFetch<ACPTranscriptResponse>(
+    `/admin/acp/services/${encodeURIComponent(id)}/sessions/${encodeURIComponent(sessionId)}/transcript${qs}`,
+  );
+}
+
+// ---- ACP Route API functions ----
+
+export async function listACPRoutes(): Promise<ACPRoute[]> {
+  const res = await adminFetch<{ items: ACPRoute[] }>("/admin/acp/routes");
+  return res.items ?? [];
+}
+
+export async function createACPRoute(payload: ACPRoutePayload): Promise<ACPRoute> {
+  return adminFetch<ACPRoute>("/admin/acp/routes", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateACPRoute(id: string, payload: ACPRoutePayload): Promise<ACPRoute> {
+  return adminFetch<ACPRoute>(`/admin/acp/routes/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteACPRoute(id: string): Promise<void> {
+  await adminFetch(`/admin/acp/routes/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+// ---- ACP Runtime API functions ----
+
+export async function getACPRuntime(): Promise<ACPRuntimeOverview> {
+  return adminFetch<ACPRuntimeOverview>("/admin/acp/runtime");
+}
+
+export async function resolveACPPermission(
+  requestId: string,
+  decision: ACPPermissionDecision,
+): Promise<{ status: string }> {
+  return adminFetch(`/admin/acp/runtime/permissions/${encodeURIComponent(requestId)}`, {
+    method: "POST",
+    body: JSON.stringify(decision),
+  });
+}
+
+export async function closeACPThread(
+  serviceId: string,
+  threadId: string,
+): Promise<{ closed: number }> {
+  return adminFetch(
+    `/admin/acp/runtime/threads/${encodeURIComponent(serviceId)}/${encodeURIComponent(threadId)}`,
+    { method: "DELETE" },
+  );
+}
+
+// ---- ACP Chat (data-plane) API functions ----
+// Driving a conversation is a data-plane operation, not an admin one. These go
+// through the manager backend proxy (app/api/admin/acp/chat/*), which forwards
+// to the runtime's public ACP route. The streamed turn lives in
+// lib/acp-chat-stream.ts; only permission resolution is a plain JSON call.
+
+export async function resolveACPChatPermission(payload: {
+  route_id: string;
+  virtual_key?: string;
+  request_id: string;
+  outcome: "selected" | "cancelled";
+  option_id?: string;
+}): Promise<{ status: string }> {
+  return adminFetch("/admin/acp/chat/permission", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+// ---- Virtual Key types / API functions ----
+
+export interface VirtualKeyItem {
+  id: string;
+  key: string;
+  tag?: string;
+  description?: string;
+  disabled: boolean;
+  allowed_route_ids?: string[];
+  read_only?: boolean;
+}
+
+export async function listVirtualKeys(): Promise<VirtualKeyItem[]> {
+  const res = await adminFetch<{ items: VirtualKeyItem[] }>("/admin/virtual_keys");
+  return res.items ?? [];
+}
