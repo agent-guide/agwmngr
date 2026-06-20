@@ -870,6 +870,12 @@ export interface ACPTranscriptResponse {
 
 export interface ACPInFlightTurn {
   scope: string;
+  trace_id?: string;
+  span_id?: string;
+  service_id?: string;
+  thread_id?: string;
+  session_id?: string;
+  started_at?: string;
 }
 
 export interface ACPSessionMetadata {
@@ -1070,4 +1076,368 @@ export interface VirtualKeyItem {
 export async function listVirtualKeys(): Promise<VirtualKeyItem[]> {
   const res = await adminFetch<{ items: VirtualKeyItem[] }>("/admin/virtual_keys");
   return res.items ?? [];
+}
+
+// ============================================================================
+// Metrics / Observability (/admin/metrics/*) — fully implemented backend.
+// ============================================================================
+
+export interface MetricsQuery {
+  from?: string;
+  to?: string;
+  bucket?: string;
+  group_by?: string;
+  order_by?: string;
+  limit?: number;
+  success?: boolean;
+  // Common filters (only the relevant subset applies per endpoint).
+  route_id?: string;
+  route_kind?: string;
+  route_protocol?: string;
+  virtual_key_id?: string;
+  provider_id?: string;
+  logical_model?: string;
+  upstream_model?: string;
+  llm_api?: string;
+  api_operation?: string;
+  service_id?: string;
+  tool_name?: string;
+  method?: string;
+  agent_type?: string;
+  operation?: string;
+  trace_id?: string;
+  parent_span_id?: string;
+  agent_depth?: number;
+}
+
+function metricsQuery(q?: MetricsQuery): string {
+  if (!q) return "";
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(q)) {
+    if (v === undefined || v === null || v === "") continue;
+    params.set(k, String(v));
+  }
+  const s = params.toString();
+  return s ? `?${s}` : "";
+}
+
+/** Per-group aggregate row. Numeric fields are optional per protocol; the
+ *  group-key column (e.g. `upstream_model`, `route_id`) is read via bracket. */
+export interface UsageStat {
+  request_count?: number;
+  success_count?: number;
+  failure_count?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+  tools_call_count?: number;
+  turn_count?: number;
+  avg_latency_ms?: number;
+}
+export type BreakdownItem = UsageStat & Record<string, unknown>;
+export type TimeseriesPoint = UsageStat & { timestamp: string } & Record<string, unknown>;
+
+export interface BreakdownResponse {
+  group_by: string;
+  items: BreakdownItem[];
+  limit?: number;
+}
+export interface TimeseriesResponse {
+  bucket: string;
+  group_by: string;
+  items: TimeseriesPoint[];
+}
+
+/** Common interaction fields shared by every event row + the unified feed. */
+export interface InteractionEvent {
+  event_id: string;
+  trace_id: string;
+  span_id: string;
+  parent_span_id?: string | null;
+  agent_depth: number;
+  started_at: string;
+  finished_at?: string;
+  route_id: string;
+  route_kind: string; // "llm" | "mcp" | "acp"
+  route_protocol?: string;
+  virtual_key_id?: string;
+  success: boolean;
+  status_code?: number;
+  error_type?: string | null;
+  latency_ms: number;
+  agent_id?: string | null;
+  // Protocol-specific extras (present depending on route_kind).
+  provider_id?: string;
+  provider_type?: string;
+  upstream_model?: string;
+  logical_model?: string | null;
+  input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+  service_id?: string;
+  method?: string;
+  tool_name?: string;
+  agent_type?: string;
+  operation?: string;
+  thread_id?: string;
+  session_id?: string;
+}
+
+export interface MetricsSummaryProtocol {
+  request_count?: number;
+  success_count?: number;
+  failure_count?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+  tools_call_count?: number;
+  turn_count?: number;
+  avg_latency_ms?: number;
+}
+export interface MetricsSummary {
+  llm?: MetricsSummaryProtocol;
+  mcp?: MetricsSummaryProtocol;
+  acp?: MetricsSummaryProtocol;
+  pipeline?: { dropped_events?: number; write_failures?: number };
+}
+
+export async function getMetricsSummary(): Promise<MetricsSummary> {
+  return adminFetch<MetricsSummary>("/admin/metrics");
+}
+
+export async function getLLMTimeseries(q?: MetricsQuery): Promise<TimeseriesResponse> {
+  return adminFetch<TimeseriesResponse>(`/admin/metrics/llm/timeseries${metricsQuery(q)}`);
+}
+export async function getLLMBreakdown(q?: MetricsQuery): Promise<BreakdownResponse> {
+  return adminFetch<BreakdownResponse>(`/admin/metrics/llm/breakdown${metricsQuery(q)}`);
+}
+export async function getLLMEvents(q?: MetricsQuery): Promise<{ items: InteractionEvent[]; limit?: number }> {
+  return adminFetch(`/admin/metrics/llm/events${metricsQuery(q)}`);
+}
+export async function getMCPEvents(q?: MetricsQuery): Promise<{ items: InteractionEvent[]; limit?: number }> {
+  return adminFetch(`/admin/metrics/mcp/events${metricsQuery(q)}`);
+}
+export async function getMCPToolsSummary(q?: MetricsQuery): Promise<BreakdownResponse> {
+  return adminFetch<BreakdownResponse>(`/admin/metrics/mcp/tools/summary${metricsQuery(q)}`);
+}
+export async function getMCPBreakdown(q?: MetricsQuery): Promise<BreakdownResponse> {
+  return adminFetch<BreakdownResponse>(`/admin/metrics/mcp/breakdown${metricsQuery(q)}`);
+}
+export async function getMCPTimeseries(q?: MetricsQuery): Promise<TimeseriesResponse> {
+  return adminFetch<TimeseriesResponse>(`/admin/metrics/mcp/timeseries${metricsQuery(q)}`);
+}
+export async function getACPEvents(q?: MetricsQuery): Promise<{ items: InteractionEvent[]; limit?: number }> {
+  return adminFetch(`/admin/metrics/acp/events${metricsQuery(q)}`);
+}
+export async function getACPBreakdown(q?: MetricsQuery): Promise<BreakdownResponse> {
+  return adminFetch<BreakdownResponse>(`/admin/metrics/acp/breakdown${metricsQuery(q)}`);
+}
+export async function getACPTimeseries(q?: MetricsQuery): Promise<TimeseriesResponse> {
+  return adminFetch<TimeseriesResponse>(`/admin/metrics/acp/timeseries${metricsQuery(q)}`);
+}
+export async function getInteractions(q?: MetricsQuery): Promise<{ items: InteractionEvent[]; limit?: number }> {
+  return adminFetch(`/admin/metrics/interactions${metricsQuery(q)}`);
+}
+export async function getInteractionsSummary(q?: MetricsQuery): Promise<BreakdownResponse> {
+  return adminFetch<BreakdownResponse>(`/admin/metrics/interactions/summary${metricsQuery(q)}`);
+}
+
+// ============================================================================
+// Agents Control Plane (/admin/agents/*) — P0a/P0b/P1 implemented.
+// ============================================================================
+
+export interface AgentRuntimeACP {
+  service_id: string;
+}
+export interface AgentRuntimeHTTP {
+  endpoint: string;
+  auth_ref?: string;
+}
+export interface AgentRuntime {
+  type: string; // "acp" | "http"
+  acp?: AgentRuntimeACP;
+  http?: AgentRuntimeHTTP;
+}
+export interface AgentRoutes {
+  acp_route_ids?: string[];
+  llm_route_ids?: string[];
+  mcp_route_ids?: string[];
+}
+export interface AgentResources {
+  provider_ids?: string[];
+  mcp_service_ids?: string[];
+  virtual_key_ids?: string[];
+}
+export interface AgentBudget {
+  max_turns_per_day?: number;
+  max_tokens_per_day?: number;
+}
+export interface AgentPolicy {
+  max_agent_depth?: number;
+  budget?: AgentBudget;
+}
+export interface Agent {
+  id: string;
+  name: string;
+  description?: string;
+  runtime: AgentRuntime;
+  routes: AgentRoutes;
+  resources: AgentResources;
+  policy: AgentPolicy;
+  disabled: boolean;
+  owns_service?: boolean;
+  created_at: string;
+  updated_at: string;
+  source?: string;
+}
+export type AgentPayload = Pick<
+  Agent,
+  "id" | "name" | "description" | "runtime" | "routes" | "resources" | "policy" | "disabled"
+>;
+
+export interface AgentWorkspaceACPService {
+  id: string;
+  name: string;
+  agent_type?: string;
+  cwd?: string;
+  max_instances?: number;
+  permission_mode?: string;
+  allowed_roots?: string[];
+  default_cwd?: string;
+  idle_ttl_ms?: number;
+  disabled?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  source?: string;
+  read_only?: boolean;
+}
+export interface AgentWorkspaceRoute {
+  id: string;
+  path_prefix?: string;
+  service_id?: string;
+}
+export interface AgentWorkspaceUsage {
+  request_count?: number;
+  turn_count?: number;
+  success_count?: number;
+  failure_count?: number;
+  avg_latency_ms?: number;
+}
+export interface AgentWorkspaceRuntimeView {
+  pooled_instances?: ACPPooledInstanceInfo[];
+  in_flight_turns?: number;
+  pending_permissions?: ACPPendingPermissionInfo[];
+}
+export interface AgentWorkspaceLinks {
+  sessions?: string;
+  transcript?: string;
+  admin_sessions?: string;
+  admin_runtime?: string;
+}
+export interface AgentWorkspace {
+  agent: Agent;
+  runtime: string;
+  acp_service?: AgentWorkspaceACPService | null;
+  acp_routes?: AgentWorkspaceRoute[];
+  runtime_view?: AgentWorkspaceRuntimeView;
+  usage?: AgentWorkspaceUsage;
+  links?: AgentWorkspaceLinks;
+}
+
+export interface AgentResourceRef {
+  id: string;
+  kind?: string;
+  disabled?: boolean;
+  detail?: string | null;
+  exists: boolean;
+}
+export interface AgentResourcesResolved {
+  providers?: AgentResourceRef[];
+  mcp_services?: AgentResourceRef[];
+  virtual_keys?: AgentResourceRef[];
+  llm_routes?: AgentResourceRef[];
+  mcp_routes?: AgentResourceRef[];
+  acp_routes?: AgentResourceRef[];
+}
+export interface AgentResourcesView {
+  resources: AgentResources;
+  routes: AgentRoutes;
+  resolved: AgentResourcesResolved;
+}
+
+export interface AgentActivity {
+  interactions: InteractionEvent[];
+  pending_permissions: ACPPendingPermissionInfo[];
+}
+
+export interface AgentUsage {
+  agent_id: string;
+  llm?: { group_by: string; items: BreakdownItem[] | null; limit?: number };
+  mcp?: UsageStat;
+  acp?: { group_by: string; items: BreakdownItem[] | null; limit?: number };
+  // Per-protocol time series scoped to this agent (currently only `llm`, grouped
+  // by route_id by the gateway). Present alongside the breakdown rollups above.
+  timeseries?: { llm?: TimeseriesResponse };
+}
+
+export interface AgentHealth {
+  agent_id: string;
+  disabled: boolean;
+  runtime: string;
+  pooled_instances: number;
+  in_flight_turns: number;
+  pending_permissions: number;
+  recent_window: number;
+  recent_failures: number;
+  pipeline?: { dropped_events?: number; write_failures?: number };
+}
+
+export interface AgentDeleteResult {
+  status: string;
+  id: string;
+  unbound?: { acp_service_id?: string; acp_route_ids?: string[] };
+}
+
+export async function listAgents(): Promise<Agent[]> {
+  const res = await adminFetch<{ items: Agent[] }>("/admin/agents");
+  return res.items ?? [];
+}
+export async function getAgent(id: string): Promise<Agent> {
+  return adminFetch<Agent>(`/admin/agents/${encodeURIComponent(id)}`);
+}
+export async function createAgent(payload: AgentPayload): Promise<Agent> {
+  return adminFetch<Agent>("/admin/agents", { method: "POST", body: JSON.stringify(payload) });
+}
+export async function updateAgent(id: string, payload: AgentPayload): Promise<Agent> {
+  return adminFetch<Agent>(`/admin/agents/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+export async function deleteAgent(id: string): Promise<AgentDeleteResult> {
+  return adminFetch<AgentDeleteResult>(`/admin/agents/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+export async function getAgentWorkspace(id: string): Promise<AgentWorkspace> {
+  return adminFetch<AgentWorkspace>(`/admin/agents/${encodeURIComponent(id)}/workspace`);
+}
+export async function getAgentActivity(
+  id: string,
+  q?: MetricsQuery,
+): Promise<AgentActivity> {
+  return adminFetch<AgentActivity>(`/admin/agents/${encodeURIComponent(id)}/activity${metricsQuery(q)}`);
+}
+export async function getAgentUsage(id: string, q?: MetricsQuery): Promise<AgentUsage> {
+  return adminFetch<AgentUsage>(`/admin/agents/${encodeURIComponent(id)}/usage${metricsQuery(q)}`);
+}
+export async function getAgentInteractions(
+  id: string,
+  q?: MetricsQuery,
+): Promise<{ items: InteractionEvent[]; limit?: number }> {
+  return adminFetch(`/admin/agents/${encodeURIComponent(id)}/interactions${metricsQuery(q)}`);
+}
+export async function getAgentResources(id: string): Promise<AgentResourcesView> {
+  return adminFetch<AgentResourcesView>(`/admin/agents/${encodeURIComponent(id)}/resources`);
+}
+export async function getAgentHealth(id: string): Promise<AgentHealth> {
+  return adminFetch<AgentHealth>(`/admin/agents/${encodeURIComponent(id)}/health`);
 }

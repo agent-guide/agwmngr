@@ -43,23 +43,32 @@ manager/
 │   │   └── [[...path]]/              ← Catch-all proxy to agent-gateway Admin API
 │   ├── login/                        ← Login page
 │   ├── dashboard/
-│   │   ├── layout.tsx                ← Dashboard shell with auth guard + nav
-│   │   └── general/                  ← Overview, Virtual Keys, Usage pages
+│   │   ├── layout.tsx                ← Dashboard shell with auth guard + nav + AutoRefreshProvider
+│   │   └── general/                  ← Overview (health dashboard), Virtual Keys pages
+│   │       └── agents/               ← Agents list, [id] workspace (tabs), new/edit, interactions, usage (all-agents LLM/MCP/ACP metrics tabs)
 │   │       └── llm/                  ← Providers, Models, Credentials, Routes pages
 │   │       └── mcp/                  ← MCP Services (+ inspect), Routes pages
-│   │       └── acp/                  ← ACP Services (+ sessions), Routes, Runtime pages
+│   │       └── acp/                  ← ACP Services (+ sessions), Routes, Runtime (inline actions) pages (chat lives on the agent Chat tab)
+│   │  (general/overview, /virtual-keys are grouped under the "Agents" nav section, not a standalone "General" group — see dashboard-nav.tsx)
 │   │       └── configuration/        ← Gateway, Servers pages
 │   ├── layout.tsx                    ← Root layout (fonts, globals)
 │   └── page.tsx                      ← Redirects to /dashboard
 ├── components/
 │   ├── dashboard-*.tsx               ← Layout shell, nav, header, user panel
 │   ├── auth-guard.tsx                ← Session validation wrapper
+│   ├── auto-refresh-context.tsx      ← Global auto-refresh interval provider (off/5s/10s/30s, persisted)
+│   ├── permission-banner.tsx         ← Global pending-ACP-permission alert banner (polls runtime)
+│   ├── agent-form.tsx                ← Agent create/edit form (runtime.type generalized, 1:1 service guard)
 │   ├── mobile-*.tsx                  ← Mobile sidebar context + top bar
-│   └── ui/                           ← Reusable UI primitives (button, input, modal, toast, etc.)
+│   └── ui/                           ← UI primitives: button, input, modal, toast, card, page-header,
+│                                        stat-card, badge, select, multi-select, charts (Recharts),
+│                                        auto-refresh-control, tooltip, confirm-dialog, skeleton, …
 ├── hooks/
+│   ├── use-admin-swr.ts              ← SWR wrapper over adminFetch (+ live auto-refresh + lastUpdated)
 │   └── use-focus-trap.ts             ← Focus trap for modal accessibility
 └── lib/
-    ├── api.ts                        ← Frontend typed fetch helpers + gateway Admin API wrappers
+    ├── api.ts                        ← Typed fetch helpers + gateway Admin API wrappers (incl. metrics + agents)
+    ├── metrics-util.ts               ← Time-range → query mapping, timeseries pivot, error-rate helpers
     ├── auth.ts                       ← localStorage session helpers (token, username)
     ├── caddy-manager.ts              ← Caddy admin API client for server/route CRUD
     ├── gateway-proxy.ts              ← Gateway admin API proxy with session caching
@@ -155,7 +164,9 @@ Proxied gateway Admin API endpoints include (see agent-gateway README for full r
 - ACP services: `GET/POST /acp/services`, `GET/PUT/DELETE /acp/services/{id}`, plus `/sessions` and `/sessions/{session_id}/transcript`
 - ACP routes: `GET/POST /acp/routes`, `GET/PUT/DELETE /acp/routes/{id}` (id auto-generated as `acp:<service_id>:<path_prefix>`)
 - ACP runtime: `GET /acp/runtime`, `GET /acp/runtime/inflight`, `POST /acp/runtime/permissions/{request_id}` (resolve), `DELETE /acp/runtime/threads/{service_id}/{thread_id}` (close)
-- Memory, Agents, Metrics: registered but return 501
+- Agents (P0a/P0b/P1, implemented): `GET/POST /agents`, `GET/PUT/DELETE /agents/{id}`, plus `/{id}/workspace` (summary/index), `/{id}/{activity,usage,interactions,resources,health}`. Delete is non-cascading (the backing ACP service/routes stay intact).
+- Metrics (implemented): `GET /metrics`, `/metrics/{llm,mcp,acp}/...` (events/timeseries/breakdown/summary), `/metrics/interactions` (cross-protocol call chain with `trace_id`/`agent_depth`), `/metrics/prometheus`.
+- Memory: registered but returns 501. Agent tasks/schedules (P2) and workflows (P3) are design-only, not yet exposed.
 
 ### ACP Chat Data-Plane Proxy
 
@@ -172,14 +183,21 @@ Both require a manager session, resolve the route's `path_prefix`/`host`/`requir
 
 The entry route (`/`) redirects to `/dashboard`, which redirects to `/dashboard/general/overview`.
 
+The UI is organized **agent-centric** (per `docs/ui-ux-improvement-plan.md`): the **Agents** section is the first-class, top-most nav group — it holds the agent itself plus the day-to-day views for working with it (observability + the keys used to call it). The **LLM / MCP / ACP** sections below are the *shared infrastructure* that backs agents, not sub-items of any one agent. The ACP service is presented as one of an agent's runtime backends rather than a primary product concept.
+
+> Navigation grouping ≠ URL path. `Overview` and `Virtual Keys` still live under `/dashboard/general/*` but are surfaced inside the **Agents** nav group; the all-agents `Usage` page lives at `/dashboard/agents/usage`. Section membership is set in `components/dashboard-nav.tsx` (`NAV_ITEMS[].section`). There is no standalone "General" nav group.
+
 ### Navigation Structure
 
-**General:**
-- Overview (`/dashboard/general/overview`) — status cards, quick start guide, integration snippets
-- Virtual Keys (`/dashboard/general/virtual-keys`) — CRUD for virtual keys with route restrictions
-- Usage (`/dashboard/general/usage`) — usage statistics (currently mock data)
+**Agents** (first-class, top of nav):
+- Overview (`/dashboard/general/overview`) — stat cards + **System Health dashboard** (24h request volume sparkline, error rate, pending permissions, ACP runtime, CLI refresher) + quick start guide + integration snippets. This is the dashboard landing route.
+- Agents (`/dashboard/agents`) — agent list with search/runtime filter; create via `/dashboard/agents/new`
+- Agent detail (`/dashboard/agents/[id]`) — workspace tabs: **Overview** (runtime.type-generalized: ACP service read-through + live runtime view + links, or HTTP runtime degrade), **Chat** (interactive data-plane conversation with the agent over one of its own ACP routes — see below; ACP runtime only, HTTP agents degrade), **Activity**, **Usage** (time-range scoped to this agent via `/admin/agents/{id}/usage`: **LLM Usage** stat cards + requests-over-time chart, then LLM-by-model breakdown, ACP, and MCP usage — additive, all four protocols on one tab), **Resources** (agent-centric **Reachability** map — Agent → virtual keys it holds → permitted LLM/MCP/ACP routes → target provider/service, with dangling highlight — followed by the flat resolved resource groups), **Health** (shallow), **Configuration** (+ edit). Edit at `/dashboard/agents/[id]/edit`.
+- Interactions (`/dashboard/agents/interactions`) — cross-protocol call chains grouped by `trace_id`, indented by `agent_depth` (the orchestration view)
+- Usage (`/dashboard/agents/usage`) — **all-agents metrics with LLM / MCP / ACP protocol tabs** (shared time-range; each tab has stat cards + a requests-over-time chart + breakdown table + recent-events feed). all three tabs have a group-by selector + a Recharts share donut over the grouped requests (LLM by route/key/provider/model/api, MCP by tool/method/route/service/key via `/metrics/mcp/breakdown`, ACP by route/service/agent_type/operation). All three back the time chart with `/metrics/{llm,mcp,acp}/timeseries`. The **ACP tab** additionally has a **Source** selector (Data-plane / Admin audit / All, default Data-plane) that filters server-side by `route_protocol` — data-plane turns are `route_protocol=acp`, the manager's own `/admin/acp` polling is `route_protocol=admin`; without it the admin audit spans inflate every ACP stat. Per-agent usage lives on the agent detail **Usage** tab.
+- Virtual Keys (`/dashboard/general/virtual-keys`) — CRUD for virtual keys with route restrictions (the credentials clients use to call agents)
 
-**LLM:**
+**LLM** (shared infrastructure):
 - Providers (`/dashboard/llm/providers`) — CRUD for LLM providers
 - Models (`/dashboard/llm/models`) — CRUD for managed models
 - Credentials (`/dashboard/llm/credentials`) — CRUD for upstream credentials + CLI auth login flow
@@ -189,11 +207,10 @@ The entry route (`/`) redirects to `/dashboard`, which redirects to `/dashboard/
 - Services (`/dashboard/mcp/services`) — CRUD for MCP services (stdio/sse/streamable_http transports, env, auth) + inspect modal (capabilities, tools, tool-call, resources, resource-read, prompts, session)
 - Routes (`/dashboard/mcp/routes`) — CRUD for MCP routes (service binding, match policy, auth policy)
 
-**ACP:**
-- Chat (`/dashboard/acp/chat`) — interactive conversation with an ACP agent over a selected route + virtual key: streamed text/reasoning/tool-calls/plan, interactive permission cards, session resume + new session, transcript history (data-plane SSE via the chat proxy)
+**ACP** (management only — interactive chat now lives on the agent's **Chat** tab):
 - Services (`/dashboard/acp/services`) — CRUD for ACP agent services (codex/opencode, cwd, allowed roots, env vars, permission mode, idle TTL, config overrides, codex adapter settings) + sessions/transcript modal
 - Routes (`/dashboard/acp/routes`) — CRUD for ACP routes (service binding, match policy, auth policy)
-- Runtime (`/dashboard/acp/runtime`) — pooled instances, in-flight turns, pending permission resolution, close-thread
+- Runtime (`/dashboard/acp/runtime`) — pooled instances, in-flight turns, pending permissions; **auto-refresh + inline actions** (per-instance Close, per-permission Approve/Reject from parsed options). Pending permissions are also surfaced app-wide via the global `PermissionBanner`.
 
 **Configuration:**
 - Gateway (`/dashboard/configuration/gateway`) — provider type toggles, CLI authenticator config, refresher control
@@ -202,7 +219,9 @@ The entry route (`/`) redirects to `/dashboard`, which redirects to `/dashboard/
 ### Frontend Conventions
 
 - `lib/auth.ts`: localStorage helpers — `getToken()`, `saveSession()`, `clearSession()`, `isAuthenticated()`.
-- `lib/api.ts`: typed `adminFetch<T>()` wrapper that injects `Authorization: Bearer <token>`, auto-redirects to `/login` on 401. Also contains typed wrapper functions for all gateway Admin API resources (providers, credentials, models, CLI auth, MCP services/routes/runtime, ACP services/routes/runtime, etc.).
+- `lib/api.ts`: typed `adminFetch<T>()` wrapper that injects `Authorization: Bearer <token>`, auto-redirects to `/login` on 401. Also contains typed wrapper functions for all gateway Admin API resources (providers, credentials, models, CLI auth, MCP/ACP services/routes/runtime, **metrics** (`getLLM*`, `getInteractions`, …), and **agents** (`listAgents`, `getAgentWorkspace`, `getAgentUsage`, …)).
+- **Data fetching**: prefer `useAdminSWR(key, fetcher, { live })` from `hooks/use-admin-swr.ts` over manual `useState/useEffect/loading`. Passing `live: true` ties the request to the global auto-refresh interval (`AutoRefreshProvider` in the dashboard layout); pair it with `<AutoRefreshControl>` in the page header. The hook returns the standard SWR response plus `lastUpdated`.
+- **Primitives**: build pages from `PageHeader`, `Card`, `StatCard`/`StatGrid`, `Badge` (`protocolTone()` for llm/mcp/acp/http accents), `Select`, `MultiSelect`, and `charts.tsx` (Recharts wrappers) rather than hand-rolled markup. Body text stays ≥ 12px.
 - `components/auth-guard.tsx`: validates session via `GET /admin/auth/me`, protects dashboard routes.
 - All dashboard pages use `AuthGuard` from the dashboard layout.
 
@@ -245,6 +264,8 @@ Backend handlers return `{ error: string }` JSON on failure:
 
 ## Known Gaps
 
-- **Usage page**: uses mock data, no real API integration.
 - **Change password**: UI exists in user panel but no backend endpoint.
-- **SWR / Recharts**: declared as dependencies but not actively used in current pages.
+- **Deep resource health**: only shallow health is exposed (disabled flags, runtime counts, recent error rate). Upstream reachability / circuit-break / credential-expiry are not yet available from the gateway — the UI marks these as pending, it does not fake them.
+- **Agent tasks/schedules (P2) & workflows (P3)**: backend design-only; no task queue / schedule editor / workflow graph yet.
+- **Agent create**: can only reference an existing ACP service (auto-creating a backing service on the fly is not supported by P0).
+- **SWR migration**: `useAdminSWR` is the standard for new/observability pages; some older CRUD pages still use the legacy `useState/useEffect` pattern and can be migrated incrementally.

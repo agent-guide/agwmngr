@@ -1,264 +1,301 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Modal, ModalHeader, ModalTitle, ModalContent, ModalFooter } from "@/components/ui/modal";
+import { Card, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
+import { Badge } from "@/components/ui/badge";
+import { AutoRefreshControl } from "@/components/ui/auto-refresh-control";
 import { useToast } from "@/components/ui/toast";
 import { HelpTooltip } from "@/components/ui/tooltip";
+import { useAdminSWR } from "@/hooks/use-admin-swr";
 import {
   ApiError,
   getACPRuntime,
   resolveACPPermission,
   closeACPThread,
-  type ACPRuntimeOverview,
   type ACPPendingPermissionInfo,
 } from "@/lib/api";
 
-function SectionHeading({ children }: { children: React.ReactNode }) {
-  return <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{children}</p>;
+interface PermissionOption {
+  optionId: string;
+  name: string;
+  kind?: string;
+}
+
+/** Best-effort extraction of selectable options from a raw ACP permission request. */
+function parseOptions(data: unknown): PermissionOption[] {
+  if (data && typeof data === "object" && "options" in data) {
+    const opts = (data as { options?: unknown }).options;
+    if (Array.isArray(opts)) {
+      return opts
+        .filter((o): o is Record<string, unknown> => !!o && typeof o === "object")
+        .map((o) => ({
+          optionId: String(o.optionId ?? o.option_id ?? ""),
+          name: String(o.name ?? o.optionId ?? o.option_id ?? "option"),
+          kind: typeof o.kind === "string" ? o.kind : undefined,
+        }))
+        .filter((o) => o.optionId);
+    }
+  }
+  return [];
+}
+
+function permissionTitle(data: unknown): string | null {
+  if (data && typeof data === "object" && "toolCall" in data) {
+    const tc = (data as { toolCall?: { title?: unknown } }).toolCall;
+    if (tc && typeof tc.title === "string") return tc.title;
+  }
+  return null;
+}
+
+/** scope is "{service_id}:{thread_id}"; split on the first colon. */
+function parseScope(scope: string): { serviceId: string; threadId: string } | null {
+  const idx = scope.indexOf(":");
+  if (idx <= 0) return null;
+  return { serviceId: scope.slice(0, idx), threadId: scope.slice(idx + 1) };
 }
 
 export default function ACPRuntimePage() {
-  const [data, setData] = useState<ACPRuntimeOverview | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const { showToast } = useToast();
+  const { data, error, isLoading, isValidating, mutate, lastUpdated } = useAdminSWR(
+    "acp-runtime",
+    getACPRuntime,
+    { live: true },
+  );
 
-  // Resolve permission modal
-  const [resolving, setResolving] = useState<ACPPendingPermissionInfo | null>(null);
-  const [resolveOptionId, setResolveOptionId] = useState("");
-  const [resolveBusy, setResolveBusy] = useState(false);
-
-  // Close thread modal
-  const [closeOpen, setCloseOpen] = useState(false);
-  const [closeServiceId, setCloseServiceId] = useState("");
-  const [closeThreadId, setCloseThreadId] = useState("");
-  const [closeBusy, setCloseBusy] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      setData(await getACPRuntime());
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to load runtime");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => { void load(); }, 0);
-    return () => window.clearTimeout(timer);
-  }, [load]);
-
-  const handleResolve = async (outcome: "selected" | "cancelled") => {
-    if (!resolving) return;
-    if (outcome === "selected" && !resolveOptionId.trim()) {
-      showToast("Option ID is required to approve", "error");
-      return;
-    }
-    setResolveBusy(true);
-    try {
-      await resolveACPPermission(resolving.request_id, {
-        request_id: resolving.request_id,
-        outcome,
-        ...(outcome === "selected" && { option_id: resolveOptionId.trim() }),
-      });
-      showToast(outcome === "selected" ? "Permission approved" : "Permission cancelled", "success");
-      setResolving(null);
-      setResolveOptionId("");
-      void load();
-    } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Failed to resolve permission", "error");
-    } finally {
-      setResolveBusy(false);
-    }
-  };
-
-  const handleCloseThread = async () => {
-    if (!closeServiceId.trim() || !closeThreadId.trim()) {
-      showToast("Service ID and thread ID are required", "error");
-      return;
-    }
-    setCloseBusy(true);
-    try {
-      const res = await closeACPThread(closeServiceId.trim(), closeThreadId.trim());
-      showToast(`Closed ${res.closed} instance(s)`, "success");
-      setCloseOpen(false);
-      setCloseServiceId("");
-      setCloseThreadId("");
-      void load();
-    } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Failed to close thread", "error");
-    } finally {
-      setCloseBusy(false);
-    }
-  };
+  const [busyId, setBusyId] = useState<string | null>(null);
+  // Fallback manual-resolve modal for permissions without parseable options.
+  const [manual, setManual] = useState<ACPPendingPermissionInfo | null>(null);
+  const [manualOptionId, setManualOptionId] = useState("");
 
   const inFlight = data?.in_flight ?? [];
   const instances = data?.instances ?? [];
   const pending = data?.pending_permissions ?? [];
 
+  const resolve = async (p: ACPPendingPermissionInfo, outcome: "selected" | "cancelled", optionId?: string) => {
+    setBusyId(p.request_id);
+    try {
+      await resolveACPPermission(p.request_id, {
+        request_id: p.request_id,
+        outcome,
+        ...(outcome === "selected" && optionId ? { option_id: optionId } : {}),
+      });
+      showToast(outcome === "selected" ? "Permission approved" : "Permission rejected", "success");
+      setManual(null);
+      setManualOptionId("");
+      void mutate();
+    } catch (err) {
+      showToast(err instanceof ApiError ? err.message : "Failed to resolve permission", "error");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const close = async (serviceId: string, threadId: string) => {
+    const key = `${serviceId}:${threadId}`;
+    setBusyId(key);
+    try {
+      const res = await closeACPThread(serviceId, threadId);
+      showToast(`Closed ${res.closed} instance(s)`, "success");
+      void mutate();
+    } catch (err) {
+      showToast(err instanceof ApiError ? err.message : "Failed to close thread", "error");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
     <div className="space-y-4">
-      <section className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight text-slate-100">ACP Runtime</h1>
-            <p className="mt-1 text-xs text-slate-400">
-              Inspect pooled agent instances, in-flight turns, and pending permission requests.
-              <HelpTooltip content="The runtime pools long-lived agent processes. Use this page to observe activity and intervene." />
-            </p>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Button variant="ghost" className="px-2.5 py-1 text-xs" onClick={() => setCloseOpen(true)}>Close Thread</Button>
-            <Button className="px-2.5 py-1 text-xs" onClick={() => void load()}>Refresh</Button>
-          </div>
-        </div>
-      </section>
+      <PageHeader
+        title="ACP Runtime"
+        description={
+          <>
+            Pooled agent instances, in-flight turns, and pending permissions.
+            <HelpTooltip content="The runtime pools long-lived agent processes. Observe activity and intervene inline." />
+          </>
+        }
+        actions={<AutoRefreshControl lastUpdated={lastUpdated} onRefresh={() => void mutate()} refreshing={isValidating} />}
+      />
 
-      <section className="grid grid-cols-3 gap-2">
-        {[
-          { label: "In-Flight Turns", value: inFlight.length },
-          { label: "Pooled Instances", value: instances.length },
-          { label: "Pending Permissions", value: pending.length },
-        ].map((stat) => (
-          <div key={stat.label} className="rounded-lg border border-slate-700/70 bg-slate-900/40 px-2.5 py-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{stat.label}</p>
-            <p className="mt-0.5 text-lg font-semibold text-slate-100">{stat.value}</p>
-          </div>
-        ))}
-      </section>
+      <StatGrid>
+        <StatCard label="In-Flight Turns" value={inFlight.length} />
+        <StatCard label="Pooled Instances" value={instances.length} />
+        <StatCard label="Pending Permissions" value={pending.length} tone={pending.length > 0 ? "text-amber-300" : "text-slate-100"} />
+      </StatGrid>
 
-      {loading ? (
-        <div className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-8 text-center">
-          <p className="text-sm text-slate-400">Loading runtime…</p>
-        </div>
+      {isLoading && !data ? (
+        <Card className="p-8 text-center text-sm text-slate-400">Loading runtime…</Card>
       ) : error ? (
-        <div className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-8 text-center">
-          <p className="text-sm text-red-400">{error}</p>
-        </div>
+        <Card className="p-8 text-center text-sm text-rose-300">{error instanceof Error ? error.message : "Failed to load runtime"}</Card>
       ) : (
         <>
           {/* Pending permissions */}
-          <section className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-4 space-y-3">
-            <SectionHeading>
-              Pending Permissions
-              <HelpTooltip content="Interactive permission requests awaiting a decision. Approve with an option ID or cancel." />
-            </SectionHeading>
+          <Card>
+            <CardHeader>
+              <CardTitle>Pending Permissions <HelpTooltip content="Interactive permission requests awaiting a decision. Approve an offered option or reject." /></CardTitle>
+            </CardHeader>
             {pending.length === 0 ? (
-              <p className="text-[11px] text-slate-500">No pending permission requests.</p>
+              <p className="text-xs text-slate-500">No pending permission requests.</p>
             ) : (
               <div className="space-y-2">
-                {pending.map((p) => (
-                  <div key={p.request_id} className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <span className="font-mono text-xs font-semibold text-amber-200">{p.request_id}</span>
-                        <p className="mt-0.5 font-mono text-[10px] text-slate-400">
-                          service: {p.service_id}{p.session_id ? ` · session: ${p.session_id}` : ""}
-                        </p>
+                {pending.map((p) => {
+                  const options = parseOptions(p.data);
+                  const title = permissionTitle(p.data);
+                  const busy = busyId === p.request_id;
+                  return (
+                    <div key={p.request_id} className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          {title && <p className="text-sm font-medium text-amber-100">{title}</p>}
+                          <p className="font-mono text-xs text-amber-300">{p.request_id}</p>
+                          <p className="mt-0.5 font-mono text-[11px] text-slate-400">
+                            service: {p.service_id}{p.session_id ? ` · session: ${p.session_id}` : ""}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                          {options.length > 0 ? (
+                            options.map((o) => (
+                              <Button
+                                key={o.optionId}
+                                variant={o.kind?.startsWith("reject") || o.kind === "cancel" ? "danger" : "primary"}
+                                className="px-2.5 py-1 text-xs"
+                                disabled={busy}
+                                onClick={() => void resolve(p, "selected", o.optionId)}
+                              >
+                                {o.name}
+                              </Button>
+                            ))
+                          ) : (
+                            <Button variant="secondary" className="px-2.5 py-1 text-xs" disabled={busy} onClick={() => { setManual(p); setManualOptionId(""); }}>
+                              Resolve…
+                            </Button>
+                          )}
+                          <Button variant="danger" className="px-2.5 py-1 text-xs" disabled={busy} onClick={() => void resolve(p, "cancelled")}>
+                            Reject
+                          </Button>
+                        </div>
                       </div>
-                      <Button className="shrink-0 px-2 py-1 text-[10px]" onClick={() => { setResolving(p); setResolveOptionId(""); }}>Resolve</Button>
+                      {p.data != null && (
+                        <details className="mt-2">
+                          <summary className="cursor-pointer text-[11px] text-slate-500 hover:text-slate-300">Raw request</summary>
+                          <pre className="mt-1 max-h-40 overflow-auto rounded bg-slate-950/70 p-2 font-mono text-[11px] text-slate-400">{JSON.stringify(p.data, null, 2)}</pre>
+                        </details>
+                      )}
                     </div>
-                    {p.data != null && (
-                      <pre className="mt-2 max-h-32 overflow-auto rounded bg-slate-950/70 p-2 font-mono text-[10px] text-slate-400">{JSON.stringify(p.data, null, 2)}</pre>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+
+          {/* Pooled instances */}
+          <Card>
+            <CardHeader><CardTitle>Pooled Instances</CardTitle></CardHeader>
+            {instances.length === 0 ? (
+              <p className="text-xs text-slate-500">No pooled instances.</p>
+            ) : (
+              <div className="space-y-2">
+                {instances.map((inst, i) => {
+                  const parsed = parseScope(inst.scope);
+                  const key = parsed ? `${parsed.serviceId}:${parsed.threadId}` : inst.scope;
+                  const busy = busyId === key;
+                  return (
+                    <div key={i} className="flex items-start justify-between gap-2 rounded-md border border-slate-700/60 bg-slate-900/50 p-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {inst.alive && <Badge tone="green">alive</Badge>}
+                          {inst.active && <Badge tone="blue">active</Badge>}
+                          {inst.session_id && <span className="font-mono text-[11px] text-slate-400">session: {inst.session_id}</span>}
+                          {inst.last_used && <span className="text-[11px] text-slate-500" suppressHydrationWarning>last used {new Date(inst.last_used).toLocaleString()}</span>}
+                        </div>
+                        <p className="mt-1 break-all font-mono text-[11px] text-slate-500">{inst.scope}</p>
+                      </div>
+                      {parsed && (
+                        <Button variant="ghost" className="shrink-0 px-2.5 py-1 text-xs" disabled={busy} onClick={() => void close(parsed.serviceId, parsed.threadId)}>
+                          {busy ? "Closing…" : "Close"}
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+
+          {/* In-flight turns */}
+          <Card>
+            <CardHeader><CardTitle>In-Flight Turns</CardTitle></CardHeader>
+            {inFlight.length === 0 ? (
+              <p className="text-xs text-slate-500">No in-flight turns.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {inFlight.map((t, i) => (
+                  <div key={i} className="flex items-center justify-between gap-2 rounded-md border border-slate-700/60 bg-slate-900/50 px-3 py-1.5">
+                    <span className="break-all font-mono text-[11px] text-slate-400">{t.scope}</span>
+                    {t.service_id && t.thread_id && (
+                      <Button variant="ghost" className="shrink-0 px-2 py-0.5 text-[11px]" disabled={busyId === `${t.service_id}:${t.thread_id}`} onClick={() => void close(t.service_id!, t.thread_id!)}>
+                        Close
+                      </Button>
                     )}
                   </div>
                 ))}
               </div>
             )}
-          </section>
-
-          {/* Pooled instances */}
-          <section className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-4 space-y-3">
-            <SectionHeading>Pooled Instances</SectionHeading>
-            {instances.length === 0 ? (
-              <p className="text-[11px] text-slate-500">No pooled instances.</p>
-            ) : (
-              <div className="space-y-2">
-                {instances.map((inst, i) => (
-                  <div key={i} className="rounded-md border border-slate-700/60 bg-slate-900/50 px-3 py-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {inst.alive && <span className="inline-flex rounded-sm bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300">alive</span>}
-                      {inst.active && <span className="inline-flex rounded-sm bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-medium text-blue-300">active</span>}
-                      {inst.session_id && <span className="font-mono text-[10px] text-slate-400">session: {inst.session_id}</span>}
-                      {inst.last_used && <span className="text-[10px] text-slate-500">last used {new Date(inst.last_used).toLocaleString()}</span>}
-                    </div>
-                    <p className="mt-1 break-all font-mono text-[10px] text-slate-500">{inst.scope}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          {/* In-flight turns */}
-          <section className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-4 space-y-3">
-            <SectionHeading>In-Flight Turns</SectionHeading>
-            {inFlight.length === 0 ? (
-              <p className="text-[11px] text-slate-500">No in-flight turns.</p>
-            ) : (
-              <div className="space-y-1.5">
-                {inFlight.map((t, i) => (
-                  <p key={i} className="break-all rounded-md border border-slate-700/60 bg-slate-900/50 px-3 py-1.5 font-mono text-[10px] text-slate-400">{t.scope}</p>
-                ))}
-              </div>
-            )}
-          </section>
+          </Card>
         </>
       )}
 
-      {/* Resolve permission modal */}
-      <Modal isOpen={!!resolving} onClose={() => setResolving(null)}>
-        <ModalHeader><ModalTitle>Resolve Permission</ModalTitle></ModalHeader>
-        <ModalContent>
-          <div className="space-y-3">
-            <p className="font-mono text-[11px] text-slate-400">{resolving?.request_id}</p>
-            {resolving?.data != null && (
-              <div>
-                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Request Data</p>
-                <pre className="max-h-48 overflow-auto rounded bg-slate-950/70 p-2 font-mono text-[10px] text-slate-400">{JSON.stringify(resolving.data, null, 2)}</pre>
-              </div>
-            )}
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-300">
-                Option ID
-                <HelpTooltip content="Exact option ID from the agent's permission offer (see request data above). Required to approve." />
-              </label>
-              <Input name="option-id" value={resolveOptionId} onChange={setResolveOptionId} placeholder="e.g. allow_once" />
-            </div>
-          </div>
-        </ModalContent>
-        <ModalFooter>
-          <Button variant="ghost" onClick={() => setResolving(null)} disabled={resolveBusy}>Cancel</Button>
-          <Button variant="danger" onClick={() => handleResolve("cancelled")} disabled={resolveBusy}>Reject</Button>
-          <Button onClick={() => handleResolve("selected")} disabled={resolveBusy}>{resolveBusy ? "Resolving…" : "Approve"}</Button>
-        </ModalFooter>
-      </Modal>
+      {/* Fallback manual resolve modal */}
+      {manual && (
+        <ManualResolveModal
+          permission={manual}
+          optionId={manualOptionId}
+          setOptionId={setManualOptionId}
+          busy={busyId === manual.request_id}
+          onClose={() => setManual(null)}
+          onApprove={() => void resolve(manual, "selected", manualOptionId.trim())}
+          onReject={() => void resolve(manual, "cancelled")}
+        />
+      )}
+    </div>
+  );
+}
 
-      {/* Close thread modal */}
-      <Modal isOpen={closeOpen} onClose={() => setCloseOpen(false)}>
-        <ModalHeader><ModalTitle>Close Thread</ModalTitle></ModalHeader>
-        <ModalContent>
-          <div className="space-y-3">
-            <p className="text-[11px] text-slate-400">Close all pooled instances for a service and thread.</p>
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-300">Service ID <span className="text-red-400">*</span></label>
-              <Input name="close-service" value={closeServiceId} onChange={setCloseServiceId} placeholder="codex-main" />
-            </div>
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-300">Thread ID <span className="text-red-400">*</span></label>
-              <Input name="close-thread" value={closeThreadId} onChange={setCloseThreadId} placeholder="t-demo-1" />
-            </div>
-          </div>
-        </ModalContent>
-        <ModalFooter>
-          <Button variant="ghost" onClick={() => setCloseOpen(false)} disabled={closeBusy}>Cancel</Button>
-          <Button variant="danger" onClick={handleCloseThread} disabled={closeBusy}>{closeBusy ? "Closing…" : "Close Thread"}</Button>
-        </ModalFooter>
-      </Modal>
+function ManualResolveModal({
+  permission, optionId, setOptionId, busy, onClose, onApprove, onReject,
+}: {
+  permission: ACPPendingPermissionInfo;
+  optionId: string;
+  setOptionId: (v: string) => void;
+  busy: boolean;
+  onClose: () => void;
+  onApprove: () => void;
+  onReject: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-modal-overlay" onClick={onClose}>
+      <div className="w-full max-w-md glass-card animate-modal-card rounded-lg p-4" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-sm font-semibold text-slate-100">Resolve Permission</h3>
+        <p className="mt-1 font-mono text-[11px] text-slate-400">{permission.request_id}</p>
+        <label className="mt-3 mb-1.5 block text-sm font-medium text-slate-300">
+          Option ID
+          <HelpTooltip content="Exact option ID from the agent's permission offer (see raw request). Required to approve." />
+        </label>
+        <input
+          value={optionId}
+          onChange={(e) => setOptionId(e.target.value)}
+          placeholder="e.g. allow_once"
+          className="glass-input w-full rounded-md px-3 py-2 text-sm text-slate-100"
+        />
+        <div className="mt-4 flex justify-end gap-1.5">
+          <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button variant="danger" onClick={onReject} disabled={busy}>Reject</Button>
+          <Button onClick={onApprove} disabled={busy || !optionId.trim()}>{busy ? "Resolving…" : "Approve"}</Button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { DashboardHeader } from "@/components/dashboard-header";
 import { UserPanel } from "@/components/user-panel";
+import { PermissionBanner } from "@/components/permission-banner";
 import { getUsername } from "@/lib/auth";
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
@@ -16,6 +17,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         isAdmin={true}
         onUserClick={() => setPanelOpen(true)}
       />
+      <PermissionBanner />
       {children}
       <UserPanel
         isOpen={panelOpen}

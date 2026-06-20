@@ -21,12 +21,6 @@ function IconKey({ className }: { className?: string }) {
 function IconActivity({ className }: { className?: string }) {
   return <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>;
 }
-function IconUsers({ className }: { className?: string }) {
-  return <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>;
-}
-function IconLogs({ className }: { className?: string }) {
-  return <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></svg>;
-}
 function IconBrain({ className }: { className?: string }) {
   return <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z" /><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z" /></svg>;
 }
@@ -48,32 +42,36 @@ function IconPlug({ className }: { className?: string }) {
 function IconBot({ className }: { className?: string }) {
   return <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="11" width="18" height="10" rx="2" /><circle cx="12" cy="5" r="2" /><path d="M12 7v4" /><line x1="8" y1="16" x2="8" y2="16" /><line x1="16" y1="16" x2="16" y2="16" /></svg>;
 }
-function IconChat({ className }: { className?: string }) {
-  return <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>;
+function IconAgent({ className }: { className?: string }) {
+  return <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" /><path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3" /></svg>;
 }
 
 const NAV_SECTIONS = [
-  { key: "general", label: "General" },
+  { key: "agents", label: "Agents" },
   { key: "llm", label: "LLM" },
   { key: "mcp", label: "MCP" },
   { key: "acp", label: "ACP" },
   { key: "configuration", label: "Configuration" },
 ] as const;
 
+// Agents is the first-class section: the agent itself plus the day-to-day views
+// for working with it (observation + the keys used to call it). LLM / MCP / ACP
+// below are the shared infrastructure that backs agents, not sub-items of one agent.
 const NAV_ITEMS = [
-  { href: "/dashboard/general/overview", label: "Overview", icon: IconHome, section: "general" },
+  { href: "/dashboard/general/overview", label: "Overview", icon: IconHome, section: "agents" },
+  { href: "/dashboard/agents", label: "Agents", icon: IconAgent, section: "agents" },
+  { href: "/dashboard/agents/interactions", label: "Interactions", icon: IconActivity, section: "agents" },
+  { href: "/dashboard/agents/usage", label: "Usage", icon: IconBarChart, section: "agents" },
+  { href: "/dashboard/general/virtual-keys", label: "Virtual Keys", icon: IconKey, section: "agents" },
   { href: "/dashboard/llm/providers", label: "Providers", icon: IconLayers, section: "llm" },
   { href: "/dashboard/llm/models", label: "Models", icon: IconBrain, section: "llm" },
   { href: "/dashboard/llm/credentials", label: "Credentials", icon: IconCredential, section: "llm" },
   { href: "/dashboard/llm/routes", label: "Routes", icon: IconRoute, section: "llm" },
   { href: "/dashboard/mcp/services", label: "Services", icon: IconPlug, section: "mcp" },
   { href: "/dashboard/mcp/routes", label: "Routes", icon: IconRoute, section: "mcp" },
-  { href: "/dashboard/acp/chat", label: "Chat", icon: IconChat, section: "acp" },
   { href: "/dashboard/acp/services", label: "Services", icon: IconBot, section: "acp" },
   { href: "/dashboard/acp/routes", label: "Routes", icon: IconRoute, section: "acp" },
   { href: "/dashboard/acp/runtime", label: "Runtime", icon: IconActivity, section: "acp" },
-  { href: "/dashboard/general/virtual-keys", label: "Virtual Keys", icon: IconKey, section: "general" },
-  { href: "/dashboard/general/usage", label: "Usage", icon: IconBarChart, section: "general" },
   { href: "/dashboard/configuration/gateway", label: "Gateway", icon: IconGateway, section: "configuration" },
   { href: "/dashboard/configuration/servers", label: "Servers", icon: IconServer, section: "configuration" },
 ] as const;

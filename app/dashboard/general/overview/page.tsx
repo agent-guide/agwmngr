@@ -1,8 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect, useCallback } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import { useToast } from "@/components/ui/toast";
+import { Sparkline } from "@/components/ui/charts";
+import { useAdminSWR } from "@/hooks/use-admin-swr";
+import { num, errorRate, pct } from "@/lib/metrics-util";
 import {
   adminFetch,
   listProviders,
@@ -12,6 +15,9 @@ import {
   listMCPRoutes,
   listACPServices,
   listACPRoutes,
+  getACPRuntime,
+  getCLIAuthRefresherStatus,
+  getLLMTimeseries,
 } from "@/lib/api";
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -113,6 +119,40 @@ export default function OverviewPage() {
     return () => window.clearTimeout(timer);
   }, [load]);
 
+  // ── Live health data (24h window) ────────────────────────────────────────
+  const runtime = useAdminSWR("ov-acp-runtime", getACPRuntime, { live: true });
+  const refresher = useAdminSWR("ov-refresher", getCLIAuthRefresherStatus);
+  const series24h = useAdminSWR(
+    "ov-llm-24h",
+    // Compute the window inside the fetcher (runs at fetch time, not during render).
+    () => getLLMTimeseries({ from: new Date(Date.now() - 86400_000).toISOString(), bucket: "1h", group_by: "route_id" }),
+    { live: true },
+  );
+
+  const health = useMemo(() => {
+    const points = series24h.data?.items ?? [];
+    const byTs = new Map<string, number>();
+    let success = 0, failure = 0, requests = 0;
+    for (const p of points) {
+      requests += num(p.request_count);
+      success += num(p.success_count);
+      failure += num(p.failure_count);
+      byTs.set(p.timestamp, (byTs.get(p.timestamp) ?? 0) + num(p.request_count));
+    }
+    const spark = [...byTs.entries()]
+      .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
+      .map(([, v]) => ({ requests: v }));
+    return {
+      requests,
+      errRate: errorRate(success, failure),
+      spark,
+      pending: runtime.data?.pending_permissions?.length ?? 0,
+      instances: runtime.data?.instances?.length ?? 0,
+      inflight: runtime.data?.in_flight?.length ?? 0,
+      refresherOn: refresher.data?.enabled ?? null,
+    };
+  }, [series24h.data, runtime.data, refresher.data]);
+
   // ── Setup checklist ──────────────────────────────────────────────────────
   const steps = [
     { done: counts.providers > 0, text: "Add an LLM provider", hint: "Connect OpenAI, Anthropic, or another backend.", href: "/dashboard/llm/providers" },
@@ -172,7 +212,6 @@ export default function OverviewPage() {
     },
     {
       title: "ACP", items: [
-        { label: "Chat", href: "/dashboard/acp/chat", desc: "Talk to an ACP agent" },
         { label: "Services", href: "/dashboard/acp/services", desc: "Codex / OpenCode agents" },
         { label: "Routes", href: "/dashboard/acp/routes", desc: "Expose agents over paths" },
         { label: "Runtime", href: "/dashboard/acp/runtime", desc: "Instances & permissions" },
@@ -181,7 +220,7 @@ export default function OverviewPage() {
     {
       title: "General & Config", items: [
         { label: "Virtual Keys", href: "/dashboard/general/virtual-keys", desc: "Caller auth tokens" },
-        { label: "Usage", href: "/dashboard/general/usage", desc: "Traffic statistics" },
+        { label: "Usage", href: "/dashboard/agents/usage", desc: "Traffic statistics" },
         { label: "Gateway", href: "/dashboard/configuration/gateway", desc: "Provider types & CLI auth" },
         { label: "Servers", href: "/dashboard/configuration/servers", desc: "HTTP listeners & TLS" },
       ],
@@ -237,6 +276,46 @@ export default function OverviewPage() {
             <div className="mt-0.5 text-[10px] text-slate-500">{s.sub}</div>
           </Link>
         ))}
+      </section>
+
+      {/* System health */}
+      <section className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-slate-100">System Health</h2>
+          <span className="text-[11px] text-slate-500">last 24h</span>
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+          <div className="rounded-md border border-slate-700/60 bg-slate-900/40 px-3 py-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Requests</p>
+            <p className="mt-0.5 text-lg font-semibold tabular-nums text-slate-100">{health.requests.toLocaleString()}</p>
+            <div className="mt-1"><Sparkline data={health.spark} dataKey="requests" /></div>
+          </div>
+          <div className="rounded-md border border-slate-700/60 bg-slate-900/40 px-3 py-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Error Rate</p>
+            <p className={`mt-0.5 text-lg font-semibold tabular-nums ${health.errRate > 0 ? "text-amber-300" : "text-emerald-300"}`}>{pct(health.errRate)}</p>
+            <p className="mt-1 text-[11px] text-slate-500">across LLM routes</p>
+          </div>
+          <Link href="/dashboard/acp/runtime" className="rounded-md border border-slate-700/60 bg-slate-900/40 px-3 py-2 transition-colors hover:border-amber-500/40 hover:bg-amber-500/5">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Pending Permissions</p>
+            <p className={`mt-0.5 text-lg font-semibold tabular-nums ${health.pending > 0 ? "text-amber-300" : "text-slate-100"}`}>{health.pending}</p>
+            <p className="mt-1 text-[11px] text-slate-500">{health.pending > 0 ? "needs attention →" : "all resolved"}</p>
+          </Link>
+          <Link href="/dashboard/acp/runtime" className="rounded-md border border-slate-700/60 bg-slate-900/40 px-3 py-2 transition-colors hover:border-blue-500/40 hover:bg-blue-500/5">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">ACP Runtime</p>
+            <p className="mt-0.5 text-lg font-semibold tabular-nums text-slate-100">{health.instances}</p>
+            <p className="mt-1 text-[11px] text-slate-500">{health.inflight} in-flight · pooled</p>
+          </Link>
+          <div className="rounded-md border border-slate-700/60 bg-slate-900/40 px-3 py-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">CLI Refresher</p>
+            <p className={`mt-0.5 text-lg font-semibold ${health.refresherOn == null ? "text-slate-400" : health.refresherOn ? "text-emerald-300" : "text-slate-400"}`}>
+              {health.refresherOn == null ? "—" : health.refresherOn ? "Running" : "Stopped"}
+            </p>
+            <p className="mt-1 text-[11px] text-slate-500">token auto-refresh</p>
+          </div>
+        </div>
+        <p className="mt-2 text-[11px] text-slate-600">
+          Deep health (upstream reachability, circuit-break, credential expiry) is not yet exposed by the gateway.
+        </p>
       </section>
 
       {status === "unreachable" && !loading && (
