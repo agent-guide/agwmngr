@@ -221,7 +221,7 @@ export default function OverviewPage() {
       title: "General & Config", items: [
         { label: "Virtual Keys", href: "/dashboard/general/virtual-keys", desc: "Caller auth tokens" },
         { label: "Usage", href: "/dashboard/agents/usage", desc: "Traffic statistics" },
-        { label: "Gateway", href: "/dashboard/configuration/gateway", desc: "Provider types & CLI auth" },
+        { label: "CLI Authenticators", href: "/dashboard/configuration/cliauth", desc: "CLI authenticators & refresh" },
         { label: "Servers", href: "/dashboard/configuration/servers", desc: "HTTP listeners & TLS" },
       ],
     },

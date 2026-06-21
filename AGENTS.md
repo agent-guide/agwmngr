@@ -50,7 +50,7 @@ manager/
 │   │       └── mcp/                  ← MCP Services (+ inspect), Routes pages
 │   │       └── acp/                  ← ACP Services (+ sessions), Routes, Runtime (inline actions) pages (chat lives on the agent Chat tab)
 │   │  (general/overview, /virtual-keys are grouped under the "Agents" nav section, not a standalone "General" group — see dashboard-nav.tsx)
-│   │       └── configuration/        ← Gateway, Servers pages
+│   │       └── configuration/        ← CLI Authenticators, Servers pages
 │   ├── layout.tsx                    ← Root layout (fonts, globals)
 │   └── page.tsx                      ← Redirects to /dashboard
 ├── components/
@@ -213,7 +213,7 @@ The UI is organized **agent-centric** (per `docs/ui-ux-improvement-plan.md`): th
 - Runtime (`/dashboard/acp/runtime`) — pooled instances, in-flight turns, pending permissions; **auto-refresh + inline actions** (per-instance Close, per-permission Approve/Reject from parsed options). Pending permissions are also surfaced app-wide via the global `PermissionBanner`.
 
 **Configuration:**
-- Gateway (`/dashboard/configuration/gateway`) — provider type toggles, CLI authenticator config, refresher control
+- CLI Authenticators (`/dashboard/configuration/cliauth`) — CLI authenticator config, login flow, refresher control
 - Servers (`/dashboard/configuration/servers`) — Caddy HTTP server management, TLS, route dispatcher config
 
 ### Frontend Conventions

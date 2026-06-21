@@ -11,7 +11,6 @@ import {
   getCLIAuthLoginStatus,
   getCLIAuthRefresherStatus,
   listCLIAuthAuthenticators,
-  listProviderTypes,
   listProviders,
   startCLIAuthLogin,
   updateCLIAuthAuthenticator,
@@ -20,27 +19,7 @@ import {
   type CLIAuthLoginStatus,
   type NetworkConfig,
   type ProviderItem,
-  type ProviderTypeItem,
 } from "@/lib/api";
-
-function ProviderTypeRow({ item }: { item: ProviderTypeItem }) {
-  return (
-    <div className="rounded-lg border border-slate-700/70 bg-slate-950/35 p-4">
-      <div className="flex items-center justify-between gap-4">
-        <span className="font-mono text-sm text-slate-200">{item.provider_type}</span>
-        <span
-          className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] ${
-            item.enabled
-              ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
-              : "border-slate-600/60 bg-slate-800/60 text-slate-500"
-          }`}
-        >
-          {item.enabled ? "Enabled" : "Disabled"}
-        </span>
-      </div>
-    </div>
-  );
-}
 
 function ConfigInput({
   label,
@@ -348,9 +327,7 @@ function AuthenticatorRow({
   );
 }
 
-export default function GatewayPage() {
-  const [providerTypes, setProviderTypes] = useState<ProviderTypeItem[]>([]);
-  const [loading, setLoading] = useState(true);
+export default function CLIAuthPage() {
   const { showToast } = useToast();
 
   const [authenticators, setAuthenticators] = useState<AuthenticatorState[]>([]);
@@ -373,18 +350,6 @@ export default function GatewayPage() {
   const cliauthPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const enabledAuthenticators = authenticators.filter((a) => a.enabled);
-
-  const loadProviderTypes = useCallback(async () => {
-    setLoading(true);
-    try {
-      const items = await listProviderTypes();
-      setProviderTypes(items);
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : "Failed to load provider types", "error");
-    } finally {
-      setLoading(false);
-    }
-  }, [showToast]);
 
   const fetchAuthenticators = useCallback(async () => {
     setAuthLoading(true);
@@ -505,13 +470,6 @@ export default function GatewayPage() {
   };
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      void loadProviderTypes();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [loadProviderTypes]);
-
-  useEffect(() => {
     if (!isCLIAuthOpen) return;
     listProviders()
       .then(setProviders)
@@ -564,39 +522,10 @@ export default function GatewayPage() {
   return (
     <div className="space-y-4">
       <section className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-4">
-        <h1 className="text-xl font-semibold tracking-tight text-slate-100">Gateway Configuration</h1>
-        <p className="mt-1 text-xs text-slate-400">Configure gateway settings for your Caddy HTTP servers.</p>
-      </section>
-
-      <section className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold text-slate-100">Provider Types</h2>
-            <p className="mt-1 text-xs leading-5 text-slate-400">
-              Provider integrations available in the gateway. Availability is configured at gateway
-              startup (Caddyfile or daemon flags) and is read-only here.
-            </p>
-          </div>
-        </div>
-
-        {loading ? (
-          <p className="mt-4 text-sm text-slate-400">Loading provider types...</p>
-        ) : providerTypes.length === 0 ? (
-          <p className="mt-4 text-sm text-slate-400">No provider types available.</p>
-        ) : (
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {providerTypes.map((item) => (
-              <ProviderTypeRow key={item.provider_type} item={item} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      <section className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-sm font-semibold text-slate-100">CLI Authentication</h2>
-            <p className="mt-1 text-xs leading-5 text-slate-400">
+            <h1 className="text-xl font-semibold tracking-tight text-slate-100">CLI Authenticators</h1>
+            <p className="mt-1 text-xs text-slate-400">
               Configure CLI authenticators and automatic credential refresh behavior.
             </p>
           </div>
@@ -629,19 +558,21 @@ export default function GatewayPage() {
             </button>
           </div>
         </div>
+      </section>
 
+      <section className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-4">
         {authError && (
-          <div className="mt-4 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+          <div className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
             {authError}
           </div>
         )}
 
         {authLoading ? (
-          <p className="mt-4 text-sm text-slate-400">Loading authenticators...</p>
+          <p className="text-sm text-slate-400">Loading authenticators...</p>
         ) : authenticators.length === 0 ? (
-          <p className="mt-4 text-sm text-slate-400">No authenticators available.</p>
+          <p className="text-sm text-slate-400">No authenticators available.</p>
         ) : (
-          <div className="mt-4 space-y-3">
+          <div className="space-y-3">
             {authenticators.map((item) => (
               <AuthenticatorRow
                 key={item.name}

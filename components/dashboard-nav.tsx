@@ -72,7 +72,7 @@ const NAV_ITEMS = [
   { href: "/dashboard/acp/services", label: "Services", icon: IconBot, section: "acp" },
   { href: "/dashboard/acp/routes", label: "Routes", icon: IconRoute, section: "acp" },
   { href: "/dashboard/acp/runtime", label: "Runtime", icon: IconActivity, section: "acp" },
-  { href: "/dashboard/configuration/gateway", label: "Gateway", icon: IconGateway, section: "configuration" },
+  { href: "/dashboard/configuration/cliauth", label: "CLI Authenticators", icon: IconGateway, section: "configuration" },
   { href: "/dashboard/configuration/servers", label: "Servers", icon: IconServer, section: "configuration" },
 ] as const;
 

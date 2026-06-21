@@ -107,12 +107,12 @@ function UserPanelContent({ onClose, username, isAdmin }: Omit<UserPanelProps, "
             </div>
           </div>
 
-          <button type="button" onClick={() => { onClose(); router.push("/dashboard/configuration/gateway"); }}
+          <button type="button" onClick={() => { onClose(); router.push("/dashboard/configuration/cliauth"); }}
             className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-800/50 hover:text-slate-100 transition-colors">
             <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true">
               <circle cx="12" cy="12" r="3" /><path d="M12 1v6m0 6v6M5.6 5.6l4.2 4.2m4.8 4.8l4.2 4.2M1 12h6m6 0h6M5.6 18.4l4.2-4.2m4.8-4.8l4.2-4.2" />
             </svg>
-            Gateway Settings
+            CLI Authenticators
           </button>
 
           <div className="flex-1" />
