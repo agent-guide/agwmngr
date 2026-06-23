@@ -27,6 +27,13 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
   return <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{children}</p>;
 }
 
+// Accept Unix absolute paths (/foo), Windows drive paths (C:\foo or C:/foo), and UNC paths (\\server\share).
+// The path is validated against the OS where the agent-gateway runs, not the browser, so both styles are allowed.
+const ABSOLUTE_PATH_RE = /^(\/|[A-Za-z]:[\\/]|\\\\)/;
+function isAbsolutePath(p: string): boolean {
+  return ABSOLUTE_PATH_RE.test(p.trim());
+}
+
 const AGENT_COLORS: Record<string, string> = {
   codex: "bg-teal-500/15 text-teal-300",
   opencode: "bg-indigo-500/15 text-indigo-300",
@@ -175,7 +182,9 @@ export default function ACPServicesPage() {
     if (!formId.trim()) { showToast("Service ID is required", "error"); return false; }
     if (!formName.trim()) { showToast("Name is required", "error"); return false; }
     if (!formCwd.trim()) { showToast("Working directory is required", "error"); return false; }
-    if (!formCwd.trim().startsWith("/")) { showToast("Working directory must be an absolute path", "error"); return false; }
+    if (!isAbsolutePath(formCwd)) { showToast("Working directory must be an absolute path", "error"); return false; }
+    const roots = formAllowedRoots.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+    if (roots.some((r) => !isAbsolutePath(r))) { showToast("Allowed roots must each be an absolute path", "error"); return false; }
     return true;
   };
 
@@ -328,7 +337,7 @@ export default function ACPServicesPage() {
             Working Directory (cwd) <span className="text-red-400">*</span>
             <HelpTooltip content="Absolute path. The agent runs here by default; all turn cwds must be under allowed roots." />
           </label>
-          <Input name="cwd" value={formCwd} onChange={setFormCwd} placeholder="/tmp/acp-codex-test" />
+          <Input name="cwd" value={formCwd} onChange={setFormCwd} placeholder="/tmp/acp-codex-test  or  C:\\acp\\workspace" />
         </div>
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-300">
@@ -339,7 +348,7 @@ export default function ACPServicesPage() {
             value={formAllowedRoots}
             onChange={(e) => setFormAllowedRoots(e.target.value)}
             rows={2}
-            placeholder={"/tmp/acp-codex-test"}
+            placeholder={"/tmp/acp-codex-test\nC:\\acp\\workspace"}
             className="w-full rounded-md border border-slate-700/70 bg-slate-900/60 px-3 py-2 font-mono text-xs text-slate-100 focus:border-blue-500/60 focus:outline-none"
           />
         </div>
