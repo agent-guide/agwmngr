@@ -1,25 +1,23 @@
-import { requireAuth } from "@/lib/require-auth";
-import { addRoute, listRoutes } from "@/lib/caddy-manager";
+import { withGatewayAccess } from "@/lib/access";
+import { caddyConfigFor, addRoute, listRoutes } from "@/lib/caddy-manager";
 import { AppError, ErrConflict, ErrNotFound, ErrReadOnly, type RouteRequest } from "@/lib/types";
 
 type Params = { params: Promise<{ id: string }> };
 
-export async function GET(req: Request, { params }: Params) {
-  const deny = requireAuth(req);
-  if (deny) return deny;
+export const GET = withGatewayAccess("gateway:read", async (_req, access, { params }: Params) => {
+  const cfg = caddyConfigFor(access.gateway);
 
   const { id } = await params;
   try {
-    const routes = await listRoutes(id);
+    const routes = await listRoutes(cfg, id);
     return Response.json({ items: routes });
   } catch (e) {
     return errorResponse(e);
   }
-}
+});
 
-export async function POST(req: Request, { params }: Params) {
-  const deny = requireAuth(req);
-  if (deny) return deny;
+export const POST = withGatewayAccess("gateway:write", async (req, access, { params }: Params) => {
+  const cfg = caddyConfigFor(access.gateway);
 
   const { id: serverID } = await params;
   let body: RouteRequest;
@@ -30,14 +28,14 @@ export async function POST(req: Request, { params }: Params) {
   }
 
   try {
-    await addRoute(serverID, body);
-    const routes = await listRoutes(serverID);
+    await addRoute(cfg, serverID, body);
+    const routes = await listRoutes(cfg, serverID);
     const created = routes.find((r) => r.id === body.id);
     return Response.json(created ?? { id: body.id }, { status: 201 });
   } catch (e) {
     return errorResponse(e);
   }
-}
+});
 
 function errorResponse(e: unknown): Response {
   if (e instanceof AppError) {

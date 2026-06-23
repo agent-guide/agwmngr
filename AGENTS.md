@@ -4,11 +4,15 @@ Bun + Next.js + TypeScript web management frontend for [agent-gateway](../../age
 
 The manager provides a dashboard UI and a thin backend API layer (Next.js Route Handlers) that:
 
-- authenticates manager users with its own session system
-- proxies most `/api/admin/*` requests to the agent-gateway Admin API
-- manages Caddy HTTP servers and routes directly through the Caddy admin API
+- authenticates manager users against a persisted `users` table with its own sqlite-backed session system
+- supports **multiple manager users** with two-layer RBAC (platform admins + per-gateway operator/viewer roles)
+- manages **multiple agent-gateways** from one manager (a header switcher selects the active gateway per session)
+- proxies most `/api/admin/*` requests to the **active gateway's** Admin API
+- manages Caddy HTTP servers and routes through the active gateway's Caddy admin API
 
 The upstream agent-gateway Admin API reference is in `~/github/agent-guide/agent-gateway/README.md`.
+
+The multi-user / multi-gateway design (data model, permission model, request flow, audit) is documented in `docs/multi-tenant-design.md` — read it before changing auth, the access guards, gateway resolution, or credential encryption.
 
 ## Build and Run
 
@@ -37,24 +41,32 @@ The backend API and frontend are served from the same Next.js process on the sam
 manager/
 ├── app/
 │   ├── api/admin/                    ← Backend: all Route Handlers
-│   │   ├── auth/                     ← Manager session auth (login/logout/me)
-│   │   ├── caddy/servers/            ← Caddy HTTP server/route CRUD
+│   │   ├── auth/                     ← Manager session auth (login/logout/me; table-backed)
+│   │   ├── users/                    ← Platform: user CRUD (platform-admin only)
+│   │   ├── gateways/                 ← Platform: gateway registry CRUD + /test + /[id]/members
+│   │   ├── session/                  ← Current user's gateways + active-gateway switcher
+│   │   ├── audit/                    ← Read-only audit log (platform-admin only)
+│   │   ├── caddy/servers/            ← Caddy HTTP server/route CRUD (active gateway)
+│   │   ├── acp/chat/                 ← ACP chat data-plane proxy (turn/permission)
 │   │   ├── health/                   ← Unauthenticated health check
-│   │   └── [[...path]]/              ← Catch-all proxy to agent-gateway Admin API
+│   │   └── [[...path]]/              ← Catch-all proxy to the active gateway's Admin API
 │   ├── login/                        ← Login page
 │   ├── dashboard/
-│   │   ├── layout.tsx                ← Dashboard shell with auth guard + nav + AutoRefreshProvider
+│   │   ├── layout.tsx                ← Dashboard shell: AuthGuard + CurrentUserProvider + nav + AutoRefreshProvider
 │   │   └── general/                  ← Overview (health dashboard), Virtual Keys pages
 │   │       └── agents/               ← Agents list, [id] workspace (tabs), new/edit, interactions, usage (all-agents LLM/MCP/ACP metrics tabs)
 │   │       └── llm/                  ← Providers, Models, Credentials, Routes pages
 │   │       └── mcp/                  ← MCP Services (+ inspect), Routes pages
 │   │       └── acp/                  ← ACP Services (+ sessions), Routes, Runtime (inline actions) pages (chat lives on the agent Chat tab)
+│   │       └── platform/             ← Platform admin: Users, Gateways (+ members + test), Audit Log
 │   │  (general/overview, /virtual-keys are grouped under the "Agents" nav section, not a standalone "General" group — see dashboard-nav.tsx)
 │   │       └── configuration/        ← CLI Authenticators, Servers pages
 │   ├── layout.tsx                    ← Root layout (fonts, globals)
 │   └── page.tsx                      ← Redirects to /dashboard
 ├── components/
-│   ├── dashboard-*.tsx               ← Layout shell, nav, header, user panel
+│   ├── dashboard-*.tsx               ← Layout shell, nav (gated Platform section), header (gateway switcher), user panel
+│   ├── current-user-context.tsx     ← Current user + accessible gateways + active gateway + switchGateway()
+│   ├── gateway-switcher.tsx         ← Header dropdown to select the active gateway (reloads on switch)
 │   ├── auth-guard.tsx                ← Session validation wrapper
 │   ├── auto-refresh-context.tsx      ← Global auto-refresh interval provider (off/5s/10s/30s, persisted)
 │   ├── permission-banner.tsx         ← Global pending-ACP-permission alert banner (polls runtime)
@@ -67,16 +79,26 @@ manager/
 │   ├── use-admin-swr.ts              ← SWR wrapper over adminFetch (+ live auto-refresh + lastUpdated)
 │   └── use-focus-trap.ts             ← Focus trap for modal accessibility
 └── lib/
-    ├── api.ts                        ← Typed fetch helpers + gateway Admin API wrappers (incl. metrics + agents)
+    ├── api.ts                        ← Typed fetch helpers + gateway Admin API wrappers (incl. metrics, agents, users, gateways, audit)
+    ├── db.ts                         ← sqlite connection, migrations, env seeding; users/gateways/memberships/sessions/audit helpers
+    ├── sqlite.ts                     ← Runtime-agnostic SQLite adapter (node:sqlite on Node, bun:sqlite on Bun)
+    ├── crypto.ts                     ← AES-256-GCM credential envelope (v1:keyId:iv:tag:ct) under MANAGER_SECRET_KEY
+    ├── access.ts                     ← requirePlatformAccess / requireGatewayAccess guards + withPlatformAccess/withGatewayAccess wrappers + action grants + audit open→finalize
+    ├── proxy-action.ts               ← Pure method+path → GatewayAction map (canonical per-segment matching); dependency-free + unit-tested (proxy-action.test.ts)
+    ├── gateway-resolve.ts            ← Decrypt a gateway row → in-memory ResolvedGateway (admin/caddy/dataplane addrs + creds)
+    ├── gateway-test.ts               ← Connectivity probe (pingGateway) for the gateway /test endpoints
     ├── metrics-util.ts               ← Time-range → query mapping, timeseries pivot, error-rate helpers
     ├── auth.ts                       ← localStorage session helpers (token, username)
-    ├── caddy-manager.ts              ← Caddy admin API client for server/route CRUD
-    ├── gateway-proxy.ts              ← Gateway admin API proxy with session caching
-    ├── require-auth.ts               ← Bearer token extraction + requireAuth middleware
+    ├── caddy-manager.ts              ← Caddy admin API client; functions take a per-gateway CaddyConfig (caddyConfigFor)
+    ├── gateway-proxy.ts              ← Gateway admin API proxy; takes a ResolvedGateway, base-URL cache keyed by gateway id
+    ├── acp-dataplane.ts              ← ACP data-plane route resolution; takes a ResolvedGateway (dataplane_addr)
+    ├── require-auth.ts               ← Bearer token extraction + requireAuth (table-backed session check)
     ├── server-env.ts                 ← Raw .env.local parser (avoids $VAR expansion)
-    ├── session.ts                    ← Server-side in-memory session store (globalThis Map)
+    ├── session.ts                    ← sqlite-backed session store (user_id, active_gateway_id, expires_at)
     ├── types.ts                      ← Shared types: ServerRequest, RouteRequest, Caddy internals, AppError
     └── utils.ts                      ← cn() Tailwind merge, extractApiError()
+
+data/manager.db                       ← sqlite store (users, gateways, user_gateways, sessions, audit_log); 0600, WAL
 ```
 
 ## Relationship To Other Projects
@@ -88,25 +110,41 @@ manager/
 
 ## Environment Variables
 
-Defined in `.env.local`:
+Defined in `.env.local`. With multi-tenancy, identity and gateway connection live in `data/manager.db`, not env. The `CADDYMGR_*` / `GATEWAY_*` / `CADDY_ADMIN_ADDR` vars are now **bootstrap seeds only**: on first boot with an empty DB they seed the initial platform-admin user and the `default` gateway (its admin password is encrypted into the DB). After seeding, editing them has no effect — manage users/gateways through the UI.
 
 | Variable | Default | Description |
 |---|---|---|
-| `CADDYMGR_ADMIN_USER` | — | Manager admin username |
-| `CADDYMGR_ADMIN_PASSWORD_HASH` | — | bcrypt hash of admin password |
-| `CADDY_ADMIN_ADDR` | `http://localhost:2019` | Caddy admin API address |
-| `GATEWAY_ADDR` | `http://localhost:8019` | Agent-gateway Admin API address |
-| `GATEWAY_DATAPLANE_ADDR` | `http://127.0.0.1:8080` | Gateway data-plane address (runtime public listener) for ACP chat turns/permissions. Host must match the dispatcher site's host matcher (commonly `127.0.0.1`, while the admin site binds `localhost`) |
-| `GATEWAY_ADMIN_USER` | — | Gateway proxy auth username |
-| `GATEWAY_ADMIN_PASSWORD` | — | Gateway proxy auth password |
-| `CADDYMGR_READONLY_SERVER_IDS` | — | Comma-separated Caddy server IDs that are read-only |
+| `MANAGER_SECRET_KEY` | — | **Required for gateway features.** 32-byte key (64 hex chars or base64) for AES-256-GCM encryption of gateway admin passwords. Without it, gateway seeding/CRUD/forwarding is unavailable; login + user management still work. Boot does not silently fall back to plaintext. |
+| `MANAGER_DB_PATH` | `data/manager.db` | Override the sqlite file path |
+| `MANAGER_SESSION_TTL` | `7d` | Session lifetime (e.g. `7d`, `24h`, `3600`) |
+| `CADDYMGR_ADMIN_USER` | — | Seed: initial platform-admin username |
+| `CADDYMGR_ADMIN_PASSWORD_HASH` | — | Seed: bcrypt hash of the initial admin password |
+| `GATEWAY_ADDR` | `http://localhost:8019` | Seed: default gateway Admin API address |
+| `GATEWAY_ADMIN_USER` | — | Seed: default gateway admin username |
+| `GATEWAY_ADMIN_PASSWORD` | — | Seed: default gateway admin password (encrypted into the DB at seed time) |
+| `CADDY_ADMIN_ADDR` | `http://localhost:2019` | Seed: default gateway Caddy admin API address |
+| `GATEWAY_DATAPLANE_ADDR` | `http://127.0.0.1:8080` | Seed: default gateway data-plane address (ACP chat). Host must match the dispatcher site's host matcher (commonly `127.0.0.1`, while the admin site binds `localhost`) |
+| `CADDYMGR_READONLY_SERVER_IDS` | — | Seed: default gateway's read-only Caddy server IDs (CSV) |
 | `NEXT_PUBLIC_API_BASE_URL` | `""` | Frontend API base URL (empty = same origin) |
+
+> **Runtime note:** `next dev` / `next start` execute under **Node.js** even when launched via `bun run`. `lib/sqlite.ts` therefore uses `node:sqlite` (`DatabaseSync`, Node 22.5+) on Node and `bun:sqlite` only when the process genuinely runs under Bun. Do not import `bun:sqlite` directly in server code.
 
 `lib/server-env.ts` reads `.env.local` with raw file parsing to avoid Next.js `$VAR` shell expansion corrupting bcrypt hashes.
 
 ## Backend API (Route Handlers)
 
 All routes are under `/api/admin/`. Every route except `/api/admin/health` and `/api/admin/auth/login` requires `Authorization: Bearer <token>`.
+
+### Access Control (two guards)
+
+Authorization is not funnelled through one proxy — several entry points reach a gateway. So `lib/access.ts` provides two shared guards every entry point calls (see `docs/multi-tenant-design.md` §5):
+
+- **`requirePlatformAccess(req)`** — for platform endpoints (users, gateways, memberships, audit). Requires a live session whose user is a platform admin. Resolves no gateway.
+- **`requireGatewayAccess(req, action)`** — for gateway-scoped endpoints. Resolves the active gateway (`X-Gateway-Id` header override, else `session.active_gateway_id`, self-healed to the user's first gateway if unset), enforces membership + role for the **action**, blocks disabled gateways, and decrypts admin credentials into a `ResolvedGateway` for forwarding. Returns `{ ok, ctx | res }`; `ctx.gateway` carries the decrypted creds + all three upstream addresses.
+
+Actions (not HTTP methods): `gateway:read`, `gateway:write`, `runtime:chat`, `runtime:permission_resolve`, `secrets:read-redacted`, `gateway:secrets_raw`, `platform:*`. The catch-all derives its action from `actionForProxyPath(method, proxyPath)` in `lib/proxy-action.ts` — a **pure, dependency-free, unit-tested** map (method default + a small override table). Matching is **canonical per-segment** (the proxy path is already percent-decoded once by the Next router, then split into segments — never decoded twice), so `/admin/credentials-extra` cannot masquerade as the `/admin/credentials` secret prefix, and `runtime:chat` only fires when the trailing segments are exactly `tools/call` or `resources/read`. Roles: platform admin (implicit `admin` on every gateway, all actions), `operator` (read+write+runtime), `viewer` (read only).
+
+The guards write `audit_log` rows: every **deny**, plus **allow** for mutating/runtime/platform actions (plain reads skipped). To guarantee every opened allow row is **finalized** (with `http_status` + `duration_ms`) on success, a handled error Response, OR an uncaught throw, all non-streaming gateway/platform handlers are wrapped with **`withGatewayAccess(action, handler)`** / **`withPlatformAccess(handler)`** (the `withAccess` wrappers of §5.1) instead of calling the guard + `finalizeAccess` by hand. The two streaming exceptions — the catch-all proxy and the ACP chat handlers — finalize explicitly (`finalizeAccess(ctx, …)`) because the catch-all's action is dynamic and SSE turns must finalize on **stream end**, not Response-return.
 
 ### Health
 
@@ -118,11 +156,29 @@ All routes are under `/api/admin/`. Every route except `/api/admin/health` and `
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/api/admin/auth/login` | Validate username + bcrypt password, return session token |
+| POST | `/api/admin/auth/login` | Validate username + bcrypt against the `users` table (rejects disabled), return session token |
 | POST | `/api/admin/auth/logout` | Revoke session token |
-| GET | `/api/admin/auth/me` | Return current session info |
+| GET | `/api/admin/auth/me` | Return current user + `is_platform_admin` + `active_gateway_id` |
 
-Session tokens are random hex strings stored in an in-process `globalThis` Map. Authenticate with `requireAuth()` from `lib/require-auth.ts`.
+Session tokens are random hex strings persisted in the sqlite `sessions` table (durable across restart; honour `expires_at`; bound to a `user_id` and an `active_gateway_id`). `requireAuth()` from `lib/require-auth.ts` checks for any live session; the access guards (above) do role/gateway resolution.
+
+### Platform: Users, Gateways, Memberships, Session, Audit
+
+All require `requirePlatformAccess` except the `/session/*` endpoints (any logged-in user).
+
+| Method | Path | Description |
+|---|---|---|
+| GET/POST | `/api/admin/users` | List / create manager users (last-admin protected; disable revokes sessions) |
+| GET/PUT/DELETE | `/api/admin/users/[id]` | Get / update (password, role, status) / delete a user |
+| GET/POST | `/api/admin/gateways` | List / register gateways (admin password encrypted; returns `admin_password_set` + computed `health_status`, never ciphertext) |
+| GET/PUT/DELETE | `/api/admin/gateways/[id]` | Get / update (blank password keeps stored ciphertext) / delete a gateway |
+| POST | `/api/admin/gateways/test` | Pre-save connectivity check with supplied credentials |
+| POST | `/api/admin/gateways/[id]/test` | Connectivity check against a stored gateway's decrypted credentials |
+| GET/PUT | `/api/admin/gateways/[id]/members` | List members / upsert a membership (`{user_id, role}`) |
+| DELETE | `/api/admin/gateways/[id]/members/[userId]` | Remove a membership |
+| GET | `/api/admin/session/gateways` | The current user's accessible gateways + active id (self-heals a stale active) |
+| POST | `/api/admin/session/active-gateway` | Set the session's active gateway (validates access) |
+| GET | `/api/admin/audit` | Read-only audit log (`?gateway_id=&decision=&limit=`) |
 
 ### Caddy Server and Route Management
 
@@ -138,15 +194,15 @@ Session tokens are random hex strings stored in an in-process `globalThis` Map. 
 | PUT | `/api/admin/caddy/servers/[id]/routes/[routeId]` | Update a route |
 | DELETE | `/api/admin/caddy/servers/[id]/routes/[routeId]` | Delete a route |
 
-These endpoints translate between the manager's `ServerRequest`/`RouteRequest` types and Caddy's internal JSON config. Rules:
-- Servers listed in `CADDYMGR_READONLY_SERVER_IDS`, whose routes contain `agent_gateway_admin` handlers, or whose routes lack a `group` field (Caddyfile-defined), are read-only — return 403.
+These endpoints guard with `requireGatewayAccess` (read for GET, write for mutations) and translate between the manager's `ServerRequest`/`RouteRequest` types and Caddy's internal JSON config. The active gateway's `caddy_admin_addr` + `readonly_server_ids` are passed in as a `CaddyConfig` (`caddyConfigFor(ctx.gateway)`) — no env reads. Rules:
+- Servers in the gateway's read-only ids, whose routes contain `agent_gateway_admin` handlers, or whose routes lack a `group` field (Caddyfile-defined), are read-only — return 403.
 - Mutations use a get-modify-post cycle against the Caddy admin API (`GET /config/` + `POST /config/`). Only paths under `/apps/http/servers` are allowed.
 
 ### Gateway Proxy Catch-All
 
-Any `/api/admin/*` request not matched by the above handlers is proxied to the agent-gateway Admin API at `GATEWAY_ADDR`. The gateway delegates admin auth to the HTTP layer (Caddy `basic_auth` or the standalone daemon's basic-auth wrapper) — there is no gateway login/session/token flow. The proxy (`lib/gateway-proxy.ts`):
-1. Strips any inbound `Authorization` header and replaces it with static HTTP Basic Auth built from `GATEWAY_ADMIN_USER`/`GATEWAY_ADMIN_PASSWORD` before forwarding.
-2. Tries the configured `GATEWAY_ADDR` then its `localhost`↔`127.0.0.1` alternate on connection failure, caching the base URL that connects in `globalThis`. A gateway `401` means bad credentials and is passed through to the caller unchanged (no re-auth retry).
+Any `/api/admin/*` request not matched by an explicit handler is guarded by `requireGatewayAccess(req, actionForProxyPath(...))` and proxied to the **active gateway's** Admin API (`ctx.gateway.adminAddr`). The gateway delegates admin auth to the HTTP layer (Caddy `basic_auth` or the standalone daemon's basic-auth wrapper) — there is no gateway login/session/token flow. The proxy (`lib/gateway-proxy.ts`) takes the `ResolvedGateway`:
+1. Strips any inbound `Authorization` header and replaces it with static HTTP Basic Auth built from the gateway record's decrypted `adminUser`/`adminPassword` before forwarding.
+2. Tries the gateway's `adminAddr` then its `localhost`↔`127.0.0.1` alternate on connection failure, caching the base URL that connects in `globalThis` **keyed by gateway id**. A gateway `401` is passed through unchanged (no re-auth retry).
 3. Sanitizes request and response headers (removes CORS, content-encoding, hop-by-hop headers).
 
 Proxied gateway Admin API endpoints include (see agent-gateway README for full reference):
@@ -177,7 +233,7 @@ Driving an ACP conversation is a **data-plane** operation (on the runtime's publ
 | POST | `/api/admin/acp/chat/turn` | Resolve the ACP route via the Admin API, then forward a turn to `<dataplane>/<route_path_prefix>/turn` and stream the SSE response back to the browser |
 | POST | `/api/admin/acp/chat/permission` | Resolve an interactive permission at `<dataplane>/<route_path_prefix>/permission` |
 
-Both require a manager session, resolve the route's `path_prefix`/`host`/`require_virtual_key` server-side (`lib/acp-dataplane.ts` via `gatewayRequestJSON`), and inject the caller-selected virtual key as the data-plane `Authorization` so it never lives in the browser. The SSE event names are `session`, `delta`, `reasoning`, `content`, `plan`, `tool_call`, `usage`, `permission`, `done`, `error` (see `lib/acp-chat-stream.ts`).
+Both guard with `requireGatewayAccess` (`runtime:chat` for turn, `runtime:permission_resolve` for permission), resolve the route's `path_prefix`/`host`/`require_virtual_key` server-side against the active gateway (`lib/acp-dataplane.ts` via `gatewayRequestJSON` with the `ResolvedGateway`), forward to the gateway's `dataplane_addr`, and inject the caller-selected virtual key as the data-plane `Authorization` so it never lives in the browser. The SSE event names are `session`, `delta`, `reasoning`, `content`, `plan`, `tool_call`, `usage`, `permission`, `done`, `error` (see `lib/acp-chat-stream.ts`).
 
 ## Frontend (App Router Pages)
 
@@ -215,6 +271,13 @@ The UI is organized **agent-centric** (per `docs/ui-ux-improvement-plan.md`): th
 **Configuration:**
 - CLI Authenticators (`/dashboard/configuration/cliauth`) — CLI authenticator config, login flow, refresher control
 - Servers (`/dashboard/configuration/servers`) — Caddy HTTP server management, TLS, route dispatcher config
+
+**Platform** (visible only to platform admins; the section is hidden via `useCurrentUser()` in `dashboard-nav.tsx`):
+- Users (`/dashboard/platform/users`) — manager user CRUD (role, status, password reset)
+- Gateways (`/dashboard/platform/gateways`) — gateway registry CRUD + connectivity test + per-gateway member assignment
+- Audit Log (`/dashboard/platform/audit`) — read-only authorization decision log
+
+The active gateway is chosen via the **header gateway switcher** (`components/gateway-switcher.tsx`). Switching POSTs `/admin/session/active-gateway` then reloads, so every page (SWR or legacy) re-fetches against the new gateway (§6.1 of the design). The current user, accessible gateways, and active gateway come from `CurrentUserProvider` (`components/current-user-context.tsx`).
 
 ### Frontend Conventions
 

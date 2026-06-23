@@ -40,3 +40,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Manager sqlite store (encrypted secrets, sessions, audit) — never commit
+/data/

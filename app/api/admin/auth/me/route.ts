@@ -6,5 +6,10 @@ export function GET(req: Request) {
   if (deny) return deny;
 
   const session = lookupSession(getAuthToken(req))!;
-  return Response.json({ username: session.username, created_at: session.createdAt });
+  return Response.json({
+    username: session.username,
+    is_platform_admin: session.isPlatformAdmin,
+    active_gateway_id: session.activeGatewayId,
+    created_at: session.createdAt,
+  });
 }

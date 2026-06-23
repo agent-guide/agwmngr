@@ -1,25 +1,23 @@
-import { requireAuth } from "@/lib/require-auth";
-import { deleteServer, getServer, updateServer } from "@/lib/caddy-manager";
+import { withGatewayAccess } from "@/lib/access";
+import { caddyConfigFor, deleteServer, getServer, updateServer } from "@/lib/caddy-manager";
 import { AppError, ErrNotFound, ErrReadOnly, type ServerRequest } from "@/lib/types";
 
 type Params = { params: Promise<{ id: string }> };
 
-export async function GET(req: Request, { params }: Params) {
-  const deny = requireAuth(req);
-  if (deny) return deny;
+export const GET = withGatewayAccess("gateway:read", async (_req, access, { params }: Params) => {
+  const cfg = caddyConfigFor(access.gateway);
 
   const { id } = await params;
   try {
-    const srv = await getServer(id);
+    const srv = await getServer(cfg, id);
     return Response.json(srv);
   } catch (e) {
     return errorResponse(e);
   }
-}
+});
 
-export async function PUT(req: Request, { params }: Params) {
-  const deny = requireAuth(req);
-  if (deny) return deny;
+export const PUT = withGatewayAccess("gateway:write", async (req, access, { params }: Params) => {
+  const cfg = caddyConfigFor(access.gateway);
 
   const { id } = await params;
   let body: ServerRequest;
@@ -31,26 +29,25 @@ export async function PUT(req: Request, { params }: Params) {
   body.id = id;
 
   try {
-    await updateServer(body);
-    const srv = await getServer(id);
+    await updateServer(cfg, body);
+    const srv = await getServer(cfg, id);
     return Response.json(srv);
   } catch (e) {
     return errorResponse(e);
   }
-}
+});
 
-export async function DELETE(req: Request, { params }: Params) {
-  const deny = requireAuth(req);
-  if (deny) return deny;
+export const DELETE = withGatewayAccess("gateway:write", async (_req, access, { params }: Params) => {
+  const cfg = caddyConfigFor(access.gateway);
 
   const { id } = await params;
   try {
-    await deleteServer(id);
+    await deleteServer(cfg, id);
     return Response.json({ status: "deleted", id });
   } catch (e) {
     return errorResponse(e);
   }
-}
+});
 
 function errorResponse(e: unknown): Response {
   if (e instanceof AppError) {

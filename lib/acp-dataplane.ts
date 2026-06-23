@@ -1,16 +1,16 @@
 import { gatewayRequestJSON } from "./gateway-proxy";
-import { getServerEnv } from "./server-env";
+import type { ResolvedGateway } from "./gateway-resolve";
 
 // The ACP data plane (turn/permission/sessions) is served on the runtime's
-// public listener, NOT the gateway Admin API at GATEWAY_ADDR. It is reached
-// through a configured ACP route's path prefix.
+// public listener, NOT the gateway Admin API. It is reached through a configured
+// ACP route's path prefix, on the gateway record's dataplane_addr.
 //
 // Note the host matters: the dispatcher site is commonly bound to 127.0.0.1
 // while the admin site is bound to localhost, so a request with the wrong Host
 // header falls through to an empty Caddy 200 instead of reaching the dispatcher.
 // Default to 127.0.0.1; dataplaneCandidates() flips the two as a fallback.
-export function dataplaneAddr(): string {
-  return (getServerEnv("GATEWAY_DATAPLANE_ADDR") || "http://127.0.0.1:8080").replace(/\/$/, "");
+export function dataplaneAddr(gateway: ResolvedGateway): string {
+  return (gateway.dataplaneAddr || "http://127.0.0.1:8080").replace(/\/$/, "");
 }
 
 /**
@@ -19,8 +19,8 @@ export function dataplaneAddr(): string {
  * sites bind either localhost or 127.0.0.1, we try the configured host first and
  * the flipped variant as a fallback. Mirrors gateway-proxy's candidate logic.
  */
-export function dataplaneCandidates(): string[] {
-  const configured = dataplaneAddr();
+export function dataplaneCandidates(gateway: ResolvedGateway): string[] {
+  const configured = dataplaneAddr(gateway);
   const out = [configured];
   try {
     const url = new URL(configured);
@@ -65,10 +65,17 @@ interface GatewayACPRoute {
  * Resolving server-side (rather than trusting the client) keeps the path and
  * auth requirement authoritative.
  */
-export async function resolveACPRouteTarget(routeId: string): Promise<ACPRouteTarget> {
+export async function resolveACPRouteTarget(
+  routeId: string,
+  gateway: ResolvedGateway,
+): Promise<ACPRouteTarget> {
   let result: { status: number; body: unknown };
   try {
-    result = await gatewayRequestJSON("GET", `/admin/acp/routes/${encodeURIComponent(routeId)}`);
+    result = await gatewayRequestJSON(
+      "GET",
+      `/admin/acp/routes/${encodeURIComponent(routeId)}`,
+      gateway,
+    );
   } catch (e) {
     throw new ACPRouteError(502, `failed to reach gateway: ${String(e)}`);
   }

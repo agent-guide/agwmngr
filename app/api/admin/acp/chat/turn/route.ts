@@ -1,4 +1,4 @@
-import { requireAuth } from "@/lib/require-auth";
+import { requireGatewayAccess, finalizeAccess } from "@/lib/access";
 import { ACPRouteError, dataplaneCandidates, resolveACPRouteTarget } from "@/lib/acp-dataplane";
 
 // Streaming proxy: forwards a chat turn to the ACP data plane and pipes the
@@ -22,32 +22,45 @@ interface TurnBody {
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request): Promise<Response> {
-  const deny = requireAuth(req);
-  if (deny) return deny;
+  const start = Date.now();
+  const guard = requireGatewayAccess(req, "runtime:chat");
+  if (!guard.ok) return guard.res;
+  const gateway = guard.ctx.gateway;
+  const finalize = (status: number, reason?: string) =>
+    finalizeAccess(guard.ctx, {
+      http_status: status,
+      duration_ms: Date.now() - start,
+      target_kind: "acp_turn",
+      failure_reason: reason ?? null,
+    });
+  const fail = (res: Response, status: number, reason: string): Response => {
+    finalize(status, reason);
+    return res;
+  };
 
   let payload: TurnBody;
   try {
     payload = (await req.json()) as TurnBody;
   } catch {
-    return Response.json({ error: "invalid JSON body" }, { status: 400 });
+    return fail(Response.json({ error: "invalid JSON body" }, { status: 400 }), 400, "bad_request");
   }
 
   const routeId = payload.route_id?.trim();
-  if (!routeId) return Response.json({ error: "route_id is required" }, { status: 400 });
-  if (!payload.thread_id?.trim()) return Response.json({ error: "thread_id is required" }, { status: 400 });
-  if (!payload.input?.trim()) return Response.json({ error: "input is required" }, { status: 400 });
+  if (!routeId) return fail(Response.json({ error: "route_id is required" }, { status: 400 }), 400, "bad_request");
+  if (!payload.thread_id?.trim()) return fail(Response.json({ error: "thread_id is required" }, { status: 400 }), 400, "bad_request");
+  if (!payload.input?.trim()) return fail(Response.json({ error: "input is required" }, { status: 400 }), 400, "bad_request");
 
   let target;
   try {
-    target = await resolveACPRouteTarget(routeId);
+    target = await resolveACPRouteTarget(routeId, gateway);
   } catch (e) {
-    if (e instanceof ACPRouteError) return Response.json({ error: e.message }, { status: e.status });
-    return Response.json({ error: `gateway unreachable: ${String(e)}` }, { status: 502 });
+    if (e instanceof ACPRouteError) return fail(Response.json({ error: e.message }, { status: e.status }), e.status, "route_error");
+    return fail(Response.json({ error: `gateway unreachable: ${String(e)}` }, { status: 502 }), 502, "gateway_unreachable");
   }
 
   const virtualKey = payload.virtual_key?.trim();
   if (target.requireVirtualKey && !virtualKey) {
-    return Response.json({ error: "this route requires a virtual key" }, { status: 400 });
+    return fail(Response.json({ error: "this route requires a virtual key" }, { status: 400 }), 400, "virtual_key_required");
   }
 
   const turnBody: Record<string, unknown> = {
@@ -77,7 +90,7 @@ export async function POST(req: Request): Promise<Response> {
   // that is NOT an event stream means the Host did not match the dispatcher site
   // (Caddy fell through) — try the next candidate. A >=400 means the dispatcher
   // handled the request and rejected it, so surface that immediately.
-  for (const base of dataplaneCandidates()) {
+  for (const base of dataplaneCandidates(gateway)) {
     const url = `${base}${target.pathPrefix}/turn`;
     let upstream: Response;
     try {
@@ -95,9 +108,13 @@ export async function POST(req: Request): Promise<Response> {
 
     if (upstream.status >= 400) {
       const text = await upstream.text().catch(() => "");
-      return Response.json(
-        { error: text.trim() || `data plane returned ${upstream.status}` },
-        { status: upstream.status },
+      return fail(
+        Response.json(
+          { error: text.trim() || `data plane returned ${upstream.status}` },
+          { status: upstream.status },
+        ),
+        upstream.status,
+        "dataplane_error",
       );
     }
 
@@ -106,10 +123,38 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   if (!stream) {
-    return Response.json({ error: lastError || "data plane did not return a stream" }, { status: 502 });
+    return fail(
+      Response.json({ error: lastError || "data plane did not return a stream" }, { status: 502 }),
+      502,
+      "no_stream",
+    );
   }
 
-  return new Response(stream, {
+  // Stream-aware finalize (§5.1): the turn may still fail or be cancelled after
+  // the 200 headers are sent, so finalize when the stream actually ends, not now.
+  const reader = stream.getReader();
+  const wrapped = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          controller.close();
+          finalize(200);
+          return;
+        }
+        controller.enqueue(value as Uint8Array);
+      } catch (e) {
+        controller.error(e);
+        finalize(599, "stream_error");
+      }
+    },
+    cancel(reason) {
+      void reader.cancel(reason);
+      finalize(499, "client_cancelled");
+    },
+  });
+
+  return new Response(wrapped, {
     status: 200,
     headers: {
       "Content-Type": "text/event-stream; charset=utf-8",

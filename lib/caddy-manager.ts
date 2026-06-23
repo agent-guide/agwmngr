@@ -14,8 +14,22 @@ import {
   type ServerRequest,
   type ServerResponse,
 } from "./types";
+import type { ResolvedGateway } from "./gateway-resolve";
 
 const ALLOWED_PREFIXES = ["/apps/http/servers"];
+
+// Per-gateway Caddy configuration. Threaded explicitly through every call so
+// concurrent requests targeting different gateways never share global state.
+export interface CaddyConfig {
+  adminAddr: string;
+  readonlyServerIds: Set<string>;
+}
+
+/** Build a CaddyConfig from a resolved gateway record. */
+export function caddyConfigFor(gateway: ResolvedGateway): CaddyConfig {
+  const addr = (gateway.caddyAdminAddr || "http://localhost:2019").replace(/\/$/, "");
+  return { adminAddr: addr, readonlyServerIds: new Set(gateway.readonlyServerIds) };
+}
 
 function checkAllowed(path: string): void {
   for (const prefix of ALLOWED_PREFIXES) {
@@ -24,17 +38,13 @@ function checkAllowed(path: string): void {
   throw new AppError(400, `config path "${path}" is not allowed`);
 }
 
-function caddyAdminAddr(): string {
-  return (process.env.CADDY_ADMIN_ADDR ?? "http://localhost:2019").replace(/\/$/, "");
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-async function caddyGET(path: string): Promise<unknown> {
+async function caddyGET(cfg: CaddyConfig, path: string): Promise<unknown> {
   checkAllowed(path);
-  const res = await fetch(`${caddyAdminAddr()}/config${path}`);
+  const res = await fetch(`${cfg.adminAddr}/config${path}`);
   if (res.status === 404) throw new AppError(404, ErrNotFound);
   if (!res.ok) {
     const text = await res.text();
@@ -43,8 +53,8 @@ async function caddyGET(path: string): Promise<unknown> {
   return res.json();
 }
 
-async function getFullConfig(): Promise<Record<string, unknown>> {
-  const res = await fetch(`${caddyAdminAddr()}/config/`);
+async function getFullConfig(cfg: CaddyConfig): Promise<Record<string, unknown>> {
+  const res = await fetch(`${cfg.adminAddr}/config/`);
   if (!res.ok) {
     const text = await res.text();
     throw new AppError(502, `caddy admin error ${res.status}: ${text.trim()}`);
@@ -52,11 +62,11 @@ async function getFullConfig(): Promise<Record<string, unknown>> {
   return (await res.json()) as Record<string, unknown>;
 }
 
-async function postFullConfig(cfg: Record<string, unknown>): Promise<void> {
-  const res = await fetch(`${caddyAdminAddr()}/config/`, {
+async function postFullConfig(cfg: CaddyConfig, fullCfg: Record<string, unknown>): Promise<void> {
+  const res = await fetch(`${cfg.adminAddr}/config/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(cfg),
+    body: JSON.stringify(fullCfg),
   });
   if (!res.ok) {
     const text = await res.text();
@@ -84,27 +94,21 @@ function deleteAtPath(obj: Record<string, unknown>, path: string): void {
   delete cur[parts[parts.length - 1]];
 }
 
-async function caddyPUT(path: string, val: unknown): Promise<void> {
+async function caddyPUT(cfg: CaddyConfig, path: string, val: unknown): Promise<void> {
   checkAllowed(path);
-  const cfg = await getFullConfig();
-  setAtPath(cfg, path, val);
-  await postFullConfig(cfg);
+  const fullCfg = await getFullConfig(cfg);
+  setAtPath(fullCfg, path, val);
+  await postFullConfig(cfg, fullCfg);
 }
 
-async function caddyDELETE(path: string): Promise<void> {
+async function caddyDELETE(cfg: CaddyConfig, path: string): Promise<void> {
   checkAllowed(path);
-  const cfg = await getFullConfig();
-  deleteAtPath(cfg, path);
-  await postFullConfig(cfg);
+  const fullCfg = await getFullConfig(cfg);
+  deleteAtPath(fullCfg, path);
+  await postFullConfig(cfg, fullCfg);
 }
 
 // ── Translation helpers ───────────────────────────────────────────────────────
-
-function readOnlyServerIds(): Set<string> {
-  const raw = process.env.CADDYMGR_READONLY_SERVER_IDS ?? "";
-  const ids = raw.split(",").map((s) => s.trim()).filter(Boolean);
-  return new Set(ids);
-}
 
 function routeContainsAdminHandler(route: CaddyRoute): boolean {
   return route.handle.some((h) => handlerContainsAdmin(h));
@@ -121,8 +125,8 @@ function handlerContainsAdmin(h: CaddyHandler): boolean {
   });
 }
 
-function isProtectedServer(id: string, srv: CaddyServer): boolean {
-  if (readOnlyServerIds().has(id)) return true;
+function isProtectedServer(cfg: CaddyConfig, id: string, srv: CaddyServer): boolean {
+  if (cfg.readonlyServerIds.has(id)) return true;
   for (const route of srv.routes ?? []) {
     if (routeContainsAdminHandler(route)) return true;
     if (!route.group) return true;
@@ -252,8 +256,8 @@ function normalizeCaddyServer(raw: unknown): CaddyServer {
   return { listen, routes, tls };
 }
 
-function fromCaddyServer(id: string, srv: CaddyServer): ServerResponse {
-  const readonly = isProtectedServer(id, srv);
+function fromCaddyServer(cfg: CaddyConfig, id: string, srv: CaddyServer): ServerResponse {
+  const readonly = isProtectedServer(cfg, id, srv);
   const resp: ServerResponse = {
     id,
     listen: srv.listen ?? [],
@@ -262,7 +266,7 @@ function fromCaddyServer(id: string, srv: CaddyServer): ServerResponse {
   };
   if (readonly) {
     resp.source =
-      readOnlyServerIds().has(id) || (srv.routes ?? []).some((r) => !r.group)
+      cfg.readonlyServerIds.has(id) || (srv.routes ?? []).some((r) => !r.group)
         ? "caddyfile"
         : "system";
     resp.public_url = derivePublicURL(srv.listen, !!srv.tls);
@@ -290,14 +294,14 @@ function toCaddyRoute(req: RouteRequest): CaddyRoute {
   return route;
 }
 
-async function getRawServer(id: string): Promise<CaddyServer> {
-  const raw = await caddyGET(`/apps/http/servers/${id}`);
+async function getRawServer(cfg: CaddyConfig, id: string): Promise<CaddyServer> {
+  const raw = await caddyGET(cfg, `/apps/http/servers/${id}`);
   return normalizeCaddyServer(raw);
 }
 
-async function ensureServerMutable(id: string): Promise<void> {
-  const srv = await getRawServer(id);
-  if (isProtectedServer(id, srv)) {
+async function ensureServerMutable(cfg: CaddyConfig, id: string): Promise<void> {
+  const srv = await getRawServer(cfg, id);
+  if (isProtectedServer(cfg, id, srv)) {
     throw new AppError(403, `server "${id}" is managed by Caddyfile/system config and is read-only: ${ErrReadOnly}`);
   }
 }
@@ -308,28 +312,28 @@ function isEmptyCaddyServer(srv: CaddyServer): boolean {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export async function listServers(): Promise<ServerResponse[]> {
-  const raw = await caddyGET("/apps/http/servers");
+export async function listServers(cfg: CaddyConfig): Promise<ServerResponse[]> {
+  const raw = await caddyGET(cfg, "/apps/http/servers");
   if (!isRecord(raw)) return [];
 
   return Object.entries(raw)
     .filter(([, srv]) => srv !== null)
-    .map(([id, srv]) => fromCaddyServer(id, normalizeCaddyServer(srv)));
+    .map(([id, srv]) => fromCaddyServer(cfg, id, normalizeCaddyServer(srv)));
 }
 
-export async function getServer(id: string): Promise<ServerResponse> {
-  const srv = await getRawServer(id);
-  return fromCaddyServer(id, srv);
+export async function getServer(cfg: CaddyConfig, id: string): Promise<ServerResponse> {
+  const srv = await getRawServer(cfg, id);
+  return fromCaddyServer(cfg, id, srv);
 }
 
-export async function createServer(req: ServerRequest): Promise<void> {
+export async function createServer(cfg: CaddyConfig, req: ServerRequest): Promise<void> {
   if (!req.id) throw new AppError(400, "server id is required");
   if (!req.listen?.length) throw new AppError(400, "at least one listen address is required");
-  if (readOnlyServerIds().has(req.id)) {
+  if (cfg.readonlyServerIds.has(req.id)) {
     throw new AppError(403, `server "${req.id}" is managed by Caddyfile config and is read-only: ${ErrReadOnly}`);
   }
   try {
-    const existing = await getRawServer(req.id);
+    const existing = await getRawServer(cfg, req.id);
     if (!isEmptyCaddyServer(existing)) {
       throw new AppError(409, `server "${req.id}" already exists: ${ErrConflict}`);
     }
@@ -340,29 +344,29 @@ export async function createServer(req: ServerRequest): Promise<void> {
       throw e;
     }
   }
-  await caddyPUT(`/apps/http/servers/${req.id}`, toCaddyServer(req, []));
+  await caddyPUT(cfg, `/apps/http/servers/${req.id}`, toCaddyServer(req, []));
 }
 
-export async function updateServer(req: ServerRequest): Promise<void> {
+export async function updateServer(cfg: CaddyConfig, req: ServerRequest): Promise<void> {
   if (!req.id) throw new AppError(400, "server id is required");
   if (!req.listen?.length) throw new AppError(400, "at least one listen address is required");
-  await ensureServerMutable(req.id);
-  const existing = await getRawServer(req.id);
-  await caddyPUT(`/apps/http/servers/${req.id}`, toCaddyServer(req, existing.routes ?? []));
+  await ensureServerMutable(cfg, req.id);
+  const existing = await getRawServer(cfg, req.id);
+  await caddyPUT(cfg, `/apps/http/servers/${req.id}`, toCaddyServer(req, existing.routes ?? []));
 }
 
-export async function deleteServer(id: string): Promise<void> {
-  await ensureServerMutable(id);
-  await caddyDELETE(`/apps/http/servers/${id}`);
+export async function deleteServer(cfg: CaddyConfig, id: string): Promise<void> {
+  await ensureServerMutable(cfg, id);
+  await caddyDELETE(cfg, `/apps/http/servers/${id}`);
 }
 
-export async function listRoutes(serverID: string): Promise<RouteResponse[]> {
+export async function listRoutes(cfg: CaddyConfig, serverID: string): Promise<RouteResponse[]> {
   let raw: unknown;
   try {
-    raw = await caddyGET(`/apps/http/servers/${serverID}/routes`);
+    raw = await caddyGET(cfg, `/apps/http/servers/${serverID}/routes`);
   } catch (e) {
     if (e instanceof AppError && e.message.includes(ErrNotFound)) {
-      await getRawServer(serverID); // throws 404 if server itself not found
+      await getRawServer(cfg, serverID); // throws 404 if server itself not found
       return [];
     }
     throw e;
@@ -371,10 +375,10 @@ export async function listRoutes(serverID: string): Promise<RouteResponse[]> {
   return routes.map((r, i) => fromCaddyRoute(i, r));
 }
 
-export async function addRoute(serverID: string, req: RouteRequest): Promise<void> {
+export async function addRoute(cfg: CaddyConfig, serverID: string, req: RouteRequest): Promise<void> {
   if (!req.id) throw new AppError(400, "route id is required");
-  await ensureServerMutable(serverID);
-  const srv = await getRawServer(serverID);
+  await ensureServerMutable(cfg, serverID);
+  const srv = await getRawServer(cfg, serverID);
   const existing = srv.routes ?? [];
   if (existing.some((r) => r.group === req.id)) {
     throw new AppError(409, `route "${req.id}" already exists in server "${serverID}": ${ErrConflict}`);
@@ -384,12 +388,17 @@ export async function addRoute(serverID: string, req: RouteRequest): Promise<voi
   if (pos < 0) pos = 0;
   if (pos > existing.length) pos = existing.length;
   const updated = [...existing.slice(0, pos), newRoute, ...existing.slice(pos)];
-  await caddyPUT(`/apps/http/servers/${serverID}/routes`, updated);
+  await caddyPUT(cfg, `/apps/http/servers/${serverID}/routes`, updated);
 }
 
-export async function updateRoute(serverID: string, routeID: string, req: RouteRequest): Promise<void> {
-  await ensureServerMutable(serverID);
-  const srv = await getRawServer(serverID);
+export async function updateRoute(
+  cfg: CaddyConfig,
+  serverID: string,
+  routeID: string,
+  req: RouteRequest,
+): Promise<void> {
+  await ensureServerMutable(cfg, serverID);
+  const srv = await getRawServer(cfg, serverID);
   const existing = srv.routes ?? [];
   const idx = existing.findIndex((r) => r.group === routeID);
   if (idx === -1) {
@@ -397,16 +406,16 @@ export async function updateRoute(serverID: string, routeID: string, req: RouteR
   }
   const updated = [...existing];
   updated[idx] = { ...toCaddyRoute(req), group: routeID };
-  await caddyPUT(`/apps/http/servers/${serverID}/routes`, updated);
+  await caddyPUT(cfg, `/apps/http/servers/${serverID}/routes`, updated);
 }
 
-export async function deleteRoute(serverID: string, routeID: string): Promise<void> {
-  await ensureServerMutable(serverID);
-  const srv = await getRawServer(serverID);
+export async function deleteRoute(cfg: CaddyConfig, serverID: string, routeID: string): Promise<void> {
+  await ensureServerMutable(cfg, serverID);
+  const srv = await getRawServer(cfg, serverID);
   const existing = srv.routes ?? [];
   const filtered = existing.filter((r) => r.group !== routeID);
   if (filtered.length === existing.length) {
     throw new AppError(404, `route "${routeID}" not found in server "${serverID}": ${ErrNotFound}`);
   }
-  await caddyPUT(`/apps/http/servers/${serverID}/routes`, filtered);
+  await caddyPUT(cfg, `/apps/http/servers/${serverID}/routes`, filtered);
 }

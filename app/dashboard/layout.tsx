@@ -5,10 +5,12 @@ import { MobileTopBar } from "@/components/mobile-top-bar";
 import { DashboardShell } from "@/components/dashboard-shell";
 import { AuthGuard } from "@/components/auth-guard";
 import { AutoRefreshProvider } from "@/components/auto-refresh-context";
+import { CurrentUserProvider } from "@/components/current-user-context";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <AuthGuard>
+      <CurrentUserProvider>
       <ToastProvider>
         <AutoRefreshProvider>
         <MobileSidebarProvider>
@@ -24,6 +26,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </MobileSidebarProvider>
         </AutoRefreshProvider>
       </ToastProvider>
+      </CurrentUserProvider>
     </AuthGuard>
   );
 }

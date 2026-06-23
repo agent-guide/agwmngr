@@ -1,4 +1,4 @@
-import { requireAuth } from "@/lib/require-auth";
+import { requireGatewayAccess, finalizeAccess } from "@/lib/access";
 import { ACPRouteError, dataplaneCandidates, resolveACPRouteTarget } from "@/lib/acp-dataplane";
 
 // Resolves an interactive permission request on the ACP data plane. The agent's
@@ -14,26 +14,37 @@ interface PermissionBody {
 }
 
 export async function POST(req: Request): Promise<Response> {
-  const deny = requireAuth(req);
-  if (deny) return deny;
+  const start = Date.now();
+  const guard = requireGatewayAccess(req, "runtime:permission_resolve");
+  if (!guard.ok) return guard.res;
+  const gateway = guard.ctx.gateway;
+  const done = (res: Response, status: number, reason?: string): Response => {
+    finalizeAccess(guard.ctx, {
+      http_status: status,
+      duration_ms: Date.now() - start,
+      target_kind: "acp_permission",
+      failure_reason: reason ?? null,
+    });
+    return res;
+  };
 
   let payload: PermissionBody;
   try {
     payload = (await req.json()) as PermissionBody;
   } catch {
-    return Response.json({ error: "invalid JSON body" }, { status: 400 });
+    return done(Response.json({ error: "invalid JSON body" }, { status: 400 }), 400, "bad_request");
   }
 
   const routeId = payload.route_id?.trim();
-  if (!routeId) return Response.json({ error: "route_id is required" }, { status: 400 });
-  if (!payload.request_id?.trim()) return Response.json({ error: "request_id is required" }, { status: 400 });
+  if (!routeId) return done(Response.json({ error: "route_id is required" }, { status: 400 }), 400, "bad_request");
+  if (!payload.request_id?.trim()) return done(Response.json({ error: "request_id is required" }, { status: 400 }), 400, "bad_request");
 
   let target;
   try {
-    target = await resolveACPRouteTarget(routeId);
+    target = await resolveACPRouteTarget(routeId, gateway);
   } catch (e) {
-    if (e instanceof ACPRouteError) return Response.json({ error: e.message }, { status: e.status });
-    return Response.json({ error: `gateway unreachable: ${String(e)}` }, { status: 502 });
+    if (e instanceof ACPRouteError) return done(Response.json({ error: e.message }, { status: e.status }), e.status, "route_error");
+    return done(Response.json({ error: `gateway unreachable: ${String(e)}` }, { status: 502 }), 502, "gateway_unreachable");
   }
 
   const virtualKey = payload.virtual_key?.trim();
@@ -53,7 +64,7 @@ export async function POST(req: Request): Promise<Response> {
   // Same host-candidate handling as the turn route: a >=400 is a real dispatcher
   // rejection (surface it); a 2xx with a body is the resolved response; an empty
   // 2xx is a Caddy fall-through (wrong Host) — try the next candidate.
-  for (const base of dataplaneCandidates()) {
+  for (const base of dataplaneCandidates(gateway)) {
     const url = `${base}${target.pathPrefix}/permission`;
     let upstream: Response;
     try {
@@ -65,20 +76,28 @@ export async function POST(req: Request): Promise<Response> {
 
     const text = await upstream.text().catch(() => "");
     if (upstream.status >= 400) {
-      return Response.json(
-        { error: text.trim() || `data plane returned ${upstream.status}` },
-        { status: upstream.status },
+      return done(
+        Response.json(
+          { error: text.trim() || `data plane returned ${upstream.status}` },
+          { status: upstream.status },
+        ),
+        upstream.status,
+        "dataplane_error",
       );
     }
     if (text.trim()) {
       try {
-        return Response.json(JSON.parse(text), { status: 200 });
+        return done(Response.json(JSON.parse(text), { status: 200 }), 200);
       } catch {
-        return Response.json({ status: "resolved" }, { status: 200 });
+        return done(Response.json({ status: "resolved" }, { status: 200 }), 200);
       }
     }
     lastError = `data plane at ${url} did not acknowledge the permission — its Host (${new URL(base).host}) may not match the dispatcher site`;
   }
 
-  return Response.json({ error: lastError || "data plane did not acknowledge the permission" }, { status: 502 });
+  return done(
+    Response.json({ error: lastError || "data plane did not acknowledge the permission" }, { status: 502 }),
+    502,
+    "no_ack",
+  );
 }

@@ -1,22 +1,20 @@
-import { requireAuth } from "@/lib/require-auth";
-import { createServer, getServer, listServers } from "@/lib/caddy-manager";
+import { withGatewayAccess } from "@/lib/access";
+import { caddyConfigFor, createServer, getServer, listServers } from "@/lib/caddy-manager";
 import { AppError, ErrConflict, ErrReadOnly, type ServerRequest } from "@/lib/types";
 
-export async function GET(req: Request) {
-  const deny = requireAuth(req);
-  if (deny) return deny;
+export const GET = withGatewayAccess("gateway:read", async (_req, access) => {
+  const cfg = caddyConfigFor(access.gateway);
 
   try {
-    const servers = await listServers();
+    const servers = await listServers(cfg);
     return Response.json({ items: servers });
   } catch (e) {
     return errorResponse(e);
   }
-}
+});
 
-export async function POST(req: Request) {
-  const deny = requireAuth(req);
-  if (deny) return deny;
+export const POST = withGatewayAccess("gateway:write", async (req, access) => {
+  const cfg = caddyConfigFor(access.gateway);
 
   let body: ServerRequest;
   try {
@@ -26,13 +24,13 @@ export async function POST(req: Request) {
   }
 
   try {
-    await createServer(body);
-    const srv = await getServer(body.id);
+    await createServer(cfg, body);
+    const srv = await getServer(cfg, body.id);
     return Response.json(srv, { status: 201 });
   } catch (e) {
     return errorResponse(e);
   }
-}
+});
 
 function errorResponse(e: unknown): Response {
   if (e instanceof AppError) {

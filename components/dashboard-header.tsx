@@ -1,5 +1,7 @@
 "use client";
 
+import { GatewaySwitcher } from "@/components/gateway-switcher";
+
 interface DashboardHeaderProps {
   onUserClick: () => void;
   username: string;
@@ -9,14 +11,15 @@ interface DashboardHeaderProps {
 export function DashboardHeader({ onUserClick, username, isAdmin }: DashboardHeaderProps) {
   const initial = username ? username.charAt(0).toUpperCase() : "?";
   return (
-    <header className="w-full bg-slate-900/40 border-b border-slate-700/70 backdrop-blur-sm py-2.5 px-4 lg:px-6 rounded-lg mb-4 flex items-center justify-between">
+    <header className="relative z-50 w-full bg-slate-900/40 border-b border-slate-700/70 backdrop-blur-sm py-2.5 px-4 lg:px-6 rounded-lg mb-4 flex items-center justify-between">
       <div className="flex items-center gap-3 text-sm">
         <div className="flex items-center gap-2">
           <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse-dot" />
           <span className="text-emerald-400 font-medium">All systems operational</span>
         </div>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3">
+        <GatewaySwitcher />
         <button
           onClick={onUserClick}
           aria-label="User settings"

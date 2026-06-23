@@ -1441,3 +1441,217 @@ export async function getAgentResources(id: string): Promise<AgentResourcesView>
 export async function getAgentHealth(id: string): Promise<AgentHealth> {
   return adminFetch<AgentHealth>(`/admin/agents/${encodeURIComponent(id)}/health`);
 }
+
+// ---- Platform: current user ----
+
+export interface CurrentUser {
+  username: string;
+  is_platform_admin: boolean;
+  active_gateway_id: string | null;
+  created_at: string;
+}
+
+export async function getCurrentUser(): Promise<CurrentUser> {
+  return adminFetch<CurrentUser>("/admin/auth/me");
+}
+
+// ---- Platform: users (platform-admin only) ----
+
+export interface ManagerUser {
+  id: number;
+  username: string;
+  is_platform_admin: boolean;
+  status: "active" | "disabled";
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listManagerUsers(): Promise<ManagerUser[]> {
+  const res = await adminFetch<{ items: ManagerUser[] }>("/admin/users");
+  return res.items ?? [];
+}
+
+export async function createManagerUser(input: {
+  username: string;
+  password: string;
+  is_platform_admin: boolean;
+}): Promise<ManagerUser> {
+  return adminFetch<ManagerUser>("/admin/users", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateManagerUser(
+  id: number,
+  patch: { password?: string; is_platform_admin?: boolean; status?: "active" | "disabled" },
+): Promise<ManagerUser> {
+  return adminFetch<ManagerUser>(`/admin/users/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function deleteManagerUser(id: number): Promise<void> {
+  await adminFetch(`/admin/users/${id}`, { method: "DELETE" });
+}
+
+// ---- Session: active gateway + switcher ----
+
+export interface SessionGateway {
+  id: string;
+  name: string;
+  role: "admin" | "operator" | "viewer";
+  status: "active" | "disabled";
+  health_status: "ok" | "credential_error" | "encryption_unconfigured";
+}
+
+export async function listSessionGateways(): Promise<{ items: SessionGateway[]; active_gateway_id: string | null }> {
+  return adminFetch("/admin/session/gateways");
+}
+
+export async function setActiveGateway(gatewayId: string | null): Promise<{ active_gateway_id: string | null }> {
+  return adminFetch("/admin/session/active-gateway", {
+    method: "POST",
+    body: JSON.stringify({ gateway_id: gatewayId }),
+  });
+}
+
+// ---- Platform: gateways registry (platform-admin only) ----
+
+export interface ManagerGateway {
+  id: string;
+  name: string;
+  description: string | null;
+  admin_addr: string;
+  admin_user: string;
+  admin_password_set: boolean;
+  caddy_admin_addr: string | null;
+  dataplane_addr: string | null;
+  readonly_server_ids: string | null;
+  status: "active" | "disabled";
+  health_status: "ok" | "credential_error" | "encryption_unconfigured";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GatewayWriteBody {
+  id?: string;
+  name?: string;
+  description?: string | null;
+  admin_addr?: string;
+  admin_user?: string;
+  admin_password?: string;
+  caddy_admin_addr?: string | null;
+  dataplane_addr?: string | null;
+  readonly_server_ids?: string | null;
+  status?: "active" | "disabled";
+}
+
+export async function listGateways(): Promise<ManagerGateway[]> {
+  const res = await adminFetch<{ items: ManagerGateway[] }>("/admin/gateways");
+  return res.items ?? [];
+}
+
+export async function createGateway(body: GatewayWriteBody): Promise<ManagerGateway> {
+  return adminFetch<ManagerGateway>("/admin/gateways", { method: "POST", body: JSON.stringify(body) });
+}
+
+export async function updateGateway(id: string, body: GatewayWriteBody): Promise<ManagerGateway> {
+  return adminFetch<ManagerGateway>(`/admin/gateways/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteGateway(id: string): Promise<void> {
+  await adminFetch(`/admin/gateways/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export interface ConnectivityResult {
+  ok: boolean;
+  reason?: "unreachable" | "unauthorized" | "gateway_error";
+  status?: number;
+  message?: string;
+}
+
+export async function testGatewayCredentials(body: {
+  admin_addr: string;
+  admin_user: string;
+  admin_password: string;
+}): Promise<ConnectivityResult> {
+  return adminFetch<ConnectivityResult>("/admin/gateways/test", { method: "POST", body: JSON.stringify(body) });
+}
+
+export async function testGatewayStored(id: string): Promise<ConnectivityResult> {
+  return adminFetch<ConnectivityResult>(`/admin/gateways/${encodeURIComponent(id)}/test`, { method: "POST" });
+}
+
+// ---- Platform: gateway memberships ----
+
+export interface GatewayMember {
+  user_id: number;
+  username: string;
+  role: "operator" | "viewer";
+}
+
+export async function listGatewayMembers(gatewayId: string): Promise<GatewayMember[]> {
+  const res = await adminFetch<{ items: GatewayMember[] }>(`/admin/gateways/${encodeURIComponent(gatewayId)}/members`);
+  return res.items ?? [];
+}
+
+export async function setGatewayMember(
+  gatewayId: string,
+  userId: number,
+  role: "operator" | "viewer",
+): Promise<GatewayMember[]> {
+  const res = await adminFetch<{ items: GatewayMember[] }>(
+    `/admin/gateways/${encodeURIComponent(gatewayId)}/members`,
+    { method: "PUT", body: JSON.stringify({ user_id: userId, role }) },
+  );
+  return res.items ?? [];
+}
+
+export async function removeGatewayMember(gatewayId: string, userId: number): Promise<GatewayMember[]> {
+  const res = await adminFetch<{ items: GatewayMember[] }>(
+    `/admin/gateways/${encodeURIComponent(gatewayId)}/members/${userId}`,
+    { method: "DELETE" },
+  );
+  return res.items ?? [];
+}
+
+// ---- Platform: audit log (platform-admin only) ----
+
+export interface AuditLogEntry {
+  id: number;
+  ts: string;
+  request_id: string | null;
+  actor_user_id: number | null;
+  username: string | null;
+  gateway_id: string | null;
+  action: string | null;
+  method: string | null;
+  path: string | null;
+  target_kind: string | null;
+  target_id: string | null;
+  decision: "allow" | "deny";
+  failure_reason: string | null;
+  http_status: number | null;
+  ip: string | null;
+  user_agent: string | null;
+  duration_ms: number | null;
+}
+
+export async function listAuditLog(params?: {
+  gateway_id?: string;
+  decision?: "allow" | "deny";
+  limit?: number;
+}): Promise<AuditLogEntry[]> {
+  const q = new URLSearchParams();
+  if (params?.gateway_id) q.set("gateway_id", params.gateway_id);
+  if (params?.decision) q.set("decision", params.decision);
+  if (params?.limit) q.set("limit", String(params.limit));
+  const qs = q.toString();
+  const res = await adminFetch<{ items: AuditLogEntry[] }>(`/admin/audit${qs ? `?${qs}` : ""}`);
+  return res.items ?? [];
+}

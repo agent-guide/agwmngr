@@ -1,6 +1,10 @@
 import bcrypt from "bcryptjs";
-import { createSession } from "@/lib/session";
-import { getServerEnv } from "@/lib/server-env";
+import { findUserByUsername } from "@/lib/db";
+import { createSessionForUser } from "@/lib/session";
+
+// Constant-time decoy so a missing/disabled user takes the same time as a real
+// one with a wrong password (avoids username enumeration via timing).
+const DECOY_HASH = "$2a$10$invalidhashpadding000000000000000000000000000000000000";
 
 export async function POST(req: Request) {
   let body: { username?: string; password?: string };
@@ -15,24 +19,15 @@ export async function POST(req: Request) {
     return Response.json({ error: "username and password are required" }, { status: 400 });
   }
 
-  const adminUser = getServerEnv("CADDYMGR_ADMIN_USER");
-  const adminHash = getServerEnv("CADDYMGR_ADMIN_PASSWORD_HASH");
-
-  if (!adminUser) {
-    return Response.json({ error: "admin credentials not configured" }, { status: 503 });
-  }
-
-  // Use a dummy hash when username doesn't match to keep constant-time behaviour.
-  const hashToCheck =
-    username === adminUser
-      ? adminHash
-      : "$2a$10$invalidhashpadding000000000000000000000000000000000000";
+  const user = findUserByUsername(username);
+  const usable = user && user.status === "active";
+  const hashToCheck = usable ? user!.password_hash : DECOY_HASH;
 
   const valid = await bcrypt.compare(password, hashToCheck);
-  if (username !== adminUser || !valid) {
+  if (!usable || !valid) {
     return Response.json({ error: "invalid credentials" }, { status: 401 });
   }
 
-  const token = createSession(username);
-  return Response.json({ token, username });
+  const token = createSessionForUser(user!);
+  return Response.json({ token, username: user!.username });
 }

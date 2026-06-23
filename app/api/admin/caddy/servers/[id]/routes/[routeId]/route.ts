@@ -1,12 +1,11 @@
-import { requireAuth } from "@/lib/require-auth";
-import { deleteRoute, listRoutes, updateRoute } from "@/lib/caddy-manager";
+import { withGatewayAccess } from "@/lib/access";
+import { caddyConfigFor, deleteRoute, listRoutes, updateRoute } from "@/lib/caddy-manager";
 import { AppError, ErrNotFound, ErrReadOnly, type RouteRequest } from "@/lib/types";
 
 type Params = { params: Promise<{ id: string; routeId: string }> };
 
-export async function PUT(req: Request, { params }: Params) {
-  const deny = requireAuth(req);
-  if (deny) return deny;
+export const PUT = withGatewayAccess("gateway:write", async (req, access, { params }: Params) => {
+  const cfg = caddyConfigFor(access.gateway);
 
   const { id: serverID, routeId } = await params;
   let body: RouteRequest;
@@ -18,27 +17,26 @@ export async function PUT(req: Request, { params }: Params) {
   body.id = routeId;
 
   try {
-    await updateRoute(serverID, routeId, body);
-    const routes = await listRoutes(serverID);
+    await updateRoute(cfg, serverID, routeId, body);
+    const routes = await listRoutes(cfg, serverID);
     const updated = routes.find((r) => r.id === routeId);
     return Response.json(updated ?? { id: routeId });
   } catch (e) {
     return errorResponse(e);
   }
-}
+});
 
-export async function DELETE(req: Request, { params }: Params) {
-  const deny = requireAuth(req);
-  if (deny) return deny;
+export const DELETE = withGatewayAccess("gateway:write", async (_req, access, { params }: Params) => {
+  const cfg = caddyConfigFor(access.gateway);
 
   const { id: serverID, routeId } = await params;
   try {
-    await deleteRoute(serverID, routeId);
+    await deleteRoute(cfg, serverID, routeId);
     return Response.json({ status: "deleted", id: routeId });
   } catch (e) {
     return errorResponse(e);
   }
-}
+});
 
 function errorResponse(e: unknown): Response {
   if (e instanceof AppError) {

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { useMobileSidebar } from "@/components/mobile-sidebar-context";
+import { useCurrentUser } from "@/components/current-user-context";
 
 function IconHome({ className }: { className?: string }) {
   return <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>;
@@ -45,6 +46,9 @@ function IconBot({ className }: { className?: string }) {
 function IconAgent({ className }: { className?: string }) {
   return <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" /><path d="M9 1v3M15 1v3M9 20v3M15 20v3M1 9h3M1 15h3M20 9h3M20 15h3" /></svg>;
 }
+function IconUsers({ className }: { className?: string }) {
+  return <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>;
+}
 
 const NAV_SECTIONS = [
   { key: "agents", label: "Agents" },
@@ -52,6 +56,7 @@ const NAV_SECTIONS = [
   { key: "mcp", label: "MCP" },
   { key: "acp", label: "ACP" },
   { key: "configuration", label: "Configuration" },
+  { key: "platform", label: "Platform" },
 ] as const;
 
 // Agents is the first-class section: the agent itself plus the day-to-day views
@@ -74,11 +79,15 @@ const NAV_ITEMS = [
   { href: "/dashboard/acp/runtime", label: "Runtime", icon: IconActivity, section: "acp" },
   { href: "/dashboard/configuration/cliauth", label: "CLI Authenticators", icon: IconGateway, section: "configuration" },
   { href: "/dashboard/configuration/servers", label: "Servers", icon: IconServer, section: "configuration" },
+  { href: "/dashboard/platform/users", label: "Users", icon: IconUsers, section: "platform" },
+  { href: "/dashboard/platform/gateways", label: "Gateways", icon: IconGateway, section: "platform" },
+  { href: "/dashboard/platform/audit", label: "Audit Log", icon: IconActivity, section: "platform" },
 ] as const;
 
 export function DashboardNav() {
   const pathname = usePathname();
   const { isOpen, isCollapsed, toggleCollapsed, close } = useMobileSidebar();
+  const { user } = useCurrentUser();
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
@@ -127,6 +136,9 @@ export function DashboardNav() {
 
         <ul className="space-y-4">
           {NAV_SECTIONS.map((section) => {
+            // The Platform section (user/gateway administration) is visible only
+            // to platform admins.
+            if (section.key === "platform" && !user?.is_platform_admin) return null;
             const items = NAV_ITEMS.filter((item) => item.section === section.key);
             if (items.length === 0) return null;
             return (
