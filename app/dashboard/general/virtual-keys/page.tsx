@@ -25,10 +25,14 @@ interface VirtualKey {
   read_only?: boolean;
 }
 
+type RouteProtocol = "llm" | "mcp" | "acp";
+
 interface Route {
   id: string;
   name?: string;
+  service_id?: string;
   disabled?: boolean;
+  protocol?: RouteProtocol;
 }
 
 interface CreateForm {
@@ -73,9 +77,29 @@ function dateInputValue(value?: string): string {
   return value.split("T")[0] ?? "";
 }
 
+// Virtual keys gate every protocol's routes (LLM, MCP, ACP), so the picker must
+// offer all of them — not just LLM routes. A failure in one protocol must not
+// hide the others.
 async function fetchRoutes(): Promise<Route[]> {
-  const data = await adminFetch<{ items: Route[] }>("/admin/llm/routes");
-  return data.items ?? [];
+  const sources: { path: string; protocol: RouteProtocol }[] = [
+    { path: "/admin/llm/routes", protocol: "llm" },
+    { path: "/admin/mcp/routes", protocol: "mcp" },
+    { path: "/admin/acp/routes", protocol: "acp" },
+  ];
+  const order: Record<RouteProtocol, number> = { llm: 0, mcp: 1, acp: 2 };
+  const results = await Promise.allSettled(
+    sources.map((s) => adminFetch<{ items: Route[] }>(s.path)),
+  );
+  const routes: Route[] = [];
+  results.forEach((res, i) => {
+    if (res.status !== "fulfilled") return;
+    const { protocol } = sources[i];
+    for (const r of res.value.items ?? []) routes.push({ ...r, protocol });
+  });
+  return routes.sort(
+    (a, b) =>
+      order[a.protocol ?? "llm"] - order[b.protocol ?? "llm"] || a.id.localeCompare(b.id),
+  );
 }
 
 function AllowedRouteSelect({
@@ -90,7 +114,7 @@ function AllowedRouteSelect({
   onChange: (v: string[]) => void;
 }) {
   const routeIds = new Set(routes.map((route) => route.id));
-  const missingSelectedRoutes = value
+  const missingSelectedRoutes: Route[] = value
     .filter((id) => !routeIds.has(id))
     .map((id) => ({ id, name: "Unavailable route", disabled: true }));
   const options = [...routes, ...missingSelectedRoutes];
@@ -140,9 +164,16 @@ function AllowedRouteSelect({
                   className="mt-0.5 h-4 w-4 rounded border-slate-600 bg-slate-900 text-blue-500"
                 />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-mono text-xs">{route.id}</span>
+                  <span className="flex items-center gap-1.5">
+                    {route.protocol && (
+                      <span className="shrink-0 rounded bg-slate-700/70 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-slate-300">
+                        {route.protocol}
+                      </span>
+                    )}
+                    <span className="block truncate font-mono text-xs">{route.id}</span>
+                  </span>
                   <span className="mt-0.5 block truncate text-xs text-slate-500">
-                    {route.name || "Unnamed route"}
+                    {route.name || route.service_id || "Unnamed route"}
                     {route.disabled ? " · disabled" : ""}
                   </span>
                 </span>

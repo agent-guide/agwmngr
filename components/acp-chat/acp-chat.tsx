@@ -458,6 +458,13 @@ export function AcpChat({ routes, loadingRoutes }: AcpChatProps) {
                 </option>
               ))}
             </select>
+            {!loadingVks && eligibleVks.length === 0 && !noRoutes && (
+              <p className="mt-1 text-[10px] leading-snug text-amber-300/80">
+                {virtualKeys.length === 0
+                  ? "No virtual keys exist. Create one on the Virtual Keys page."
+                  : `No virtual key permits this route. Edit a key to allow ${selectedRouteId} on the Virtual Keys page.`}
+              </p>
+            )}
           </div>
 
           <div className="min-w-0 flex-1">
