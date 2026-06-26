@@ -8,7 +8,7 @@
 
 ## 1. Core Assessment
 
-Today the manager is effectively **stateless**: identity is a single env-configured admin (`CADDYMGR_ADMIN_USER` + bcrypt hash), the upstream is a single env-configured gateway (`GATEWAY_ADDR` + `GATEWAY_ADMIN_*`), and the only runtime state is an in-memory `globalThis` session `Map` (lost on restart, not shared across replicas — see `lib/session.ts`).
+Today the manager is effectively **stateless**: identity is a single env-configured admin (`AGWMNGR_ADMIN_USER` + bcrypt hash; legacy `CADDYMGR_ADMIN_USER` also accepted), the upstream is a single env-configured gateway (`GATEWAY_ADMIN_ADDR` + `GATEWAY_ADMIN_*`; legacy `GATEWAY_ADDR` also accepted), and the only runtime state is an in-memory `globalThis` session `Map` (lost on restart, not shared across replicas — see `lib/session.ts`).
 
 Both requested features — multiple users and multiple gateways — are the same move at the core: **promote env-configured singletons into persisted entities.** Neither fits in `.env.local`. So the foundational step is to introduce a persistence layer; everything else is a consequence of that.
 
@@ -93,7 +93,7 @@ CREATE TABLE gateways (
   id                  TEXT PRIMARY KEY,             -- slug, e.g. "prod-us"
   name                TEXT UNIQUE NOT NULL,
   description         TEXT,
-  admin_addr          TEXT NOT NULL,               -- replaces GATEWAY_ADDR
+  admin_addr          TEXT NOT NULL,               -- replaces GATEWAY_ADMIN_ADDR
   admin_user          TEXT NOT NULL,               -- replaces GATEWAY_ADMIN_USER
   admin_password_enc  TEXT NOT NULL,               -- encrypted envelope, replaces GATEWAY_ADMIN_PASSWORD
   caddy_admin_addr    TEXT,                         -- replaces CADDY_ADMIN_ADDR
@@ -250,8 +250,8 @@ The `useAdminSWR` wrapper is the natural place to inject the active gateway into
 
 The manager must upgrade existing single-gateway deployments without manual steps. Migration is **staged to match the phases** (§9) so that P1 introduces no new required env var:
 
-- **Through P2 (no `MANAGER_SECRET_KEY` yet):** gateway connection stays **env-resolved** exactly as today. The DB holds users + sessions only. Seeding: if `users` is empty and `CADDYMGR_ADMIN_USER` is set → seed one `is_platform_admin` user from `CADDYMGR_ADMIN_USER` / `CADDYMGR_ADMIN_PASSWORD_HASH`.
-- **At P3 (multi-gateway, `MANAGER_SECRET_KEY` becomes required):** on first boot with the key present, if `gateways` is empty and `GATEWAY_ADDR` is set → seed one gateway from the existing `GATEWAY_ADDR` / `GATEWAY_ADMIN_*` / `CADDY_ADMIN_ADDR` / `GATEWAY_DATAPLANE_ADDR` / `CADDYMGR_READONLY_SERVER_IDS` env, encrypting the admin password into the v1 envelope. Also insert a `user_gateways` row making the seeded admin an `operator` of it. If the key is **absent** at P3 boot, refuse to start with a clear message (it is genuinely required once gateway creds are persisted).
+- **Through P2 (no `MANAGER_SECRET_KEY` yet):** gateway connection stays **env-resolved** exactly as today. The DB holds users + sessions only. Seeding: if `users` is empty and `AGWMNGR_ADMIN_USER` is set → seed one `is_platform_admin` user from `AGWMNGR_ADMIN_USER` / `AGWMNGR_ADMIN_PASSWORD_HASH`. Legacy `CADDYMGR_ADMIN_USER` / `CADDYMGR_ADMIN_PASSWORD_HASH` remain accepted as fallback aliases.
+- **At P3 (multi-gateway, `MANAGER_SECRET_KEY` becomes required):** on first boot with the key present, if `gateways` is empty and `GATEWAY_ADMIN_ADDR` is set → seed one gateway from the existing `GATEWAY_ADMIN_ADDR` / `GATEWAY_ADMIN_*` / `CADDY_ADMIN_ADDR` / `GATEWAY_DATAPLANE_ADDR` / `CADDYMGR_READONLY_SERVER_IDS` env, encrypting the admin password into the v1 envelope. Legacy `GATEWAY_ADDR` remains accepted as a fallback alias. Also insert a `user_gateways` row making the seeded admin an `operator` of it. If the key is **absent** at P3 boot, refuse to start with a clear message (it is genuinely required once gateway creds are persisted).
 
 After this, env vars are **bootstrap-only**. P1/P2 deployments behave exactly as before; the new required key is introduced only at the phase that actually needs it.
 
@@ -263,7 +263,7 @@ After this, env vars are **bootstrap-only**. P1/P2 deployments behave exactly as
 | `MANAGER_DB_PATH` | No | P1 | Override sqlite path (default `data/manager.db`) |
 | `MANAGER_SESSION_TTL` | No | P1 | Session lifetime (default e.g. 7d) |
 
-Existing `CADDYMGR_*` / `GATEWAY_*` / `CADDY_ADMIN_ADDR` env stay valid as **bootstrap seeds only** (env-resolved gateway through P2, seed source at P3).
+Existing `AGWMNGR_*` / `GATEWAY_*` / `CADDY_ADMIN_ADDR` env stay valid as **bootstrap seeds only** (env-resolved gateway through P2, seed source at P3). Legacy `CADDYMGR_ADMIN_*` env names remain valid as fallback aliases for the initial manager admin seed.
 
 ## 9. Phased Delivery
 

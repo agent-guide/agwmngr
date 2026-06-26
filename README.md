@@ -8,14 +8,14 @@ Create a `.env.local` file in this directory:
 
 ```bash
 # Admin credentials
-CADDYMGR_ADMIN_USER=admin
-CADDYMGR_ADMIN_PASSWORD_HASH=<bcrypt hash of your password>
+AGWMNGR_ADMIN_USER=admin
+AGWMNGR_ADMIN_PASSWORD_HASH=<bcrypt hash of your password>
 
 # Caddy admin API address (default: http://localhost:2019)
 CADDY_ADMIN_ADDR=http://localhost:2019
 
-# Gateway admin API address (default: http://localhost:8080)
-GATEWAY_ADDR=http://localhost:8080
+# Gateway admin API address (default: http://localhost:8019)
+GATEWAY_ADMIN_ADDR=http://localhost:8019
 GATEWAY_ADMIN_USER=<gateway admin user>
 GATEWAY_ADMIN_PASSWORD=<gateway admin password>
 
@@ -25,6 +25,8 @@ CADDYMGR_READONLY_SERVER_IDS=
 # Frontend API base URL — leave empty since frontend and backend are co-hosted
 NEXT_PUBLIC_API_BASE_URL=
 ```
+
+`CADDYMGR_ADMIN_USER` / `CADDYMGR_ADMIN_PASSWORD_HASH` and `GATEWAY_ADDR` are still accepted as backward-compatible aliases, but `AGWMNGR_*` and `GATEWAY_ADMIN_ADDR` are preferred for new deployments.
 
 Generate a bcrypt password hash:
 
@@ -73,4 +75,4 @@ manager/
 ```
 
 - Frontend pages call the backend API via `lib/api.ts`; they do not contact Caddy or the gateway directly.
-- `/api/admin/*` requests are proxied to the gateway admin API at `GATEWAY_ADDR`.
+- `/api/admin/*` requests are proxied to the gateway admin API at `GATEWAY_ADMIN_ADDR`.

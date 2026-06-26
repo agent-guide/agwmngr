@@ -100,6 +100,14 @@ function runMigrations(db: SqlConnection): void {
   }
 }
 
+function getServerEnvAny(...names: string[]): string | undefined {
+  for (const name of names) {
+    const value = getServerEnv(name);
+    if (value) return value;
+  }
+  return undefined;
+}
+
 // Forward-compatible seed (P1/P2 per §7): if the user table is empty and the
 // legacy single-admin env is present, seed one platform-admin user from it so
 // the durable session store has a real user row to bind to. Auth still behaves
@@ -108,8 +116,8 @@ function seedFromEnv(db: SqlConnection): void {
   const count = db.get<{ n: number }>("SELECT COUNT(*) AS n FROM users");
   if ((count?.n ?? 0) > 0) return;
 
-  const adminUser = getServerEnv("CADDYMGR_ADMIN_USER");
-  const adminHash = getServerEnv("CADDYMGR_ADMIN_PASSWORD_HASH");
+  const adminUser = getServerEnvAny("AGWMNGR_ADMIN_USER", "CADDYMGR_ADMIN_USER");
+  const adminHash = getServerEnvAny("AGWMNGR_ADMIN_PASSWORD_HASH", "CADDYMGR_ADMIN_PASSWORD_HASH");
   if (!adminUser || !adminHash) return;
 
   const now = new Date().toISOString();
@@ -147,7 +155,7 @@ function open(): SqlConnection {
 
 // Seed the single env-configured gateway into the registry on first boot at P3
 // (§7). Only runs when encryption is configured (the admin password must be
-// encrypted), the registry is empty, and the legacy GATEWAY_ADDR env is set.
+// encrypted), the registry is empty, and the gateway admin address env is set.
 // Also grants the seeded platform admin an operator membership of it.
 function seedGatewayFromEnv(db: SqlConnection): void {
   if (!isEncryptionConfigured()) return;
@@ -155,7 +163,7 @@ function seedGatewayFromEnv(db: SqlConnection): void {
   const count = db.get<{ n: number }>("SELECT COUNT(*) AS n FROM gateways");
   if ((count?.n ?? 0) > 0) return;
 
-  const adminAddr = getServerEnv("GATEWAY_ADDR");
+  const adminAddr = getServerEnvAny("GATEWAY_ADMIN_ADDR", "GATEWAY_ADDR");
   const adminUser = getServerEnv("GATEWAY_ADMIN_USER");
   const adminPassword = getServerEnv("GATEWAY_ADMIN_PASSWORD");
   if (!adminAddr || !adminUser) return;
@@ -183,7 +191,7 @@ function seedGatewayFromEnv(db: SqlConnection): void {
   );
 
   // Grant the seeded platform admin operator membership so the switcher lists it.
-  const seededAdmin = getServerEnv("CADDYMGR_ADMIN_USER");
+  const seededAdmin = getServerEnvAny("AGWMNGR_ADMIN_USER", "CADDYMGR_ADMIN_USER");
   if (seededAdmin) {
     const user = findUserByUsername(seededAdmin);
     if (user) {

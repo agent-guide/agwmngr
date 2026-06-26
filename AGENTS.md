@@ -110,16 +110,16 @@ data/manager.db                       ← sqlite store (users, gateways, user_ga
 
 ## Environment Variables
 
-Defined in `.env.local`. With multi-tenancy, identity and gateway connection live in `data/manager.db`, not env. The `CADDYMGR_*` / `GATEWAY_*` / `CADDY_ADMIN_ADDR` vars are now **bootstrap seeds only**: on first boot with an empty DB they seed the initial platform-admin user and the `default` gateway (its admin password is encrypted into the DB). After seeding, editing them has no effect — manage users/gateways through the UI.
+Defined in `.env.local`. With multi-tenancy, identity and gateway connection live in `data/manager.db`, not env. The `AGWMNGR_*` / `GATEWAY_*` / `CADDY_ADMIN_ADDR` vars are now **bootstrap seeds only**: on first boot with an empty DB they seed the initial platform-admin user and the `default` gateway (its admin password is encrypted into the DB). After seeding, editing them has no effect — manage users/gateways through the UI.
 
 | Variable | Default | Description |
 |---|---|---|
 | `MANAGER_SECRET_KEY` | — | **Required for gateway features.** 32-byte key (64 hex chars or base64) for AES-256-GCM encryption of gateway admin passwords. Without it, gateway seeding/CRUD/forwarding is unavailable; login + user management still work. Boot does not silently fall back to plaintext. |
 | `MANAGER_DB_PATH` | `data/manager.db` | Override the sqlite file path |
 | `MANAGER_SESSION_TTL` | `7d` | Session lifetime (e.g. `7d`, `24h`, `3600`) |
-| `CADDYMGR_ADMIN_USER` | — | Seed: initial platform-admin username |
-| `CADDYMGR_ADMIN_PASSWORD_HASH` | — | Seed: bcrypt hash of the initial admin password |
-| `GATEWAY_ADDR` | `http://localhost:8019` | Seed: default gateway Admin API address |
+| `AGWMNGR_ADMIN_USER` | — | Seed: initial platform-admin username. Legacy alias: `CADDYMGR_ADMIN_USER` |
+| `AGWMNGR_ADMIN_PASSWORD_HASH` | — | Seed: bcrypt hash of the initial admin password. Legacy alias: `CADDYMGR_ADMIN_PASSWORD_HASH` |
+| `GATEWAY_ADMIN_ADDR` | `http://localhost:8019` | Seed: default gateway Admin API address. Legacy alias: `GATEWAY_ADDR` |
 | `GATEWAY_ADMIN_USER` | — | Seed: default gateway admin username |
 | `GATEWAY_ADMIN_PASSWORD` | — | Seed: default gateway admin password (encrypted into the DB at seed time) |
 | `CADDY_ADMIN_ADDR` | `http://localhost:2019` | Seed: default gateway Caddy admin API address |
