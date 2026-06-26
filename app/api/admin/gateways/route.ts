@@ -11,7 +11,10 @@ export const GET = withPlatformAccess(() => {
 export const POST = withPlatformAccess(async (req) => {
   if (!isEncryptionConfigured()) {
     return Response.json(
-      { error: "MANAGER_SECRET_KEY is not configured; cannot store gateway credentials" },
+      {
+        error:
+          "MANAGER_SECRET_KEY is not configured in the running manager process; set it in .env.local and restart the manager before saving gateway credentials",
+      },
       { status: 503 },
     );
   }
