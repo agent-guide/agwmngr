@@ -1174,6 +1174,12 @@ export interface InteractionEvent {
   input_tokens?: number;
   output_tokens?: number;
   total_tokens?: number;
+  // LLM tool-use (carried through the interactions UNION). The *_names fields
+  // are JSON-encoded string arrays as stored (e.g. '["exec_command"]').
+  request_tool_count?: number | null;
+  request_tool_names?: string | null;
+  tool_call_count?: number | null;
+  tool_names?: string | null;
   service_id?: string;
   method?: string;
   tool_name?: string;
