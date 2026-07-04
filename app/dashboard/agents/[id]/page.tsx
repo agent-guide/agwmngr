@@ -34,6 +34,7 @@ import {
   type ACPRoute,
 } from "@/lib/api";
 import { AcpChat } from "@/components/acp-chat/acp-chat";
+import { PendingPermissions } from "@/components/acp-pending-permissions";
 
 const TABS = ["Overview", "Chat", "Activity", "Usage", "Resources", "Health", "Configuration"] as const;
 type Tab = (typeof TABS)[number];
@@ -109,7 +110,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
             ))}
           </div>
 
-          {tab === "Overview" && <OverviewTab id={id} workspace={ws.data} loading={ws.isLoading && !ws.data} />}
+          {tab === "Overview" && <OverviewTab id={id} workspace={ws.data} loading={ws.isLoading && !ws.data} refresh={() => void ws.mutate()} />}
           {tab === "Chat" && <ChatTab workspace={ws.data} loading={ws.isLoading && !ws.data} />}
           {tab === "Activity" && <ActivityTab id={id} />}
           {tab === "Usage" && <UsageTab id={id} />}
@@ -148,7 +149,7 @@ function KV({ label, value, mono }: { label: string; value: React.ReactNode; mon
   );
 }
 
-function OverviewTab({ id, workspace, loading }: { id: string; workspace: AgentWorkspace | undefined; loading: boolean }) {
+function OverviewTab({ id, workspace, loading, refresh }: { id: string; workspace: AgentWorkspace | undefined; loading: boolean; refresh: () => void }) {
   if (loading || !workspace) return <Card className="p-8 text-center text-sm text-slate-400">Loading workspace…</Card>;
 
   const svc = workspace.acp_service;
@@ -212,6 +213,12 @@ function OverviewTab({ id, workspace, loading }: { id: string; workspace: AgentW
                 <p className={`text-lg font-semibold tabular-nums ${(rv?.pending_permissions?.length ?? 0) > 0 ? "text-amber-300" : "text-slate-100"}`}>{rv?.pending_permissions?.length ?? 0}</p>
               </Link>
             </div>
+            {(rv?.pending_permissions?.length ?? 0) > 0 && (
+              <div className="mt-3">
+                <p className="mb-1.5 text-[11px] uppercase tracking-wide text-amber-400/80">Pending Permissions</p>
+                <PendingPermissions pending={rv!.pending_permissions!} onResolved={refresh} />
+              </div>
+            )}
             {workspace.acp_routes && workspace.acp_routes.length > 0 && (
               <div className="mt-3">
                 <p className="mb-1 text-[11px] uppercase tracking-wide text-slate-500">ACP Routes</p>
@@ -287,22 +294,8 @@ function ActivityTab({ id }: { id: string }) {
   if (error) return <Card className="p-8 text-center text-sm text-rose-300">{error instanceof Error ? error.message : "Failed to load activity"}</Card>;
   if (isLoading && !data) return <Card className="p-8 text-center text-sm text-slate-400">Loading activity…</Card>;
   const interactions = data?.interactions ?? [];
-  const pending = data?.pending_permissions ?? [];
   return (
     <div className="space-y-4">
-      {pending.length > 0 && (
-        <Card className="border-amber-500/30">
-          <CardHeader><CardTitle>Pending Permissions ({pending.length})</CardTitle></CardHeader>
-          <div className="space-y-1.5">
-            {pending.map((p) => (
-              <div key={p.request_id} className="flex items-center justify-between rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-1.5 text-xs">
-                <span className="font-mono text-amber-200">{p.request_id}</span>
-                <Link href="/dashboard/acp/runtime" className="text-amber-300 hover:underline">Resolve →</Link>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
       <Card className="overflow-hidden p-0">
         <div className="flex items-center justify-between border-b border-slate-700/70 px-4 py-2.5">
           <CardTitle>Activity Feed</CardTitle>
