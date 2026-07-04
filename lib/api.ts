@@ -1108,6 +1108,7 @@ export interface MetricsQuery {
   trace_id?: string;
   parent_span_id?: string;
   agent_depth?: number;
+  agent_id?: string;
 }
 
 function metricsQuery(q?: MetricsQuery): string {

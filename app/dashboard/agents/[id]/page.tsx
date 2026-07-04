@@ -18,7 +18,6 @@ import {
   ApiError,
   deleteAgent,
   getAgentWorkspace,
-  getAgentActivity,
   getAgentUsage,
   getAgentResources,
   getAgentHealth,
@@ -28,7 +27,6 @@ import {
   listVirtualKeys,
   type AgentResourceRef,
   type AgentWorkspace,
-  type InteractionEvent,
   type LLMRoute,
   type MCPRoute,
   type ACPRoute,
@@ -36,7 +34,7 @@ import {
 import { AcpChat } from "@/components/acp-chat/acp-chat";
 import { PendingPermissions } from "@/components/acp-pending-permissions";
 
-const TABS = ["Overview", "Chat", "Activity", "Usage", "Resources", "Health", "Configuration"] as const;
+const TABS = ["Overview", "Chat", "Usage", "Resources", "Health", "Configuration"] as const;
 type Tab = (typeof TABS)[number];
 
 const ATTRIBUTION_CAVEAT =
@@ -85,6 +83,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
         actions={
           <>
             <AutoRefreshControl lastUpdated={ws.lastUpdated} onRefresh={() => void ws.mutate()} refreshing={ws.isValidating} />
+            <Link href={`/dashboard/agents/interactions?agent=${encodeURIComponent(id)}`}><Button variant="secondary" className="px-2.5 py-1 text-xs">Interactions</Button></Link>
             <Link href={`/dashboard/agents/${encodeURIComponent(id)}/edit`}><Button variant="secondary" className="px-2.5 py-1 text-xs">Edit</Button></Link>
             <Button variant="danger" className="px-2.5 py-1 text-xs" onClick={() => setConfirmDelete(true)}>Delete</Button>
           </>
@@ -112,7 +111,6 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
 
           {tab === "Overview" && <OverviewTab id={id} workspace={ws.data} loading={ws.isLoading && !ws.data} refresh={() => void ws.mutate()} />}
           {tab === "Chat" && <ChatTab workspace={ws.data} loading={ws.isLoading && !ws.data} />}
-          {tab === "Activity" && <ActivityTab id={id} />}
           {tab === "Usage" && <UsageTab id={id} />}
           {tab === "Resources" && <ResourcesTab id={id} />}
           {tab === "Health" && <HealthTab id={id} />}
@@ -272,45 +270,6 @@ function ChatTab({ workspace, loading }: { workspace: AgentWorkspace | undefined
   }
 
   return <AcpChat routes={scopedRoutes} loadingRoutes={loadingRoutes && !routes} />;
-}
-
-// ── Activity ──────────────────────────────────────────────────────────────--
-
-function EventRow({ e }: { e: InteractionEvent }) {
-  return (
-    <div className="flex items-center gap-3 px-4 py-2 text-xs hover:bg-slate-800/30">
-      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${e.success ? "bg-emerald-400" : "bg-rose-400"}`} />
-      <Badge tone={protocolTone(e.route_kind)} className="shrink-0">{e.route_kind}</Badge>
-      <span className="truncate font-mono text-slate-300">{e.operation ?? e.tool_name ?? e.upstream_model ?? e.route_id}</span>
-      {e.agent_depth > 0 && <span className="shrink-0 text-[10px] text-slate-500">depth {e.agent_depth}</span>}
-      <span className="ml-auto shrink-0 tabular-nums text-slate-500">{num(e.latency_ms)} ms</span>
-      <span className="shrink-0 text-slate-500" suppressHydrationWarning>{new Date(e.started_at).toLocaleTimeString()}</span>
-    </div>
-  );
-}
-
-function ActivityTab({ id }: { id: string }) {
-  const { data, error, isLoading } = useAdminSWR(["agent-activity", id], () => getAgentActivity(id, { limit: 50 }), { live: true });
-  if (error) return <Card className="p-8 text-center text-sm text-rose-300">{error instanceof Error ? error.message : "Failed to load activity"}</Card>;
-  if (isLoading && !data) return <Card className="p-8 text-center text-sm text-slate-400">Loading activity…</Card>;
-  const interactions = data?.interactions ?? [];
-  return (
-    <div className="space-y-4">
-      <Card className="overflow-hidden p-0">
-        <div className="flex items-center justify-between border-b border-slate-700/70 px-4 py-2.5">
-          <CardTitle>Activity Feed</CardTitle>
-        </div>
-        <div className="divide-y divide-slate-700/50">
-          {interactions.length === 0 ? (
-            <p className="px-4 py-8 text-center text-sm text-slate-500">No recent activity.</p>
-          ) : (
-            interactions.map((e) => <EventRow key={e.event_id} e={e} />)
-          )}
-        </div>
-      </Card>
-      <p className="text-[11px] text-slate-600">{ATTRIBUTION_CAVEAT}</p>
-    </div>
-  );
 }
 
 // ── Usage ───────────────────────────────────────────────────────────────────
