@@ -37,7 +37,6 @@ interface CandidateDraft {
   upstream_model: string;
   weight: string;
   priority: string;
-  is_default: boolean;
 }
 
 interface ModelGroupDraft {
@@ -50,7 +49,6 @@ const defaultCandidate = (): CandidateDraft => ({
   upstream_model: "",
   weight: "100",
   priority: "0",
-  is_default: false,
 });
 
 const defaultModelGroup = (): ModelGroupDraft => ({
@@ -201,7 +199,6 @@ export default function RoutesPage() {
                 upstream_model: c.upstream_model,
                 weight: String(c.weight ?? 100),
                 priority: String(c.priority ?? 0),
-                is_default: c.default ?? false,
               })),
             }))
           : [defaultModelGroup()]
@@ -242,7 +239,6 @@ export default function RoutesPage() {
             upstream_model: c.upstream_model.trim(),
             ...(parseInt(c.weight, 10) !== 100 && { weight: parseInt(c.weight, 10) || 100 }),
             ...(parseInt(c.priority, 10) > 0 && { priority: parseInt(c.priority, 10) }),
-            ...(c.is_default && { default: true }),
           })),
       })),
       ...(formDefaultModel.trim() && { default_model: formDefaultModel.trim() }),
@@ -450,7 +446,18 @@ export default function RoutesPage() {
     </div>
   );
 
-  const FormTargetPolicy = () => (
+  const FormTargetPolicy = () => {
+    // Default Model picks one of the defined model targets. Keep a stale/renamed
+    // value visible so editing an existing route never silently drops it.
+    const targetNames = formModelGroups.map((g) => g.name.trim()).filter(Boolean);
+    const defaultModelOptions = Array.from(
+      new Set(
+        formDefaultModel && !targetNames.includes(formDefaultModel)
+          ? [...targetNames, formDefaultModel]
+          : targetNames
+      )
+    );
+    return (
     <div className="space-y-3">
       <SectionHeading>
         Target Policy <span className="text-red-400">*</span>
@@ -507,8 +514,20 @@ export default function RoutesPage() {
               </select>
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-300">Default Model</label>
-              <Input name="default-model" value={formDefaultModel} onChange={setFormDefaultModel} placeholder="model target name" />
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">
+                Default Model
+                <HelpTooltip content="Which model target to use when a request does not specify a model. Pick one of the targets defined below." />
+              </label>
+              <select
+                value={formDefaultModel}
+                onChange={(e) => setFormDefaultModel(e.target.value)}
+                className="w-full rounded-md border border-slate-700/70 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 focus:border-blue-500/60 focus:outline-none"
+              >
+                <option value="">— none —</option>
+                {defaultModelOptions.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -614,15 +633,6 @@ export default function RoutesPage() {
                           />
                         </div>
                       )}
-                      <label className="flex items-center gap-1 text-[10px] text-slate-400">
-                        <input
-                          type="checkbox"
-                          checked={c.is_default}
-                          onChange={(e) => updateCandidate(gIdx, cIdx, { is_default: e.target.checked })}
-                          className="h-3 w-3 accent-blue-500"
-                        />
-                        default
-                      </label>
                       {group.candidates.length > 1 && (
                         <button
                           type="button"
@@ -650,7 +660,8 @@ export default function RoutesPage() {
         </div>
       )}
     </div>
-  );
+    );
+  };
 
   const FormAuthPolicy = () => (
     <div className="space-y-2">
