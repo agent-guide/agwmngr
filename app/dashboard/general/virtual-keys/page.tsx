@@ -462,7 +462,7 @@ export default function ApiKeysPage() {
                 onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
                 placeholder="Optional description for this key"
                 rows={2}
-                className="w-full resize-none rounded-md border border-slate-600/60 bg-slate-800/60 px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-400/50 focus:ring-1 focus:ring-blue-400/30"
+                className="w-full resize-none rounded-md border border-slate-600/60 bg-slate-800/60 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-blue-400/50 focus:ring-1 focus:ring-blue-400/30"
               />
             </div>
 
@@ -490,7 +490,7 @@ export default function ApiKeysPage() {
                 value={form.expires_at}
                 onChange={(e) => setForm((f) => ({ ...f, expires_at: e.target.value }))}
                 min={new Date().toISOString().split("T")[0]}
-                className="w-full rounded-md border border-slate-600/60 bg-slate-800/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-400/50 focus:ring-1 focus:ring-blue-400/30 [color-scheme:dark]"
+                className="w-full rounded-md border border-slate-600/60 bg-slate-800/60 px-3 py-2 text-sm text-slate-50 outline-none focus:border-blue-400/50 focus:ring-1 focus:ring-blue-400/30"
               />
               <p className="mt-1 text-xs text-slate-500">Leave empty for a non-expiring key.</p>
             </div>
@@ -531,7 +531,7 @@ export default function ApiKeysPage() {
                 onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
                 placeholder="Optional description for this key"
                 rows={2}
-                className="w-full resize-none rounded-md border border-slate-600/60 bg-slate-800/60 px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none focus:border-blue-400/50 focus:ring-1 focus:ring-blue-400/30"
+                className="w-full resize-none rounded-md border border-slate-600/60 bg-slate-800/60 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-blue-400/50 focus:ring-1 focus:ring-blue-400/30"
               />
             </div>
 
@@ -559,7 +559,7 @@ export default function ApiKeysPage() {
                 value={editForm.expires_at}
                 onChange={(e) => setEditForm((f) => ({ ...f, expires_at: e.target.value }))}
                 min={new Date().toISOString().split("T")[0]}
-                className="w-full rounded-md border border-slate-600/60 bg-slate-800/60 px-3 py-2 text-sm text-white outline-none focus:border-blue-400/50 focus:ring-1 focus:ring-blue-400/30 [color-scheme:dark]"
+                className="w-full rounded-md border border-slate-600/60 bg-slate-800/60 px-3 py-2 text-sm text-slate-50 outline-none focus:border-blue-400/50 focus:ring-1 focus:ring-blue-400/30"
               />
               <p className="mt-1 text-xs text-slate-500">Leave empty for a non-expiring key.</p>
             </div>

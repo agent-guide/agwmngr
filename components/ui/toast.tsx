@@ -38,16 +38,16 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             className={cn(
               "backdrop-blur-xl pl-5 pr-2 py-3 text-sm font-medium rounded-xl border shadow-2xl",
               "animate-in flex items-center gap-3",
-              toast.type === "success" && "bg-green-500/30 border-green-400/40 text-white",
-              toast.type === "error" && "bg-red-500/30 border-red-400/40 text-white",
-              toast.type === "info" && "bg-blue-500/30 border-blue-400/40 text-white"
+              toast.type === "success" && "bg-green-500/30 border-green-400/40 text-slate-50",
+              toast.type === "error" && "bg-red-500/30 border-red-400/40 text-slate-50",
+              toast.type === "info" && "bg-blue-500/30 border-blue-400/40 text-slate-50"
             )}
           >
             <span className="flex-1">{toast.message}</span>
             <button
               type="button"
               onClick={() => removeToast(toast.id)}
-              className="shrink-0 rounded-md p-1 text-white/50 hover:text-white hover:bg-white/10 transition-colors"
+              className="shrink-0 rounded-md p-1 text-slate-50/50 hover:text-slate-50 hover:bg-slate-500/15 transition-colors"
               aria-label="Dismiss"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

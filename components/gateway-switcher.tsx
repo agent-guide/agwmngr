@@ -45,7 +45,7 @@ export function GatewaySwitcher() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 rounded-md border border-slate-600/60 bg-slate-800/60 px-2.5 py-1.5 text-sm text-slate-200 transition-colors hover:border-blue-400/50 hover:text-white"
+        className="flex items-center gap-2 rounded-md border border-slate-600/60 bg-slate-800/60 px-2.5 py-1.5 text-sm text-slate-200 transition-colors hover:border-blue-400/50 hover:text-slate-50"
         aria-haspopup="listbox"
         aria-expanded={open}
       >
@@ -76,7 +76,7 @@ export function GatewaySwitcher() {
               onClick={() => handleSelect(g.id)}
               disabled={switching !== null}
               className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-slate-800/70 ${
-                g.id === activeGatewayId ? "bg-slate-800/50 text-white" : "text-slate-300"
+                g.id === activeGatewayId ? "bg-slate-800/50 text-slate-50" : "text-slate-300"
               }`}
             >
               <span className={`h-2 w-2 shrink-0 rounded-full ${healthDot(g.health_status)}`} />

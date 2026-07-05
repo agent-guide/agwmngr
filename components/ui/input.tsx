@@ -38,7 +38,7 @@ export function Input({
       data-lpignore="true"
       data-1p-ignore="true"
       className={cn(
-        "w-full px-3 py-2 text-sm rounded-md glass-input text-white",
+        "w-full px-3 py-2 text-sm rounded-md glass-input text-slate-50",
         "focus:outline-none focus:border-blue-400/50 focus:ring-1 focus:ring-blue-400/30",
         "disabled:opacity-50 disabled:cursor-not-allowed",
         "placeholder:text-slate-500 transition-colors duration-200",

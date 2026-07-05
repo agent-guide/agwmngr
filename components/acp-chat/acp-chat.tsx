@@ -63,7 +63,7 @@ function toolCallFields(data: unknown): Omit<ChatToolCall, "id" | "raw"> {
 
 function selectClass(): string {
   return cn(
-    "w-full rounded-md glass-input px-3 py-2 text-sm text-white",
+    "w-full rounded-md glass-input px-3 py-2 text-sm text-slate-50",
     "focus:outline-none focus:border-blue-400/50 focus:ring-1 focus:ring-blue-400/30",
     "disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200",
   );
@@ -561,7 +561,7 @@ export function AcpChat({ routes, loadingRoutes }: AcpChatProps) {
                   }
                   disabled={!selectedRouteId}
                   className={cn(
-                    "max-h-40 min-h-[2.5rem] flex-1 resize-y rounded-md glass-input px-3 py-2 text-sm text-white",
+                    "max-h-40 min-h-[2.5rem] flex-1 resize-y rounded-md glass-input px-3 py-2 text-sm text-slate-50",
                     "focus:outline-none focus:border-blue-400/50 focus:ring-1 focus:ring-blue-400/30",
                     "placeholder:text-slate-500 disabled:opacity-50 disabled:cursor-not-allowed",
                   )}

@@ -64,8 +64,8 @@ export function ConfirmDialog({
             </svg>
           </div>
         </div>
-        <h2 className="text-lg font-semibold text-white text-center mb-3">{title}</h2>
-        <div className="text-sm text-white/80 text-center mb-6">{message}</div>
+        <h2 className="text-lg font-semibold text-slate-50 text-center mb-3">{title}</h2>
+        <div className="text-sm text-slate-50/80 text-center mb-6">{message}</div>
         <div className="flex gap-3">
           <Button variant="ghost" onClick={onClose} className="flex-1">{cancelLabel}</Button>
           <button

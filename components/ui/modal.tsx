@@ -43,7 +43,7 @@ export function Modal({ isOpen, onClose, children, className }: ModalProps) {
         <button
           type="button"
           onClick={onClose}
-          className="absolute right-3 top-3 text-lg font-bold text-white/80 hover:text-white transition-colors"
+          className="absolute right-3 top-3 text-lg font-bold text-slate-50/80 hover:text-slate-50 transition-colors"
           aria-label="Close"
         >×</button>
         {children}
@@ -57,7 +57,7 @@ export function ModalHeader({ children, className }: { children: ReactNode; clas
 }
 
 export function ModalTitle({ children, className }: { children: ReactNode; className?: string }) {
-  return <h2 className={cn("text-lg font-semibold tracking-tight text-white", className)}>{children}</h2>;
+  return <h2 className={cn("text-lg font-semibold tracking-tight text-slate-50", className)}>{children}</h2>;
 }
 
 export function ModalContent({ children, className }: { children: ReactNode; className?: string }) {

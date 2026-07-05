@@ -293,6 +293,7 @@ The active gateway is chosen via the **header gateway switcher** (`components/ga
 - **Primitives**: build pages from `PageHeader`, `Card`, `StatCard`/`StatGrid`, `Badge` (`protocolTone()` for llm/mcp/acp/http accents), `Select`, `MultiSelect`, and `charts.tsx` (Recharts wrappers) rather than hand-rolled markup. Body text stays ≥ 12px.
 - `components/auth-guard.tsx`: validates session via `GET /admin/auth/me`, protects dashboard routes.
 - All dashboard pages use `AuthGuard` from the dashboard layout.
+- **Theming (dark default + light)**: the UI is authored dark-first with hardcoded `slate-*` utilities. Light mode is achieved *without* touching components: `app/globals.css` inverts the Tailwind v4 `--color-slate-*` scale under a `[data-theme="light"]` selector (v4 compiles `bg-slate-900` → `var(--color-slate-900)`), plus explicit light overrides for the `.glass-*` utilities, body gradient, scrollbars, and selection. Accent hues (blue/red/amber/emerald/…) are left unchanged. `components/theme-context.tsx` (`ThemeProvider`/`useTheme`, `useSyncExternalStore` over the `data-theme` attribute, persisted to `localStorage` `dashboard.theme`, cross-tab synced) wraps the app in the root layout, which also runs an inline anti-FOUC script to set `data-theme` before paint. Toggle via `components/theme-toggle.tsx` in the dashboard header. **Do not add `dark:`-prefixed classes** — keep authoring dark-first slate utilities so the inversion keeps working.
 
 ## Key Types
 

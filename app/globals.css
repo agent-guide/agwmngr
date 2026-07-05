@@ -33,6 +33,7 @@ body {
 }
 
 :root {
+  color-scheme: dark;
   --font-geist-sans: "SF Pro Text", "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
   --font-geist-mono: "SFMono-Regular", "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   --surface-base: rgba(15, 23, 42, 0.68);
@@ -44,6 +45,42 @@ body {
   --accent-strong: rgb(37, 99, 235);
   --text-primary: #e5e7eb;
   --text-muted: #94a3b8;
+}
+
+/*
+ * Light theme.
+ * The whole UI is authored dark-first with hardcoded `slate-*` utilities.
+ * Tailwind v4 compiles those to `var(--color-slate-N)`, so instead of editing
+ * every component we invert the slate scale here: high numbers (used for dark
+ * backgrounds) become light, low numbers (used for bright text) become dark.
+ * `slate-500` (the neutral mid) is intentionally left unchanged. Accent hues
+ * (blue/red/amber/emerald/…) are left as-is so status colors stay meaningful.
+ * The `.glass-*` utilities use hardcoded rgba, so they get explicit overrides.
+ */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --color-slate-50: #020617;
+  --color-slate-100: #0f172a;
+  --color-slate-200: #1e293b;
+  --color-slate-300: #334155;
+  --color-slate-400: #475569;
+  --color-slate-500: #64748b;
+  --color-slate-600: #94a3b8;
+  --color-slate-700: #cbd5e1;
+  --color-slate-800: #e2e8f0;
+  --color-slate-900: #f1f5f9;
+  --color-slate-950: #f8fafc;
+
+  --surface-base: rgba(255, 255, 255, 0.74);
+  --surface-muted: rgba(255, 255, 255, 0.9);
+  --surface-hover: rgba(226, 232, 240, 0.8);
+  --surface-border: rgba(100, 116, 139, 0.28);
+  --surface-border-strong: rgba(100, 116, 139, 0.42);
+  --accent: rgb(37, 99, 235);
+  --accent-strong: rgb(29, 78, 216);
+  --text-primary: #0f172a;
+  --text-muted: #475569;
 }
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -100,3 +137,35 @@ input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(1) bright
 
 .avatar-glow { transition: border-color 0.2s ease, box-shadow 0.2s ease; }
 .avatar-glow:hover { border-color: rgba(96,165,250,0.5); box-shadow: 0 0 12px rgba(59,130,246,0.25); }
+
+/* ---- Light theme surface overrides ---- */
+[data-theme="light"] body {
+  background:
+    radial-gradient(circle at 0% 0%, rgba(59, 130, 246, 0.1), transparent 34%),
+    radial-gradient(circle at 100% 0%, rgba(148, 163, 184, 0.16), transparent 42%),
+    #eef2f7;
+  color: #0f172a;
+}
+
+[data-theme="light"] ::-webkit-scrollbar-track { background: rgba(15,23,42,0.04); }
+[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(15,23,42,0.18); }
+[data-theme="light"] ::-webkit-scrollbar-thumb:hover { background: rgba(15,23,42,0.3); }
+
+[data-theme="light"] ::selection { background: rgba(37,99,235,0.22); color: #0f172a; }
+
+[data-theme="light"] input[type="date"]::-webkit-calendar-picker-indicator,
+[data-theme="light"] input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+[data-theme="light"] input[type="month"]::-webkit-calendar-picker-indicator,
+[data-theme="light"] input[type="week"]::-webkit-calendar-picker-indicator,
+[data-theme="light"] input[type="time"]::-webkit-calendar-picker-indicator { filter: none; opacity: 0.7; }
+
+[data-theme="light"] .glass-card {
+  background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(248,250,252,0.82));
+}
+[data-theme="light"] .glass-input:focus { background: #ffffff; border-color: rgba(37,99,235,0.5); }
+[data-theme="light"] .glass-button-secondary { background: rgba(241,245,249,0.9); }
+[data-theme="light"] .glass-button-secondary:hover { background: rgba(226,232,240,0.95); }
+[data-theme="light"] .glass-button-ghost:hover { background: rgba(226,232,240,0.6); }
+[data-theme="light"] .glass-nav { background: rgba(248,250,252,0.9); }
+[data-theme="light"] .glass-nav-item:hover { background: rgba(226,232,240,0.7); }
+[data-theme="light"] .glass-nav-item-active { background: rgba(37,99,235,0.12); border-color: rgba(37,99,235,0.35); }

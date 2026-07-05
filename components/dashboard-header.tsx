@@ -1,6 +1,7 @@
 "use client";
 
 import { GatewaySwitcher } from "@/components/gateway-switcher";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 interface DashboardHeaderProps {
   onUserClick: () => void;
@@ -19,6 +20,7 @@ export function DashboardHeader({ onUserClick, username, isAdmin }: DashboardHea
         </div>
       </div>
       <div className="flex items-center gap-3">
+        <ThemeToggle />
         <GatewaySwitcher />
         <button
           onClick={onUserClick}
@@ -26,7 +28,7 @@ export function DashboardHeader({ onUserClick, username, isAdmin }: DashboardHea
           className="flex items-center gap-3 group transition-all"
         >
           <div className="hidden sm:flex flex-col items-end">
-            <span className="text-sm font-medium text-slate-200 group-hover:text-white transition-colors">{username}</span>
+            <span className="text-sm font-medium text-slate-200 group-hover:text-slate-50 transition-colors">{username}</span>
             {isAdmin && <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400">Admin</span>}
           </div>
           <div className="w-9 h-9 rounded-full bg-slate-800/60 border border-slate-600/50 flex items-center justify-center text-sm font-medium text-slate-200 group-hover:border-blue-400/50 group-hover:shadow-[0_0_10px_rgba(96,165,250,0.2)] transition-all">

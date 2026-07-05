@@ -44,18 +44,18 @@ export default function LoginPage() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
             </svg>
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight text-white">AGW Manager</h1>
-          <p className="mt-1 text-sm text-white/50">Sign in to your dashboard</p>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-50">AGW Manager</h1>
+          <p className="mt-1 text-sm text-slate-50/50">Sign in to your dashboard</p>
         </div>
 
         <div className="glass-card rounded-xl p-4 sm:p-6 shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label htmlFor="username" className="mb-2 block text-xs font-medium text-white/70 uppercase tracking-wider">Username</label>
+              <label htmlFor="username" className="mb-2 block text-xs font-medium text-slate-50/70 uppercase tracking-wider">Username</label>
               <Input id="username" type="text" name="username" value={username} onChange={setUsername} required autoComplete="username" />
             </div>
             <div>
-              <label htmlFor="password" className="mb-2 block text-xs font-medium text-white/70 uppercase tracking-wider">Password</label>
+              <label htmlFor="password" className="mb-2 block text-xs font-medium text-slate-50/70 uppercase tracking-wider">Password</label>
               <Input id="password" type="password" name="password" value={password} onChange={setPassword} required autoComplete="current-password" />
             </div>
             {error && (
@@ -69,7 +69,7 @@ export default function LoginPage() {
           </form>
         </div>
 
-        <p className="mt-6 text-center text-xs text-white/30">AGW Manager Dashboard</p>
+        <p className="mt-6 text-center text-xs text-slate-50/30">AGW Manager Dashboard</p>
       </div>
     </div>
   );
