@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
@@ -20,6 +21,7 @@ import {
   getACPBreakdown,
   getACPTimeseries,
   getACPEvents,
+  listAgents,
   type BreakdownItem,
   type InteractionEvent,
 } from "@/lib/api";
@@ -66,16 +68,58 @@ function rollup(items: BreakdownItem[]) {
   return { requests, success, failure, tokens, input, output, tools, turns, avgLatency: requests > 0 ? Math.round(latWeighted / requests) : 0 };
 }
 
+// useSearchParams must be under a Suspense boundary (Next static-render rule).
 export default function UsagePage() {
+  return (
+    <Suspense fallback={<Card className="p-8 text-center text-sm text-slate-400">Loading usage…</Card>}>
+      <UsageView />
+    </Suspense>
+  );
+}
+
+function UsageView() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [range, setRange] = useState<TimeRange>("7d");
   const [tab, setTab] = useState<Protocol>("LLM");
+  // Agent is deep-linkable (?agent=<id>) so the agent workspace can jump here.
+  // agent_id scopes every stat server-side via the gateway's full attribution
+  // (durable tag OR the agent's owned routes/ACP service), so a scoped read is a
+  // strict superset of the per-agent usage rollup — same data, plus group-by,
+  // donuts, source filter, and event feeds.
+  const [agent, setAgentState] = useState(searchParams.get("agent") ?? "all");
+  const setAgent = (v: string) => {
+    setAgentState(v);
+    const params = new URLSearchParams(searchParams.toString());
+    if (v === "all") params.delete("agent");
+    else params.set("agent", v);
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname);
+  };
+  const { data: agents } = useAdminSWR("agents-for-usage", listAgents, {});
+  const agentId = agent !== "all" ? agent : undefined;
 
   return (
     <div className="space-y-4">
       <PageHeader
         title="Usage Statistics"
-        description="Live LLM, MCP, and ACP traffic across all agents. For a single agent, see its Usage tab."
+        description={
+          agentId
+            ? "Live LLM, MCP, and ACP traffic scoped to the selected agent (durable agent_id tag or its owned routes/ACP service)."
+            : "Live LLM, MCP, and ACP traffic across all agents. Filter by Agent to scope every stat to one agent."
+        }
       />
+
+      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+        <span>Agent</span>
+        <Select
+          name="agent"
+          value={agent}
+          onChange={setAgent}
+          options={[{ value: "all", label: "All agents" }, ...(agents ?? []).map((a) => ({ value: a.id, label: a.name || a.id }))]}
+        />
+      </div>
 
       <div className="flex flex-wrap gap-1 border-b border-slate-700/70">
         {PROTOCOLS.map((p) => (
@@ -92,14 +136,14 @@ export default function UsagePage() {
         ))}
       </div>
 
-      {tab === "LLM" && <LLMTab range={range} setRange={setRange} />}
-      {tab === "MCP" && <MCPTab range={range} setRange={setRange} />}
-      {tab === "ACP" && <ACPTab range={range} setRange={setRange} />}
+      {tab === "LLM" && <LLMTab range={range} setRange={setRange} agentId={agentId} />}
+      {tab === "MCP" && <MCPTab range={range} setRange={setRange} agentId={agentId} />}
+      {tab === "ACP" && <ACPTab range={range} setRange={setRange} agentId={agentId} />}
     </div>
   );
 }
 
-type TabProps = { range: TimeRange; setRange: (r: TimeRange) => void };
+type TabProps = { range: TimeRange; setRange: (r: TimeRange) => void; agentId?: string };
 
 /** Time-range buttons on the left, free-form controls (group-by, refresh) on the right. */
 function ControlBar({ range, setRange, children }: TabProps & { children?: React.ReactNode }) {
@@ -134,23 +178,23 @@ const LLM_GROUP_OPTIONS = [
   { value: "llm_api", label: "API" },
 ];
 
-function LLMTab({ range, setRange }: TabProps) {
+function LLMTab({ range, setRange, agentId }: TabProps) {
   const [groupBy, setGroupBy] = useState("route_id");
   const q = useMemo(() => rangeToQuery(range), [range]);
 
   const breakdown = useAdminSWR(
-    ["llm-breakdown", range, groupBy],
-    () => getLLMBreakdown({ from: q.from, to: q.to, group_by: groupBy, order_by: "request_count", limit: 50 }),
+    ["llm-breakdown", range, groupBy, agentId ?? "all"],
+    () => getLLMBreakdown({ from: q.from, to: q.to, group_by: groupBy, order_by: "request_count", limit: 50, agent_id: agentId }),
     { live: true },
   );
   const timeseries = useAdminSWR(
-    ["llm-timeseries", range],
-    () => getLLMTimeseries({ from: q.from, to: q.to, bucket: q.bucket, group_by: "route_id" }),
+    ["llm-timeseries", range, agentId ?? "all"],
+    () => getLLMTimeseries({ from: q.from, to: q.to, bucket: q.bucket, group_by: "route_id", agent_id: agentId }),
     { live: true },
   );
   const events = useAdminSWR(
-    ["llm-events", range],
-    () => getLLMEvents({ from: q.from, to: q.to, limit: 20 }),
+    ["llm-events", range, agentId ?? "all"],
+    () => getLLMEvents({ from: q.from, to: q.to, limit: 20, agent_id: agentId }),
     { live: true },
   );
 
@@ -212,23 +256,23 @@ const MCP_GROUP_OPTIONS = [
   { value: "virtual_key_id", label: "Virtual Key" },
 ];
 
-function MCPTab({ range, setRange }: TabProps) {
+function MCPTab({ range, setRange, agentId }: TabProps) {
   const [groupBy, setGroupBy] = useState("tool_name");
   const q = useMemo(() => rangeToQuery(range), [range]);
 
   const breakdown = useAdminSWR(
-    ["mcp-breakdown", range, groupBy],
-    () => getMCPBreakdown({ from: q.from, to: q.to, group_by: groupBy, order_by: "request_count", limit: 50 }),
+    ["mcp-breakdown", range, groupBy, agentId ?? "all"],
+    () => getMCPBreakdown({ from: q.from, to: q.to, group_by: groupBy, order_by: "request_count", limit: 50, agent_id: agentId }),
     { live: true },
   );
   const timeseries = useAdminSWR(
-    ["mcp-timeseries", range],
-    () => getMCPTimeseries({ from: q.from, to: q.to, bucket: q.bucket, group_by: "route_id" }),
+    ["mcp-timeseries", range, agentId ?? "all"],
+    () => getMCPTimeseries({ from: q.from, to: q.to, bucket: q.bucket, group_by: "route_id", agent_id: agentId }),
     { live: true },
   );
   const events = useAdminSWR(
-    ["mcp-events", range],
-    () => getMCPEvents({ from: q.from, to: q.to, limit: 20 }),
+    ["mcp-events", range, agentId ?? "all"],
+    () => getMCPEvents({ from: q.from, to: q.to, limit: 20, agent_id: agentId }),
     { live: true },
   );
 
@@ -302,25 +346,25 @@ function sourceProtocol(source: string): string | undefined {
   return undefined;
 }
 
-function ACPTab({ range, setRange }: TabProps) {
+function ACPTab({ range, setRange, agentId }: TabProps) {
   const [groupBy, setGroupBy] = useState("route_id");
   const [source, setSource] = useState("data");
   const q = useMemo(() => rangeToQuery(range), [range]);
   const routeProtocol = sourceProtocol(source);
 
   const breakdown = useAdminSWR(
-    ["acp-breakdown", range, groupBy, source],
-    () => getACPBreakdown({ from: q.from, to: q.to, group_by: groupBy, order_by: "request_count", limit: 50, route_protocol: routeProtocol }),
+    ["acp-breakdown", range, groupBy, source, agentId ?? "all"],
+    () => getACPBreakdown({ from: q.from, to: q.to, group_by: groupBy, order_by: "request_count", limit: 50, route_protocol: routeProtocol, agent_id: agentId }),
     { live: true },
   );
   const timeseries = useAdminSWR(
-    ["acp-timeseries", range, source],
-    () => getACPTimeseries({ from: q.from, to: q.to, bucket: q.bucket, group_by: "route_id", route_protocol: routeProtocol }),
+    ["acp-timeseries", range, source, agentId ?? "all"],
+    () => getACPTimeseries({ from: q.from, to: q.to, bucket: q.bucket, group_by: "route_id", route_protocol: routeProtocol, agent_id: agentId }),
     { live: true },
   );
   const events = useAdminSWR(
-    ["acp-events", range, source],
-    () => getACPEvents({ from: q.from, to: q.to, limit: 20, route_protocol: routeProtocol }),
+    ["acp-events", range, source, agentId ?? "all"],
+    () => getACPEvents({ from: q.from, to: q.to, limit: 20, route_protocol: routeProtocol, agent_id: agentId }),
     { live: true },
   );
 

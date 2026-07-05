@@ -12,13 +12,11 @@ import { AutoRefreshControl } from "@/components/ui/auto-refresh-control";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { useAdminSWR } from "@/hooks/use-admin-swr";
-import { TimeLineChart } from "@/components/ui/charts";
-import { TIME_RANGES, type TimeRange, rangeToQuery, num, pivotTimeseries, errorRate, pct } from "@/lib/metrics-util";
+import { num, errorRate, pct } from "@/lib/metrics-util";
 import {
   ApiError,
   deleteAgent,
   getAgentWorkspace,
-  getAgentUsage,
   getAgentResources,
   getAgentHealth,
   listACPRoutes,
@@ -34,11 +32,8 @@ import {
 import { AcpChat } from "@/components/acp-chat/acp-chat";
 import { PendingPermissions } from "@/components/acp-pending-permissions";
 
-const TABS = ["Overview", "Chat", "Usage", "Resources", "Health", "Configuration"] as const;
+const TABS = ["Overview", "Chat", "Resources", "Health", "Configuration"] as const;
 type Tab = (typeof TABS)[number];
-
-const ATTRIBUTION_CAVEAT =
-  "Per-agent metrics prefer the durable agent_id tag and fall back to the agent's owned routes/ACP service. Historical untagged events may be approximate.";
 
 export default function AgentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -83,6 +78,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
         actions={
           <>
             <AutoRefreshControl lastUpdated={ws.lastUpdated} onRefresh={() => void ws.mutate()} refreshing={ws.isValidating} />
+            <Link href={`/dashboard/agents/usage?agent=${encodeURIComponent(id)}`}><Button variant="secondary" className="px-2.5 py-1 text-xs">Usage</Button></Link>
             <Link href={`/dashboard/agents/interactions?agent=${encodeURIComponent(id)}`}><Button variant="secondary" className="px-2.5 py-1 text-xs">Interactions</Button></Link>
             <Link href={`/dashboard/agents/${encodeURIComponent(id)}/edit`}><Button variant="secondary" className="px-2.5 py-1 text-xs">Edit</Button></Link>
             <Button variant="danger" className="px-2.5 py-1 text-xs" onClick={() => setConfirmDelete(true)}>Delete</Button>
@@ -111,7 +107,6 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
 
           {tab === "Overview" && <OverviewTab id={id} workspace={ws.data} loading={ws.isLoading && !ws.data} refresh={() => void ws.mutate()} />}
           {tab === "Chat" && <ChatTab workspace={ws.data} loading={ws.isLoading && !ws.data} />}
-          {tab === "Usage" && <UsageTab id={id} />}
           {tab === "Resources" && <ResourcesTab id={id} />}
           {tab === "Health" && <HealthTab id={id} />}
           {tab === "Configuration" && <ConfigurationTab id={id} workspace={ws.data} />}
@@ -270,140 +265,6 @@ function ChatTab({ workspace, loading }: { workspace: AgentWorkspace | undefined
   }
 
   return <AcpChat routes={scopedRoutes} loadingRoutes={loadingRoutes && !routes} />;
-}
-
-// ── Usage ───────────────────────────────────────────────────────────────────
-
-function UsageTab({ id }: { id: string }) {
-  const [range, setRange] = useState<TimeRange>("7d");
-  const q = useMemo(() => rangeToQuery(range), [range]);
-  const { data, error, isLoading } = useAdminSWR(
-    ["agent-usage", id, range],
-    () => getAgentUsage(id, { from: q.from, to: q.to, bucket: q.bucket }),
-    { live: true },
-  );
-
-  const llm = data?.llm;
-  const mcp = data?.mcp;
-  const acp = data?.acp;
-  const llmItems = useMemo(() => llm?.items ?? [], [llm]);
-  const acpItems = acp?.items ?? [];
-
-  // Roll the per-model LLM breakdown up into agent-level totals for the stat cards.
-  const t = useMemo(() => {
-    let requests = 0, success = 0, failure = 0, tokens = 0, input = 0, output = 0, latWeighted = 0;
-    for (const it of llmItems) {
-      const r = num(it.request_count);
-      requests += r;
-      success += num(it.success_count);
-      failure += num(it.failure_count);
-      tokens += num(it.total_tokens);
-      input += num(it.input_tokens);
-      output += num(it.output_tokens);
-      latWeighted += num(it.avg_latency_ms) * r;
-    }
-    return { requests, success, failure, tokens, input, output, avgLatency: requests > 0 ? Math.round(latWeighted / requests) : 0 };
-  }, [llmItems]);
-
-  const lineData = useMemo(() => pivotTimeseries(data?.timeseries?.llm?.items ?? []), [data]);
-  const fmt = (n: number) => n.toLocaleString();
-
-  if (error) return <Card className="p-8 text-center text-sm text-rose-300">{error instanceof Error ? error.message : "Failed to load usage"}</Card>;
-  if (isLoading && !data) return <Card className="p-8 text-center text-sm text-slate-400">Loading usage…</Card>;
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap gap-1">
-        {TIME_RANGES.map((f) => (
-          <Button key={f.key} variant={range === f.key ? "secondary" : "ghost"} onClick={() => setRange(f.key)} className="px-2.5 py-1 text-xs">
-            {f.label}
-          </Button>
-        ))}
-      </div>
-
-      <Card>
-        <CardHeader><CardTitle>LLM Usage</CardTitle></CardHeader>
-        <StatGrid>
-          <StatCard label="Requests" value={fmt(t.requests)} />
-          <StatCard label="Successful" value={fmt(t.success)} tone="text-emerald-300" />
-          <StatCard label="Failed" value={fmt(t.failure)} tone={t.failure > 0 ? "text-rose-300" : "text-slate-100"} />
-          <StatCard label="Error Rate" value={pct(errorRate(t.success, t.failure))} tone={t.failure > 0 ? "text-amber-300" : "text-slate-100"} />
-          <StatCard label="Total Tokens" value={fmt(t.tokens)} sub={`${fmt(t.input)} in · ${fmt(t.output)} out`} />
-          <StatCard label="Avg Latency" value={`${fmt(t.avgLatency)} ms`} />
-        </StatGrid>
-        <div className="mt-3">
-          {lineData.length === 0 ? (
-            <p className="py-10 text-center text-sm text-slate-500">No LLM traffic attributed to this agent in this range.</p>
-          ) : (
-            <TimeLineChart
-              data={lineData}
-              series={[
-                { key: "success", label: "Success", color: "#22c55e" },
-                { key: "failure", label: "Failure", color: "#ef4444" },
-              ]}
-            />
-          )}
-        </div>
-      </Card>
-
-      {llmItems.length > 0 && (
-        <Card className="overflow-hidden p-0">
-          <div className="border-b border-slate-700/70 px-4 py-2.5"><CardTitle>LLM Breakdown <span className="text-xs font-normal text-slate-500">by {llm?.group_by ?? "model"}</span></CardTitle></div>
-          <BreakdownTable items={llmItems} groupBy={llm?.group_by ?? "upstream_model"} tokens />
-        </Card>
-      )}
-      {acp && acpItems.length > 0 && (
-        <Card className="overflow-hidden p-0">
-          <div className="border-b border-slate-700/70 px-4 py-2.5"><CardTitle>ACP Usage <span className="text-xs font-normal text-slate-500">by {acp.group_by}</span></CardTitle></div>
-          <BreakdownTable items={acpItems} groupBy={acp.group_by} />
-        </Card>
-      )}
-      {mcp && (
-        <Card>
-          <CardHeader><CardTitle>MCP Usage</CardTitle></CardHeader>
-          <StatGrid>
-            <StatCard label="Requests" value={num(mcp.request_count).toLocaleString()} />
-            <StatCard label="Success" value={num(mcp.success_count).toLocaleString()} tone="text-emerald-300" />
-            <StatCard label="Failures" value={num(mcp.failure_count).toLocaleString()} />
-            <StatCard label="Tool Calls" value={num(mcp.tools_call_count).toLocaleString()} />
-            <StatCard label="Avg Latency" value={`${num(mcp.avg_latency_ms)} ms`} />
-          </StatGrid>
-        </Card>
-      )}
-      <p className="text-[11px] text-slate-600">{ATTRIBUTION_CAVEAT}</p>
-    </div>
-  );
-}
-
-function BreakdownTable({ items, groupBy, tokens }: { items: Record<string, unknown>[]; groupBy: string; tokens?: boolean }) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="min-w-[560px] w-full text-sm">
-        <thead>
-          <tr className="border-b border-slate-700/70 bg-slate-900/50 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">
-            <th className="px-4 py-2">{groupBy}</th>
-            <th className="px-4 py-2 text-right">Requests</th>
-            <th className="px-4 py-2 text-right">Success</th>
-            <th className="px-4 py-2 text-right">Failed</th>
-            {tokens && <th className="px-4 py-2 text-right">Tokens</th>}
-            <th className="px-4 py-2 text-right">Avg ms</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((it, i) => (
-            <tr key={i} className="border-b border-slate-700/50 last:border-0 hover:bg-slate-800/30">
-              <td className="px-4 py-2 font-mono text-xs text-slate-200">{String(it[groupBy] ?? "—")}</td>
-              <td className="px-4 py-2 text-right tabular-nums text-slate-300">{num(it.request_count).toLocaleString()}</td>
-              <td className="px-4 py-2 text-right tabular-nums text-emerald-300">{num(it.success_count).toLocaleString()}</td>
-              <td className="px-4 py-2 text-right tabular-nums text-rose-300">{num(it.failure_count).toLocaleString()}</td>
-              {tokens && <td className="px-4 py-2 text-right tabular-nums text-slate-300">{num(it.total_tokens).toLocaleString()}</td>}
-              <td className="px-4 py-2 text-right tabular-nums text-slate-400">{num(it.avg_latency_ms).toLocaleString()}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
 }
 
 // ── Resources ────────────────────────────────────────────────────────────--

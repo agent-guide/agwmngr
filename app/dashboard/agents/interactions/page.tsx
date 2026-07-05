@@ -43,8 +43,10 @@ function InteractionsView() {
   // blank the moment admin polling out-numbers the window. Data-plane is the default.
   const [source, setSource] = useState("data");
 
-  // Agent options for the filter. The interactions endpoint filters on the durable
-  // agent_id tag server-side (indexed), so narrowing to one agent stays complete.
+  // Agent options for the filter. The interactions endpoint resolves agent_id to
+  // the agent's full attribution server-side (durable tag OR its owned routes/ACP
+  // service — same selector as the Usage page and /admin/agents/{id}/*), so
+  // narrowing to one agent stays complete even for untagged-but-mappable spans.
   const { data: agents } = useAdminSWR("agents-for-interactions", listAgents, {});
 
   const { data, error, isLoading, mutate, isValidating, lastUpdated } = useAdminSWR(
