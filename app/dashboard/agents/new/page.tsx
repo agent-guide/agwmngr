@@ -11,7 +11,7 @@ export default function NewAgentPage() {
         title="New Agent"
         description={<Link href="/dashboard/agents" className="text-blue-400 hover:underline">← Back to agents</Link>}
       />
-      <AgentForm />
+      <AgentForm wizard />
     </div>
   );
 }

@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal, ModalHeader, ModalTitle, ModalContent, ModalFooter } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
+import { useAgentAttribution } from "@/hooks/use-agent-attribution";
+import { UsedByAgents } from "@/components/used-by-agents";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { HelpTooltip } from "@/components/ui/tooltip";
 import { adminFetch } from "@/lib/api";
@@ -188,6 +190,7 @@ function AllowedRouteSelect({
 
 export default function ApiKeysPage() {
   const [apiKeys, setApiKeys] = useState<VirtualKey[]>([]);
+  const attribution = useAgentAttribution();
   const [loading, setLoading] = useState(true);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -371,7 +374,10 @@ export default function ApiKeysPage() {
             {apiKeys.map((apiKey) => (
               <div key={apiKey.id} className="grid grid-cols-[minmax(0,1fr)_180px_160px_230px] items-center border-b border-slate-700/60 px-3 py-2 last:border-b-0">
                 <div className="min-w-0">
-                  <p className="truncate font-mono text-xs font-medium text-slate-100">{apiKey.id}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="truncate font-mono text-xs font-medium text-slate-100">{apiKey.id}</p>
+                    <UsedByAgents agentIds={attribution?.virtualKey[apiKey.id]} />
+                  </div>
                   <p className="mt-0.5 truncate font-mono text-xs text-slate-400">{keyPreview(apiKey.key)}</p>
                 </div>
                 <span className="text-xs text-slate-400">{new Date(apiKey.created_at).toLocaleDateString()}</span>

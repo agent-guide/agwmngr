@@ -64,7 +64,8 @@ manager/
 │   ├── layout.tsx                    ← Root layout (fonts, globals)
 │   └── page.tsx                      ← Redirects to /dashboard
 ├── components/
-│   ├── dashboard-*.tsx               ← Layout shell, nav (gated Platform section), header (gateway switcher), user panel
+│   ├── dashboard-*.tsx               ← Layout shell, nav (WORKSPACE zone always-visible + collapsible Resources/Configuration/Platform accordion, gated Platform), header (gateway switcher), user panel
+│   ├── used-by-agents.tsx            ← Compact "used by N agents" chip for resource rows (orphan signal + link to owning agent)
 │   ├── current-user-context.tsx     ← Current user + accessible gateways + active gateway + switchGateway()
 │   ├── gateway-switcher.tsx         ← Header dropdown to select the active gateway (reloads on switch)
 │   ├── auth-guard.tsx                ← Session validation wrapper
@@ -72,14 +73,15 @@ manager/
 │   ├── permission-banner.tsx         ← Global pending-ACP-permission alert banner (polls runtime)
 │   ├── acp-pending-permissions.tsx   ← Pending-permission list with inline Approve/Reject (shared by ACP Runtime page + agent Overview tab)
 │   ├── interaction-traces.tsx        ← Trace/span-tree waterfall renderer (Interactions page)
-│   ├── agent-form.tsx                ← Agent create/edit form (runtime.type generalized, 1:1 service guard)
+│   ├── agent-form.tsx                ← Agent create/edit form (runtime.type generalized, 1:1 service guard); `wizard` prop drives the stepped create flow (Basics→Runtime→Resources→Review) with "+ New" resource deep-links + refresh; edit stays single-page
 │   ├── mobile-*.tsx                  ← Mobile sidebar context + top bar
 │   └── ui/                           ← UI primitives: button, input, modal, toast, card, page-header,
 │                                        stat-card, badge, select, multi-select, charts (Recharts),
 │                                        auto-refresh-control, tooltip, confirm-dialog, skeleton, …
 ├── hooks/
 │   ├── use-admin-swr.ts              ← SWR wrapper over adminFetch (+ live auto-refresh + lastUpdated)
-│   └── use-focus-trap.ts             ← Focus trap for modal accessibility
+│   ├── use-focus-trap.ts             ← Focus trap for modal accessibility
+│   └── use-agent-attribution.ts      ← Reverse map from listAgents() (provider/mcpService/virtualKey/llm|mcp|acpRoute/acpService → agentIds) for resource "used by" chips
 └── lib/
     ├── api.ts                        ← Typed fetch helpers + gateway Admin API wrappers (incl. metrics, agents, users, gateways, audit)
     ├── db.ts                         ← sqlite connection, migrations, env seeding; users/gateways/memberships/sessions/audit helpers
@@ -243,13 +245,15 @@ The entry route (`/`) redirects to `/dashboard`, which redirects to `/dashboard/
 
 The UI is organized **agent-centric** (per `docs/ui-ux-improvement-plan.md`): the **Agents** section is the first-class, top-most nav group — it holds the agent itself plus the day-to-day views for working with it (observability + the keys used to call it). The **LLM / MCP / ACP** sections below are the *shared infrastructure* that backs agents, not sub-items of any one agent. The ACP service is presented as one of an agent's runtime backends rather than a primary product concept.
 
-> Navigation grouping ≠ URL path. `Overview` and `Virtual Keys` still live under `/dashboard/general/*` but are surfaced inside the **Agents** nav group; the all-agents `Usage` page lives at `/dashboard/agents/usage`. Section membership is set in `components/dashboard-nav.tsx` (`NAV_ITEMS[].section`). There is no standalone "General" nav group.
+> Navigation grouping ≠ URL path. `Overview` and `Virtual Keys` still live under `/dashboard/general/*` but are surfaced in the top-level **WORKSPACE** zone (with Agents/Interactions/Usage); the all-agents `Usage` page lives at `/dashboard/agents/usage`. There is no standalone "General" nav group.
+>
+> **Nav layout (`components/dashboard-nav.tsx`):** the sidebar is two-tier — a **WORKSPACE** zone (`WORKSPACE_ITEMS`: Overview, Agents, Interactions, Usage, Virtual Keys) that is always visible and holds the agent-centric focus, above collapsible **disclosure groups** (`NAV_GROUPS`) for the shared infrastructure: **Resources** (nested LLM/MCP/ACP subgroups), **Configuration**, **Platform** (admin-gated). Group openness is **derived, not effect-synced**: `openGroups[key] ?? hasActive` — a group defaults open iff it owns the active route (longest-prefix match via `resolveActiveHref`), and an explicit user toggle (persisted to `localStorage` `dashboard.nav.groups`) then wins. The narrow collapsed rail flattens every item to an icon list (the accordion is unusable at that width).
 
 ### Navigation Structure
 
 **Agents** (first-class, top of nav):
 - Overview (`/dashboard/general/overview`) — stat cards + **System Health dashboard** (24h request volume sparkline, error rate, pending permissions, ACP runtime, CLI refresher) + quick start guide + integration snippets. This is the dashboard landing route.
-- Agents (`/dashboard/agents`) — agent list with search/runtime filter; create via `/dashboard/agents/new`
+- Agents (`/dashboard/agents`) — agent list with search/runtime filter; create via `/dashboard/agents/new` (a 4-step **wizard**: Basics→Runtime→Resources→Review). Resources stay independently creatable — the wizard does not gate resource creation; it just threads runtime→resources→virtual-key with "+ New" deep-links (open in a new tab) + a refresh control. Resource list pages (providers, MCP/ACP services, virtual keys, LLM/MCP/ACP routes) carry a **"used by N agents"** chip (`useAgentAttribution` + `UsedByAgents`) that flags orphans and links to the owning agent
 - Agent detail (`/dashboard/agents/[id]`) — workspace tabs: **Overview** (runtime.type-generalized: ACP service read-through + live runtime view + links, or HTTP runtime degrade; the live runtime view also lists the agent's **pending ACP permissions with inline Approve/Reject** via the shared `PendingPermissions` component), **Chat** (interactive data-plane conversation with the agent over one of its own ACP routes — see below; ACP runtime only, HTTP agents degrade), **Resources** (agent-centric **Reachability** map — Agent → virtual keys it holds → permitted LLM/MCP/ACP routes → target provider/service, with dangling highlight — followed by the flat resolved resource groups), **Health** (shallow), **Configuration** (+ edit). Edit at `/dashboard/agents/[id]/edit`. There is no per-agent Activity tab and no per-agent Usage tab — a single agent's call chains and usage are viewed on the **Interactions** and **Usage** pages via their **Agent** filter. The agent detail header has **Usage** and **Interactions** buttons that jump to those pages pre-filtered (`?agent=<id>`).
 - Interactions (`/dashboard/agents/interactions`) — cross-protocol call chains grouped by `trace_id`, reconstructed as span-tree waterfalls (`components/interaction-traces.tsx`); the orchestration view and the single-agent activity view (there is no per-agent Activity tab). Filters: **Agent** (server-side `agent_id` **full attribution** — durable tag OR the agent's owned routes/ACP service, the same selector the Usage page and `/admin/agents/{id}/*` use, so untagged-but-mappable spans still surface; deep-linkable via `?agent=<id>` — the agent detail header has an **Interactions** button that jumps here pre-filtered), Protocol, Status, Source (data-plane/admin/all)
 - Usage (`/dashboard/agents/usage`) — **all-agents metrics with LLM / MCP / ACP protocol tabs** (shared time-range; each tab has stat cards + a requests-over-time chart + breakdown table + recent-events feed). all three tabs have a group-by selector + a Recharts share donut over the grouped requests (LLM by route/key/provider/model/api, MCP by tool/method/route/service/key via `/metrics/mcp/breakdown`, ACP by route/service/agent_type/operation). All three back the time chart with `/metrics/{llm,mcp,acp}/timeseries`. The **ACP tab** additionally has a **Source** selector (Data-plane / Admin audit / All, default Data-plane) that filters server-side by `route_protocol` — data-plane turns are `route_protocol=acp`, the manager's own `/admin/acp` polling is `route_protocol=admin`; without it the admin audit spans inflate every ACP stat. A page-level **Agent** filter (deep-linkable via `?agent=<id>`, mirroring Interactions) scopes every stat to one agent by passing `agent_id` into all `/metrics/{llm,mcp,acp}/{breakdown,timeseries,events}` calls; the gateway resolves it to the agent's **full attribution** (durable `agent_id` tag OR its owned routes/ACP service — the same selector `/admin/agents/{id}/usage` uses), so an agent-filtered read is a strict superset of the old per-agent Usage tab (same data, plus group-by / donuts / source filter / event feeds). This is why the per-agent Usage tab was removed in favour of the header **Usage** jump link.

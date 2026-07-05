@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal, ModalHeader, ModalTitle, ModalContent, ModalFooter } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
+import { useAgentAttribution } from "@/hooks/use-agent-attribution";
+import { UsedByAgents } from "@/components/used-by-agents";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { HelpTooltip } from "@/components/ui/tooltip";
 import {
@@ -26,6 +28,7 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 
 export default function ACPRoutesPage() {
   const [routes, setRoutes] = useState<ACPRoute[]>([]);
+  const attribution = useAgentAttribution();
   const [services, setServices] = useState<ACPService[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -270,6 +273,7 @@ export default function ACPRoutesPage() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-xs font-semibold text-slate-100">{route.id}</span>
+                    <UsedByAgents agentIds={attribution?.acpRoute[route.id]} />
                     <span className="inline-flex items-center gap-1 rounded-sm border border-slate-700/60 bg-slate-800/50 px-1.5 py-0.5 font-mono text-[10px] text-slate-300">
                       <span className="text-slate-600">service:</span>{route.service_id}
                     </span>

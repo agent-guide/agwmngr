@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal, ModalHeader, ModalTitle, ModalContent, ModalFooter } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
+import { useAgentAttribution } from "@/hooks/use-agent-attribution";
+import { UsedByAgents } from "@/components/used-by-agents";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { HelpTooltip } from "@/components/ui/tooltip";
 import {
@@ -55,6 +57,7 @@ const SECONDS_PER_NS = 1_000_000_000;
 
 export default function ACPServicesPage() {
   const [services, setServices] = useState<ACPService[]>([]);
+  const attribution = useAgentAttribution();
   const [loading, setLoading] = useState(true);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -478,6 +481,7 @@ export default function ACPServicesPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-semibold text-slate-100">{svc.name}</span>
                     <span className="font-mono text-[10px] text-slate-500">{svc.id}</span>
+                    <UsedByAgents agentIds={attribution?.acpService[svc.id]} />
                     <span className={`inline-flex rounded-sm px-1.5 py-0.5 text-[10px] font-medium ${AGENT_COLORS[svc.agent_type] ?? "bg-slate-700/40 text-slate-400"}`}>{svc.agent_type}</span>
                     <span className={`inline-flex rounded-sm px-1.5 py-0.5 text-[10px] font-medium ${PERMISSION_COLORS[svc.permission_mode ?? "deny"] ?? "bg-slate-700/40 text-slate-400"}`}>{svc.permission_mode ?? "deny"}</span>
                     {svc.disabled && <span className="inline-flex rounded-sm bg-slate-700/40 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">disabled</span>}

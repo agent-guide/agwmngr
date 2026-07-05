@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal, ModalHeader, ModalTitle, ModalContent, ModalFooter } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
+import { useAgentAttribution } from "@/hooks/use-agent-attribution";
+import { UsedByAgents } from "@/components/used-by-agents";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { HelpTooltip } from "@/components/ui/tooltip";
 import {
@@ -87,6 +89,7 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 
 export default function RoutesPage() {
   const [routes, setRoutes] = useState<Route[]>([]);
+  const attribution = useAgentAttribution();
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -950,6 +953,7 @@ export default function RoutesPage() {
                         {" · "}Created {new Date(route.created_at).toLocaleDateString()}
                         {" · "}Updated {new Date(route.updated_at).toLocaleDateString()}
                       </span>
+                      <UsedByAgents agentIds={attribution?.llmRoute[route.id]} />
                     </div>
                   </div>
                 )}

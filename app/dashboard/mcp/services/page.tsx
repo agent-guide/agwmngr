@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal, ModalHeader, ModalTitle, ModalContent, ModalFooter } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
+import { useAgentAttribution } from "@/hooks/use-agent-attribution";
+import { UsedByAgents } from "@/components/used-by-agents";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { HelpTooltip } from "@/components/ui/tooltip";
 import {
@@ -44,6 +46,7 @@ type InspectTab = "capabilities" | "tools" | "resources" | "prompts" | "session"
 
 export default function MCPServicesPage() {
   const [services, setServices] = useState<MCPService[]>([]);
+  const attribution = useAgentAttribution();
   const [loading, setLoading] = useState(true);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -477,6 +480,7 @@ export default function MCPServicesPage() {
                     <span className="text-sm font-semibold text-slate-100">{svc.name}</span>
                     <span className="font-mono text-[10px] text-slate-500">{svc.id}</span>
                     <span className={`inline-flex rounded-sm px-1.5 py-0.5 text-[10px] font-medium ${TRANSPORT_COLORS[svc.transport] ?? "bg-slate-700/40 text-slate-400"}`}>{svc.transport}</span>
+                    <UsedByAgents agentIds={attribution?.mcpService[svc.id]} />
                     {svc.disabled && <span className="inline-flex rounded-sm bg-slate-700/40 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">disabled</span>}
                     {svc.read_only && <span className="inline-flex rounded-sm bg-slate-700/40 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">read-only</span>}
                   </div>

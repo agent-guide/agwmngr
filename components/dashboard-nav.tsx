@@ -2,7 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useState, type ComponentType } from "react";
 import { cn } from "@/lib/utils";
 import { useMobileSidebar } from "@/components/mobile-sidebar-context";
 import { useCurrentUser } from "@/components/current-user-context";
@@ -49,45 +49,151 @@ function IconAgent({ className }: { className?: string }) {
 function IconUsers({ className }: { className?: string }) {
   return <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>;
 }
+function IconShield({ className }: { className?: string }) {
+  return <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>;
+}
+function IconChevron({ className }: { className?: string }) {
+  return <svg className={className} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" /></svg>;
+}
 
-const NAV_SECTIONS = [
-  { key: "agents", label: "Agents" },
-  { key: "llm", label: "LLM" },
-  { key: "mcp", label: "MCP" },
-  { key: "acp", label: "ACP" },
-  { key: "configuration", label: "Configuration" },
-  { key: "platform", label: "Platform" },
-] as const;
+type NavItem = { href: string; label: string; icon: ComponentType<{ className?: string }> };
+type SubGroup = { key: string; label: string; items: NavItem[] };
+type NavGroup = {
+  key: string;
+  label: string;
+  icon: ComponentType<{ className?: string }>;
+  adminOnly?: boolean;
+  items?: NavItem[];
+  subgroups?: SubGroup[];
+};
 
-// Agents is the first-class section: the agent itself plus the day-to-day views
-// for working with it (observation + the keys used to call it). LLM / MCP / ACP
-// below are the shared infrastructure that backs agents, not sub-items of one agent.
-const NAV_ITEMS = [
-  { href: "/dashboard/general/overview", label: "Overview", icon: IconHome, section: "agents" },
-  { href: "/dashboard/agents", label: "Agents", icon: IconAgent, section: "agents" },
-  { href: "/dashboard/agents/interactions", label: "Interactions", icon: IconActivity, section: "agents" },
-  { href: "/dashboard/agents/usage", label: "Usage", icon: IconBarChart, section: "agents" },
-  { href: "/dashboard/general/virtual-keys", label: "Virtual Keys", icon: IconKey, section: "agents" },
-  { href: "/dashboard/llm/providers", label: "Providers", icon: IconLayers, section: "llm" },
-  { href: "/dashboard/llm/models", label: "Models", icon: IconBrain, section: "llm" },
-  { href: "/dashboard/llm/credentials", label: "Credentials", icon: IconCredential, section: "llm" },
-  { href: "/dashboard/llm/routes", label: "Routes", icon: IconRoute, section: "llm" },
-  { href: "/dashboard/mcp/services", label: "Services", icon: IconPlug, section: "mcp" },
-  { href: "/dashboard/mcp/routes", label: "Routes", icon: IconRoute, section: "mcp" },
-  { href: "/dashboard/acp/services", label: "Services", icon: IconBot, section: "acp" },
-  { href: "/dashboard/acp/routes", label: "Routes", icon: IconRoute, section: "acp" },
-  { href: "/dashboard/acp/runtime", label: "Runtime", icon: IconActivity, section: "acp" },
-  { href: "/dashboard/configuration/cliauth", label: "CLI Authenticators", icon: IconGateway, section: "configuration" },
-  { href: "/dashboard/configuration/servers", label: "Servers", icon: IconServer, section: "configuration" },
-  { href: "/dashboard/platform/users", label: "Users", icon: IconUsers, section: "platform" },
-  { href: "/dashboard/platform/gateways", label: "Gateways", icon: IconGateway, section: "platform" },
-  { href: "/dashboard/platform/audit", label: "Audit Log", icon: IconActivity, section: "platform" },
-] as const;
+// The WORKSPACE zone is the agent-centric focus: the agent itself plus the
+// day-to-day views for working with it. It stays always-visible at the top.
+const WORKSPACE_ITEMS: NavItem[] = [
+  { href: "/dashboard/general/overview", label: "Overview", icon: IconHome },
+  { href: "/dashboard/agents", label: "Agents", icon: IconAgent },
+  { href: "/dashboard/agents/interactions", label: "Interactions", icon: IconActivity },
+  { href: "/dashboard/agents/usage", label: "Usage", icon: IconBarChart },
+  { href: "/dashboard/general/virtual-keys", label: "Virtual Keys", icon: IconKey },
+];
+
+// Everything below is the shared infrastructure that backs agents. It is
+// collapsed into disclosure groups so it no longer competes with the agent
+// zone for the eye. LLM / MCP / ACP live inside one "Resources" group.
+const NAV_GROUPS: NavGroup[] = [
+  {
+    key: "resources",
+    label: "Resources",
+    icon: IconLayers,
+    subgroups: [
+      {
+        key: "llm",
+        label: "LLM",
+        items: [
+          { href: "/dashboard/llm/providers", label: "Providers", icon: IconLayers },
+          { href: "/dashboard/llm/models", label: "Models", icon: IconBrain },
+          { href: "/dashboard/llm/credentials", label: "Credentials", icon: IconCredential },
+          { href: "/dashboard/llm/routes", label: "Routes", icon: IconRoute },
+        ],
+      },
+      {
+        key: "mcp",
+        label: "MCP",
+        items: [
+          { href: "/dashboard/mcp/services", label: "Services", icon: IconPlug },
+          { href: "/dashboard/mcp/routes", label: "Routes", icon: IconRoute },
+        ],
+      },
+      {
+        key: "acp",
+        label: "ACP",
+        items: [
+          { href: "/dashboard/acp/services", label: "Services", icon: IconBot },
+          { href: "/dashboard/acp/routes", label: "Routes", icon: IconRoute },
+          { href: "/dashboard/acp/runtime", label: "Runtime", icon: IconActivity },
+        ],
+      },
+    ],
+  },
+  {
+    key: "configuration",
+    label: "Configuration",
+    icon: IconServer,
+    items: [
+      { href: "/dashboard/configuration/cliauth", label: "CLI Authenticators", icon: IconGateway },
+      { href: "/dashboard/configuration/servers", label: "Servers", icon: IconServer },
+    ],
+  },
+  {
+    key: "platform",
+    label: "Platform",
+    icon: IconShield,
+    adminOnly: true,
+    items: [
+      { href: "/dashboard/platform/users", label: "Users", icon: IconUsers },
+      { href: "/dashboard/platform/gateways", label: "Gateways", icon: IconGateway },
+      { href: "/dashboard/platform/audit", label: "Audit Log", icon: IconActivity },
+    ],
+  },
+];
+
+function groupItems(group: NavGroup): NavItem[] {
+  return group.items ?? group.subgroups?.flatMap((sg) => sg.items) ?? [];
+}
+
+const STORAGE_KEY = "dashboard.nav.groups";
+
+/**
+ * Resolve which single item href is active for a pathname by longest-prefix
+ * match, so `/dashboard/agents/interactions` highlights Interactions (not the
+ * shorter Agents) and `/dashboard/agents/new` still highlights Agents.
+ */
+function resolveActiveHref(pathname: string, allHrefs: string[]): string | null {
+  let best: string | null = null;
+  for (const href of allHrefs) {
+    if (pathname === href || pathname.startsWith(href + "/")) {
+      if (!best || href.length > best.length) best = href;
+    }
+  }
+  return best;
+}
 
 export function DashboardNav() {
   const pathname = usePathname();
   const { isOpen, isCollapsed, toggleCollapsed, close } = useMobileSidebar();
   const { user } = useCurrentUser();
+
+  const groups = NAV_GROUPS.filter((g) => !g.adminOnly || user?.is_platform_admin);
+
+  const allHrefs = [
+    ...WORKSPACE_ITEMS.map((i) => i.href),
+    ...groups.flatMap((g) => groupItems(g).map((i) => i.href)),
+  ];
+  const activeHref = resolveActiveHref(pathname, allHrefs);
+
+  // Disclosure state per group, persisted; default collapsed.
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      return JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "{}");
+    } catch {
+      return {};
+    }
+  });
+
+  // Effective openness is derived, not synced via an effect: until the user
+  // explicitly toggles a group, it defaults to open iff it owns the active
+  // route (so the current page is never hidden). Once toggled, the stored
+  // boolean wins — an explicit user choice persists across navigation.
+  const isGroupOpen = (key: string, hasActive: boolean) => openGroups[key] ?? hasActive;
+
+  const toggleGroup = (key: string, currentlyOpen: boolean) => {
+    setOpenGroups((prev) => {
+      const next = { ...prev, [key]: !currentlyOpen };
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
@@ -97,6 +203,28 @@ export function DashboardNav() {
     }
   }, [isOpen, close]);
 
+  const renderLink = (item: NavItem) => {
+    const isActive = item.href === activeHref;
+    const IconComponent = item.icon;
+    return (
+      <li key={item.href}>
+        <Link
+          href={item.href}
+          onClick={close}
+          className={cn(
+            "flex items-center gap-2.5 px-3 py-2 text-sm font-medium rounded-md transition-colors duration-200",
+            isCollapsed && "lg:justify-center lg:px-0",
+            isActive ? "glass-nav-item-active text-slate-100" : "glass-nav-item text-slate-300 hover:text-slate-100"
+          )}
+          title={isCollapsed ? item.label : undefined}
+        >
+          <IconComponent className="h-4 w-4 shrink-0" />
+          <span className={cn(isCollapsed && "lg:hidden")}>{item.label}</span>
+        </Link>
+      </li>
+    );
+  };
+
   return (
     <>
       {isOpen && (
@@ -105,7 +233,7 @@ export function DashboardNav() {
       <nav className={cn(
         "w-56 glass-nav p-4 flex flex-col lg:transition-[width] lg:duration-200",
         isCollapsed ? "lg:w-[4.5rem]" : "lg:w-56",
-        "lg:block fixed lg:static inset-y-0 left-0 z-50",
+        "lg:block fixed lg:static inset-y-0 left-0 z-50 overflow-y-auto",
         "transform transition-transform duration-300 ease-in-out",
         isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
       )}>
@@ -134,45 +262,69 @@ export function DashboardNav() {
           </div>
         </div>
 
-        <ul className="space-y-4">
-          {NAV_SECTIONS.map((section) => {
-            // The Platform section (user/gateway administration) is visible only
-            // to platform admins.
-            if (section.key === "platform" && !user?.is_platform_admin) return null;
-            const items = NAV_ITEMS.filter((item) => item.section === section.key);
-            if (items.length === 0) return null;
-            return (
-              <li key={section.key} className="space-y-1.5">
-                <p className={cn("px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500", isCollapsed && "lg:hidden")}>
-                  {section.label}
-                </p>
-                <ul className="space-y-1">
-                  {items.map((item) => {
-                    const isActive = pathname === item.href;
-                    const IconComponent = item.icon;
-                    return (
-                      <li key={item.href}>
-                        <Link
-                          href={item.href}
-                          onClick={close}
-                          className={cn(
-                            "flex items-center gap-2.5 px-3 py-2 text-sm font-medium rounded-md transition-colors duration-200",
-                            isCollapsed && "lg:justify-center lg:px-0",
-                            isActive ? "glass-nav-item-active text-slate-100" : "glass-nav-item text-slate-300 hover:text-slate-100"
+        {isCollapsed ? (
+          /* Narrow rail: flatten everything to an icon list; the accordion is
+             not usable at this width. */
+          <ul className="space-y-1 lg:block">
+            {WORKSPACE_ITEMS.map(renderLink)}
+            <li className="my-2 border-t border-slate-700/50" aria-hidden="true" />
+            {groups.flatMap((g) => groupItems(g)).map(renderLink)}
+          </ul>
+        ) : (
+          <div className="space-y-4">
+            {/* WORKSPACE — always visible, the agent-centric focus */}
+            <ul className="space-y-1">
+              {WORKSPACE_ITEMS.map(renderLink)}
+            </ul>
+
+            {/* Collapsible infrastructure groups */}
+            <ul className="space-y-1">
+              {groups.map((group) => {
+                const GroupIcon = group.icon;
+                const hasActive = groupItems(group).some((i) => i.href === activeHref);
+                const groupOpen = isGroupOpen(group.key, hasActive);
+                return (
+                  <li key={group.key}>
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(group.key, groupOpen)}
+                      aria-expanded={groupOpen}
+                      className={cn(
+                        "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200",
+                        "glass-nav-item text-slate-300 hover:text-slate-100",
+                        hasActive && !groupOpen && "text-slate-100"
+                      )}
+                    >
+                      <GroupIcon className="h-4 w-4 shrink-0" />
+                      <span className="flex-1 text-left">{group.label}</span>
+                      {hasActive && !groupOpen && <span className="h-1.5 w-1.5 rounded-full bg-blue-400" aria-hidden="true" />}
+                      <IconChevron className={cn("h-3.5 w-3.5 shrink-0 text-slate-500 transition-transform duration-200", groupOpen && "rotate-90")} />
+                    </button>
+
+                    {groupOpen && (
+                      <div className="mt-1 space-y-2 pl-3">
+                        {group.subgroups
+                          ? group.subgroups.map((sg) => (
+                              <div key={sg.key} className="space-y-1">
+                                <p className="px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{sg.label}</p>
+                                <ul className="space-y-1 border-l border-slate-700/50 pl-1.5">
+                                  {sg.items.map(renderLink)}
+                                </ul>
+                              </div>
+                            ))
+                          : (
+                            <ul className="space-y-1 border-l border-slate-700/50 pl-1.5">
+                              {(group.items ?? []).map(renderLink)}
+                            </ul>
                           )}
-                          title={isCollapsed ? item.label : undefined}
-                        >
-                          <IconComponent className="h-4 w-4 shrink-0" />
-                          <span className={cn(isCollapsed && "lg:hidden")}>{item.label}</span>
-                        </Link>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </li>
-            );
-          })}
-        </ul>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
       </nav>
     </>
   );

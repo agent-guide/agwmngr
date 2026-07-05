@@ -14,6 +14,8 @@ import {
   deleteProvider,
   type ProviderItem,
 } from "@/lib/api";
+import { useAgentAttribution } from "@/hooks/use-agent-attribution";
+import { UsedByAgents } from "@/components/used-by-agents";
 
 function getBaseUrl(item: ProviderItem): string {
   return item.base_url ?? "";
@@ -27,6 +29,7 @@ export default function ProvidersPage() {
   const [providers, setProviders] = useState<ProviderItem[]>([]);
   const [enabledProviderTypes, setEnabledProviderTypes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const attribution = useAgentAttribution();
 
   // Add modal state
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -169,7 +172,10 @@ export default function ProvidersPage() {
               key={provider.id}
               className="grid grid-cols-[minmax(0,1fr)_120px_minmax(0,1.5fr)_120px] items-center border-b border-slate-700/60 px-3 py-2 last:border-b-0"
             >
-              <p className="truncate text-xs font-medium text-slate-100">{provider.id}</p>
+              <div className="min-w-0">
+                <p className="truncate text-xs font-medium text-slate-100">{provider.id}</p>
+                <div className="mt-0.5"><UsedByAgents agentIds={attribution?.provider[provider.id]} /></div>
+              </div>
               <span className="text-xs text-slate-400 font-mono">{provider.provider_type}</span>
               <span className="truncate text-xs text-slate-400 font-mono">{getBaseUrl(provider)}</span>
               <div className="flex gap-1">
