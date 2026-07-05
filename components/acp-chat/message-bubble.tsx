@@ -1,42 +1,84 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useState, type ComponentPropsWithoutRef } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import type { ChatMessage } from "./types";
 import { ToolCallCard } from "./tool-call-card";
 import { PlanList } from "./plan-list";
 import { PermissionCard } from "./permission-card";
 
-// Lightweight rendering: split on ``` fenced code blocks; everything else is
-// shown as pre-wrapped text. Heavier markdown (marked + highlight.js) can be
-// layered in later without changing this contract.
+// Tailwind-styled element map so agent markdown (headings, bold, lists, code,
+// tables, links) renders inside the dark bubble instead of showing raw `##` /
+// `**` markers. Long tokens (e.g. attachment URLs) wrap instead of overflowing.
+const MARKDOWN_COMPONENTS: Components = {
+  p: ({ children }) => <p className="my-1.5 first:mt-0 last:mb-0 leading-relaxed">{children}</p>,
+  h1: ({ children }) => <h1 className="mb-1.5 mt-3 text-base font-semibold first:mt-0">{children}</h1>,
+  h2: ({ children }) => <h2 className="mb-1.5 mt-3 text-[15px] font-semibold first:mt-0">{children}</h2>,
+  h3: ({ children }) => <h3 className="mb-1 mt-2.5 text-sm font-semibold first:mt-0">{children}</h3>,
+  h4: ({ children }) => <h4 className="mb-1 mt-2 text-sm font-semibold first:mt-0">{children}</h4>,
+  ul: ({ children }) => <ul className="my-1.5 list-disc space-y-1 pl-5">{children}</ul>,
+  ol: ({ children }) => <ol className="my-1.5 list-decimal space-y-1 pl-5">{children}</ol>,
+  li: ({ children }) => <li className="leading-relaxed marker:text-slate-500">{children}</li>,
+  strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+  em: ({ children }) => <em className="italic">{children}</em>,
+  a: ({ children, href }) => (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer noopener"
+      className="break-all text-blue-300 underline decoration-blue-400/40 underline-offset-2 hover:text-blue-200"
+    >
+      {children}
+    </a>
+  ),
+  blockquote: ({ children }) => (
+    <blockquote className="my-2 border-l-2 border-slate-600 pl-3 text-slate-400">{children}</blockquote>
+  ),
+  hr: () => <hr className="my-3 border-slate-700/70" />,
+  code({ className, children, ...props }: ComponentPropsWithoutRef<"code">) {
+    const isBlock = /language-/.test(className ?? "") || String(children).includes("\n");
+    if (isBlock) {
+      return (
+        <code className="font-mono text-xs leading-relaxed text-slate-200" {...props}>
+          {children}
+        </code>
+      );
+    }
+    return (
+      <code
+        className="rounded bg-slate-800/80 px-1 py-0.5 font-mono text-[0.85em] text-slate-100"
+        {...props}
+      >
+        {children}
+      </code>
+    );
+  },
+  pre: ({ children }) => (
+    <pre className="my-2 overflow-auto rounded-md border border-slate-700/70 bg-slate-950/70 p-3">
+      {children}
+    </pre>
+  ),
+  table: ({ children }) => (
+    <div className="my-2 overflow-x-auto">
+      <table className="w-full border-collapse text-xs">{children}</table>
+    </div>
+  ),
+  th: ({ children }) => (
+    <th className="border border-slate-700/70 px-2 py-1 text-left font-semibold">{children}</th>
+  ),
+  td: ({ children }) => <td className="border border-slate-700/70 px-2 py-1 align-top">{children}</td>,
+};
+
 function RichText({ text }: { text: string }) {
   if (!text) return null;
-  const segments = text.split(/```/);
   return (
-    <>
-      {segments.map((seg, idx) => {
-        const isCode = idx % 2 === 1;
-        if (isCode) {
-          // Drop an optional language hint on the first line.
-          const newline = seg.indexOf("\n");
-          const code = newline >= 0 && !seg.slice(0, newline).includes(" ") ? seg.slice(newline + 1) : seg;
-          return (
-            <pre
-              key={idx}
-              className="my-2 overflow-auto rounded-md border border-slate-700/70 bg-slate-950/70 p-3 font-mono text-xs leading-relaxed text-slate-200"
-            >
-              {code.replace(/\n$/, "")}
-            </pre>
-          );
-        }
-        return (
-          <span key={idx} className="whitespace-pre-wrap break-words">
-            {seg}
-          </span>
-        );
-      })}
-    </>
+    <div className="break-words text-sm">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+        {text}
+      </ReactMarkdown>
+    </div>
   );
 }
 
