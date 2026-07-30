@@ -8,15 +8,21 @@ import { HelpTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   ApiError,
-  getACPSessionTranscript,
-  listACPServiceSessions,
+  getAgentTranscript,
+  listAgentSessions,
   listVirtualKeys,
   resolveACPChatPermission,
-  type ACPRoute,
-  type ACPSessionInfo,
+  type AgentCapabilities,
+  type AgentRoute,
+  type AgentSessionInfo,
   type VirtualKeyItem,
 } from "@/lib/api";
-import { ACPTurnStream, type ACPTurnEventData, type ACPTurnEventKind } from "@/lib/acp-chat-stream";
+import {
+  ACPTurnStream,
+  type ACPTurnEventData,
+  type ACPTurnEventKind,
+  type ACPTurnRequest,
+} from "@/lib/acp-chat-stream";
 import { MessageList } from "@/components/acp-chat/message-list";
 import type { ChatMessage, ChatToolCall } from "@/components/acp-chat/types";
 
@@ -70,21 +76,38 @@ function selectClass(): string {
 }
 
 interface AcpChatProps {
-  /** Selectable ACP routes (full objects so auth_policy/service_id are available). */
-  routes: ACPRoute[];
+  /** Selectable agent routes (full objects so auth_policy/agent_id are available). */
+  routes: AgentRoute[];
   /** Whether the parent is still loading the routes. */
   loadingRoutes?: boolean;
+  /** Runtime backing the agent these routes target (`acp` | `builtin` | `http`). */
+  runtimeType?: string;
+  /** The agent's advertised capabilities — authoritative over runtimeType for features. */
+  capabilities?: AgentCapabilities;
 }
 
 /**
- * Interactive ACP chat surface (data-plane). Drives a conversation against one
+ * Interactive agent chat surface (data-plane). Drives a conversation against one
  * of the supplied routes: streamed text/reasoning/tool-calls/plan, interactive
  * permission cards, session resume + new session, and transcript history. The
  * caller chooses which routes are selectable — the standalone page passed every
  * active route, while the agent workspace scopes it to that agent's routes.
+ *
+ * Not ACP-specific: any runtime that advertises streaming turns can be driven
+ * here, so the ACP-only affordances (thread id, working dir, the session list)
+ * are gated on the runtime and its capabilities rather than assumed.
  */
-export function AcpChat({ routes, loadingRoutes }: AcpChatProps) {
+export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: AcpChatProps) {
   const { showToast } = useToast();
+
+  // Default to the ACP shape when the caller does not say, preserving the
+  // behaviour of the ACP-only callers this component started out serving.
+  const isACP = (runtimeType ?? "acp") === "acp";
+  // A backend that does not advertise sessions.list answers /sessions with 501;
+  // asking anyway logs a gateway ERROR for something entirely expected.
+  const canListSessions = capabilities ? Boolean(capabilities.sessions?.list) : true;
+  const canReadTranscript = capabilities ? Boolean(capabilities.sessions?.transcript) : true;
+  const resumeMode = capabilities?.permissions?.resume_mode ?? "active_stream";
 
   const [virtualKeys, setVirtualKeys] = useState<VirtualKeyItem[]>([]);
   const [routeChoice, setRouteChoice] = useState("");
@@ -98,8 +121,12 @@ export function AcpChat({ routes, loadingRoutes }: AcpChatProps) {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
 
-  const [sessions, setSessions] = useState<ACPSessionInfo[]>([]);
+  const [sessions, setSessions] = useState<AgentSessionInfo[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
+  // Listing sessions is a sidebar affordance, not a precondition for chatting:
+  // an ACP agent whose session store cannot be read still takes turns. Keep the
+  // failure inside the sidebar instead of raising a page-level error.
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
 
   const streamRef = useRef<ACPTurnStream | null>(null);
   // Mirror of sessionId so an in-flight turn's callbacks always read the latest
@@ -121,7 +148,7 @@ export function AcpChat({ routes, loadingRoutes }: AcpChatProps) {
     [routes, selectedRouteId],
   );
   const requireVk = Boolean(selectedRoute?.auth_policy?.require_virtual_key);
-  const serviceId = selectedRoute?.service_id ?? "";
+  const agentId = selectedRoute?.agent_id ?? "";
 
   // Virtual keys usable on the selected route: unrestricted keys, or keys that
   // explicitly allow this route.
@@ -158,32 +185,42 @@ export function AcpChat({ routes, loadingRoutes }: AcpChatProps) {
     return () => window.clearTimeout(timer);
   }, [loadVks]);
 
-  // ---- Sessions sidebar (per selected route's service) ----
+  // ---- Sessions sidebar (scoped to the selected route's agent) ----
   const loadSessions = useCallback(async () => {
-    if (!serviceId) {
+    if (!agentId || !canListSessions) {
       setSessions([]);
+      setSessionsError(null);
       return;
     }
     setLoadingSessions(true);
     try {
-      const res = await listACPServiceSessions(serviceId, cwd.trim() ? { cwd: cwd.trim() } : undefined);
+      const res = await listAgentSessions(agentId, cwd.trim() ? { cwd: cwd.trim() } : undefined);
       setSessions(res.sessions ?? []);
+      setSessionsError(null);
     } catch (err) {
-      // Some agents don't support session listing — surface quietly.
+      // A backend without the session-list capability answers 501
+      // capability_not_supported — that is a normal degrade, not an error.
+      // Anything else (the ACP runtime failing to read its session store, for
+      // instance) is reported in the sidebar: chat itself is unaffected, so a
+      // toast would wrongly read as "opening this chat failed".
       setSessions([]);
-      if (err instanceof ApiError && err.status !== 501) {
-        showToast(err.message, "error");
+      const capabilityGap =
+        err instanceof ApiError && (err.status === 501 || err.errorType === "capability_not_supported");
+      if (err instanceof ApiError && !capabilityGap) {
+        setSessionsError(err.message);
+      } else {
+        setSessionsError(null);
       }
     } finally {
       setLoadingSessions(false);
     }
-  }, [serviceId, cwd, showToast]);
+  }, [agentId, canListSessions, cwd]);
 
   useEffect(() => {
-    if (!serviceId) return;
+    if (!agentId || !canListSessions) return;
     const timer = window.setTimeout(() => void loadSessions(), 0);
     return () => window.clearTimeout(timer);
-  }, [serviceId, loadSessions]);
+  }, [agentId, canListSessions, loadSessions]);
 
   // ---- Chat actions ----
   const startNewChat = useCallback(() => {
@@ -196,10 +233,12 @@ export function AcpChat({ routes, loadingRoutes }: AcpChatProps) {
   }, []);
 
   const openSession = useCallback(
-    async (session: ACPSessionInfo) => {
-      if (streaming || !serviceId) return;
+    async (session: AgentSessionInfo) => {
+      if (streaming || !agentId || !canReadTranscript) return;
       try {
-        const transcript = await getACPSessionTranscript(serviceId, session.session_id, session.cwd);
+        // runtimeapi.Session no longer carries a flat cwd, so reuse the cwd the
+        // operator has selected for this conversation.
+        const transcript = await getAgentTranscript(agentId, session.session_id, cwd.trim() || undefined);
         const mapped: ChatMessage[] = (transcript.messages ?? []).map((m) => ({
           id: newId(),
           role: m.role === "user" ? "user" : "agent",
@@ -214,13 +253,12 @@ export function AcpChat({ routes, loadingRoutes }: AcpChatProps) {
         streamRef.current = null;
         setThreadId(newId());
         setSessionId(session.session_id);
-        if (session.cwd) setCwd(session.cwd);
         setMessages(mapped);
       } catch (err) {
         showToast(err instanceof ApiError ? err.message : "Failed to load transcript", "error");
       }
     },
-    [serviceId, streaming, showToast],
+    [agentId, canReadTranscript, cwd, streaming, showToast],
   );
 
   const updateAgent = useCallback((agentId: string, mut: (m: ChatMessage) => ChatMessage) => {
@@ -301,11 +339,53 @@ export function AcpChat({ routes, loadingRoutes }: AcpChatProps) {
     [updateAgent],
   );
 
+  // Opens a turn stream and pipes its events into `messageId`. Shared by a plain
+  // send and by a `new_stream` permission resume — the latter is just a turn that
+  // carries a decision instead of input.
+  const startStream = useCallback(
+    (messageId: string, body: Pick<ACPTurnRequest, "input" | "permission">) => {
+      setStreaming(true);
+      const stream = new ACPTurnStream(
+        {
+          route_id: selectedRouteId,
+          virtual_key: selectedVk?.key,
+          // thread_id/cwd are ACP runtime options. The builtin runtime decodes
+          // options.runtime into an empty struct and rejects any key it finds,
+          // so sending them there fails the turn outright.
+          ...(isACP ? { thread_id: threadId, cwd: cwd.trim() || undefined } : {}),
+          session_id: sessionIdRef.current ?? undefined,
+          ...body,
+        },
+        {
+          onEvent: (kind, data) => handleEvent(messageId, kind, data),
+          onTransportError: (message) =>
+            updateAgent(messageId, (m) => ({
+              ...m,
+              status: "error",
+              text: m.text || message,
+            })),
+          onClose: () => {
+            setStreaming(false);
+            streamRef.current = null;
+            // Reload sessions so a newly created session appears in the sidebar.
+            void loadSessions();
+            // If no terminal event arrived, leave whatever partial state exists
+            // but stop the streaming indicator.
+            updateAgent(messageId, (m) => (m.status === "streaming" ? { ...m, status: "done" } : m));
+          },
+        },
+      );
+      streamRef.current = stream;
+      void stream.start();
+    },
+    [selectedRouteId, selectedVk, isACP, threadId, cwd, handleEvent, updateAgent, loadSessions],
+  );
+
   const handleSend = useCallback(() => {
     const text = input.trim();
     if (!text || streaming) return;
     if (!selectedRouteId) {
-      showToast("Select an ACP route first", "error");
+      showToast("Select an agent route first", "error");
       return;
     }
     if (requireVk && !selectedVk) {
@@ -323,54 +403,11 @@ export function AcpChat({ routes, loadingRoutes }: AcpChatProps) {
       permissions: [],
       status: "done",
     };
-    const agentId = newId();
-    setMessages((prev) => [...prev, userMsg, emptyAgentMessage(agentId)]);
+    const agentMessageId = newId();
+    setMessages((prev) => [...prev, userMsg, emptyAgentMessage(agentMessageId)]);
     setInput("");
-    setStreaming(true);
-
-    const stream = new ACPTurnStream(
-      {
-        route_id: selectedRouteId,
-        virtual_key: selectedVk?.key,
-        thread_id: threadId,
-        session_id: sessionIdRef.current ?? undefined,
-        input: text,
-        cwd: cwd.trim() || undefined,
-      },
-      {
-        onEvent: (kind, data) => handleEvent(agentId, kind, data),
-        onTransportError: (message) =>
-          updateAgent(agentId, (m) => ({
-            ...m,
-            status: "error",
-            text: m.text || message,
-          })),
-        onClose: () => {
-          setStreaming(false);
-          streamRef.current = null;
-          // Reload sessions so a newly created session appears in the sidebar.
-          void loadSessions();
-          // If no terminal event arrived, leave whatever partial state exists
-          // but stop the streaming indicator.
-          updateAgent(agentId, (m) => (m.status === "streaming" ? { ...m, status: "done" } : m));
-        },
-      },
-    );
-    streamRef.current = stream;
-    void stream.start();
-  }, [
-    input,
-    streaming,
-    selectedRouteId,
-    requireVk,
-    selectedVk,
-    threadId,
-    cwd,
-    handleEvent,
-    updateAgent,
-    loadSessions,
-    showToast,
-  ]);
+    startStream(agentMessageId, { input: text });
+  }, [input, streaming, selectedRouteId, requireVk, selectedVk, startStream, showToast]);
 
   const handleStop = useCallback(() => {
     streamRef.current?.abort();
@@ -380,14 +417,7 @@ export function AcpChat({ routes, loadingRoutes }: AcpChatProps) {
 
   const handleResolvePermission = useCallback(
     async (messageId: string, requestId: string, outcome: "selected" | "cancelled", optionId?: string) => {
-      try {
-        await resolveACPChatPermission({
-          route_id: selectedRouteId,
-          virtual_key: selectedVk?.key,
-          request_id: requestId,
-          outcome,
-          option_id: optionId,
-        });
+      const markResolved = () =>
         setMessages((prev) =>
           prev.map((m) =>
             m.id === messageId
@@ -400,11 +430,41 @@ export function AcpChat({ routes, loadingRoutes }: AcpChatProps) {
               : m,
           ),
         );
+
+      // How a decision reaches the runtime is a capability, not a constant:
+      //   active_stream (ACP)   — the turn is held open and resumes when the
+      //                           side-channel POST /permission lands
+      //   new_stream (builtin)  — the route answers POST /permission with
+      //                           capability_not_supported; the decision has to
+      //                           ride a fresh turn that carries no input, and
+      //                           the continuation arrives on that new stream
+      if (resumeMode === "new_stream") {
+        if (streaming) {
+          showToast("Wait for the current turn to finish", "error");
+          return;
+        }
+        markResolved();
+        updateAgent(messageId, (m) => ({ ...m, status: "streaming" }));
+        startStream(messageId, {
+          permission: { request_id: requestId, outcome, option_id: optionId },
+        });
+        return;
+      }
+
+      try {
+        await resolveACPChatPermission({
+          route_id: selectedRouteId,
+          virtual_key: selectedVk?.key,
+          request_id: requestId,
+          outcome,
+          option_id: optionId,
+        });
+        markResolved();
       } catch (err) {
         showToast(err instanceof ApiError ? err.message : "Failed to resolve permission", "error");
       }
     },
-    [selectedRouteId, selectedVk, showToast],
+    [resumeMode, streaming, startStream, updateAgent, selectedRouteId, selectedVk, showToast],
   );
 
   const noRoutes = !loadingRoutes && routes.length === 0;
@@ -417,7 +477,7 @@ export function AcpChat({ routes, loadingRoutes }: AcpChatProps) {
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
           <div className="min-w-0 flex-1">
             <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-              ACP Route
+              Agent Route
             </label>
             <select
               className={selectClass()}
@@ -428,10 +488,10 @@ export function AcpChat({ routes, loadingRoutes }: AcpChatProps) {
                 startNewChat();
               }}
             >
-              {routes.length === 0 && <option value="">No ACP routes</option>}
+              {routes.length === 0 && <option value="">No agent routes</option>}
               {routes.map((r) => (
                 <option key={r.id} value={r.id} className="bg-slate-900">
-                  {r.id} → {r.service_id}
+                  {r.id} → {r.agent_id}
                 </option>
               ))}
             </select>
@@ -467,19 +527,23 @@ export function AcpChat({ routes, loadingRoutes }: AcpChatProps) {
             )}
           </div>
 
-          <div className="min-w-0 flex-1">
-            <label className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-              Working Dir
-              <HelpTooltip content="Optional. Overrides the service default cwd for this conversation. Must match the session's cwd when resuming." />
-            </label>
-            <Input
-              name="cwd"
-              value={cwd}
-              onChange={setCwd}
-              placeholder="(service default)"
-              disabled={streaming}
-            />
-          </div>
+          {/* cwd is an ACP runtime option — a builtin agent runs in-process and
+              has no working directory to override. */}
+          {isACP && (
+            <div className="min-w-0 flex-1">
+              <label className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                Working Dir
+                <HelpTooltip content="Optional. Overrides the runtime default cwd for this conversation. Must match the session's cwd when resuming." />
+              </label>
+              <Input
+                name="cwd"
+                value={cwd}
+                onChange={setCwd}
+                placeholder="(runtime default)"
+                disabled={streaming}
+              />
+            </div>
+          )}
 
           <div className="shrink-0">
             <Button variant="secondary" onClick={startNewChat} disabled={streaming || noRoutes}>
@@ -491,11 +555,16 @@ export function AcpChat({ routes, loadingRoutes }: AcpChatProps) {
 
       {noRoutes ? (
         <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-slate-700/70 bg-slate-900/40 p-8 text-center text-sm text-slate-500">
-          No ACP routes are bound to this agent. Expose the backing service over a route to enable chat.
+          No agent routes target this agent. Expose it over an agent route to enable chat.
         </div>
       ) : (
         /* Body: sessions sidebar + chat column */
         <div className="flex min-h-0 flex-1 gap-3">
+          {/* Only rendered when the backend can actually enumerate sessions:
+              builtin keeps sessions in memory for same-session_id continuation
+              but exposes neither a list nor a transcript, so the sidebar would
+              be permanently empty and every poll would log a gateway 501. */}
+          {canListSessions && (
           <aside className="hidden w-60 shrink-0 flex-col rounded-lg border border-slate-700/70 bg-slate-900/40 md:flex">
             <div className="flex items-center justify-between border-b border-slate-700/70 px-3 py-2">
               <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Sessions</p>
@@ -503,7 +572,7 @@ export function AcpChat({ routes, loadingRoutes }: AcpChatProps) {
                 type="button"
                 onClick={() => void loadSessions()}
                 className="text-[10px] text-slate-400 hover:text-slate-200"
-                disabled={loadingSessions || !serviceId}
+                disabled={loadingSessions || !agentId}
               >
                 Refresh
               </button>
@@ -511,6 +580,12 @@ export function AcpChat({ routes, loadingRoutes }: AcpChatProps) {
             <div className="min-h-0 flex-1 overflow-y-auto p-2">
               {loadingSessions ? (
                 <p className="px-1 py-2 text-[11px] text-slate-500">Loading…</p>
+              ) : sessionsError ? (
+                <div className="space-y-1 px-1 py-2">
+                  <p className="text-[11px] text-amber-300">Sessions unavailable</p>
+                  <p className="break-words text-[10px] text-slate-500">{sessionsError}</p>
+                  <p className="text-[10px] text-slate-500">Chat still works; only history is affected.</p>
+                </div>
               ) : sessions.length === 0 ? (
                 <p className="px-1 py-2 text-[11px] text-slate-500">No sessions yet.</p>
               ) : (
@@ -520,7 +595,8 @@ export function AcpChat({ routes, loadingRoutes }: AcpChatProps) {
                       <button
                         type="button"
                         onClick={() => void openSession(s)}
-                        disabled={streaming}
+                        disabled={streaming || !canReadTranscript}
+                        title={canReadTranscript ? undefined : "This runtime does not expose transcripts"}
                         className={cn(
                           "w-full rounded-md border px-2.5 py-1.5 text-left transition-colors",
                           sessionId === s.session_id
@@ -530,7 +606,11 @@ export function AcpChat({ routes, loadingRoutes }: AcpChatProps) {
                         )}
                       >
                         <p className="truncate text-xs text-slate-200">{s.title || s.session_id}</p>
-                        {s.cwd && <p className="truncate text-[10px] text-slate-500">{s.cwd}</p>}
+                        {s.updated_at && (
+                          <p className="truncate text-[10px] text-slate-500" suppressHydrationWarning>
+                            {new Date(s.updated_at).toLocaleString()}
+                          </p>
+                        )}
                       </button>
                     </li>
                   ))}
@@ -538,6 +618,7 @@ export function AcpChat({ routes, loadingRoutes }: AcpChatProps) {
               )}
             </div>
           </aside>
+          )}
 
           <section className="flex min-h-0 flex-1 flex-col rounded-lg border border-slate-700/70 bg-slate-900/40">
             <div className="min-h-0 flex-1 px-3">
@@ -557,7 +638,7 @@ export function AcpChat({ routes, loadingRoutes }: AcpChatProps) {
                   }}
                   rows={2}
                   placeholder={
-                    selectedRouteId ? "Type a message… (Enter to send, Shift+Enter for newline)" : "Select an ACP route to begin"
+                    selectedRouteId ? "Type a message… (Enter to send, Shift+Enter for newline)" : "Select an agent route to begin"
                   }
                   disabled={!selectedRouteId}
                   className={cn(

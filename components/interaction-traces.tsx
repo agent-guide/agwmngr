@@ -150,6 +150,8 @@ export function groupTraces(events: InteractionEvent[]): Trace[] {
 const BAR_TONE: Record<string, string> = {
   llm: "bg-blue-500",
   mcp: "bg-violet-500",
+  // Unified agent ingress is "agent"; "acp" still arrives on admin audit spans.
+  agent: "bg-teal-500",
   acp: "bg-teal-500",
   http: "bg-cyan-500",
 };
@@ -244,6 +246,9 @@ function WaterfallRow({ node, trace, selected, onSelect }: { node: SpanNode; tra
             title={!e.success ? "failed" : node.errorInSubtree ? "error downstream" : "ok"}
           />
           <Badge tone={protocolTone(e.route_kind)} className="shrink-0">{e.route_protocol ?? e.route_kind}</Badge>
+          {e.runtime_type && (
+            <Badge tone={protocolTone(e.runtime_type)} className="shrink-0">{e.runtime_type}</Badge>
+          )}
           <span className="truncate font-mono text-slate-300">{spanLabel(e)}</span>
           {num(e.tool_call_count) > 0 && (
             <Badge tone="violet" mono className="shrink-0">
@@ -275,6 +280,8 @@ function SpanDetail({ event: e }: { event: InteractionEvent }) {
   const called = parseNames(e.tool_names);
   const rows: [string, string | number | undefined | null][] = [
     ["route_kind", e.route_kind],
+    ["runtime_type", e.runtime_type],
+    ["run_id", e.run_id],
     ["route_protocol", e.route_protocol],
     ["route_id", e.route_id],
     ["operation", e.operation],

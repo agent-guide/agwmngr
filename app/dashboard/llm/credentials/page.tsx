@@ -243,6 +243,13 @@ export default function CredentialsPage() {
         </div>
       </section>
 
+      <section className="rounded-lg border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-xs text-amber-200" role="note">
+        <p className="font-semibold">Gateway bundle backup limitation</p>
+        <p className="mt-1 leading-5 text-amber-300/90">
+          Bundle import/export does not include managed credentials. Exported bundles are not complete backups; preserve and restore credentials separately from this page or the credentials Admin API.
+        </p>
+      </section>
+
       <section className="grid grid-cols-3 gap-2">
         {[
           { label: "Total", value: credentials.length },

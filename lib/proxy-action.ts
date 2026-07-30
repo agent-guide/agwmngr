@@ -59,6 +59,22 @@ export function actionForProxyPath(method: string, proxyPath: string): GatewayAc
     return "runtime:chat";
   }
 
+  // Resolving a pending agent permission releases a suspended turn, so it is a
+  // runtime decision rather than a config write. v0.5.0 moved this off
+  // /admin/acp/runtime/permissions/{id} onto the owning agent
+  // (unified-agent-runtime.md §6.7). Guard the shape precisely — 5 segments,
+  // "routes" excluded because it is the reserved ingress collection, never an
+  // agent id (see the same reservation in lib/api.ts).
+  if (
+    m === "POST" &&
+    segments.length === 5 &&
+    startsWith(segments, ["admin", "agents"]) &&
+    segments[2] !== "routes" &&
+    segments[3] === "permissions"
+  ) {
+    return "runtime:permission_resolve";
+  }
+
   // Config endpoints that carry secret fields. Labelled as redacted reads on the
   // assumption the upstream/manager redacts secret values in these responses; if
   // a given endpoint can return unredacted secrets it must be moved to

@@ -72,6 +72,7 @@ type NavGroup = {
 const WORKSPACE_ITEMS: NavItem[] = [
   { href: "/dashboard/general/overview", label: "Overview", icon: IconHome },
   { href: "/dashboard/agents", label: "Agents", icon: IconAgent },
+  { href: "/dashboard/agents/routes", label: "Agent Routes", icon: IconRoute },
   { href: "/dashboard/agents/interactions", label: "Interactions", icon: IconActivity },
   { href: "/dashboard/agents/usage", label: "Usage", icon: IconBarChart },
   { href: "/dashboard/general/virtual-keys", label: "Virtual Keys", icon: IconKey },
@@ -79,7 +80,7 @@ const WORKSPACE_ITEMS: NavItem[] = [
 
 // Everything below is the shared infrastructure that backs agents. It is
 // collapsed into disclosure groups so it no longer competes with the agent
-// zone for the eye. LLM / MCP / ACP live inside one "Resources" group.
+// zone for the eye. LLM / MCP / Runtimes live inside one "Resources" group.
 const NAV_GROUPS: NavGroup[] = [
   {
     key: "resources",
@@ -105,12 +106,10 @@ const NAV_GROUPS: NavGroup[] = [
         ],
       },
       {
-        key: "acp",
-        label: "ACP",
+        key: "runtimes",
+        label: "Runtimes",
         items: [
-          { href: "/dashboard/acp/services", label: "Services", icon: IconBot },
-          { href: "/dashboard/acp/routes", label: "Routes", icon: IconRoute },
-          { href: "/dashboard/acp/runtime", label: "Runtime", icon: IconActivity },
+          { href: "/dashboard/acp/runtime", label: "ACP Pool", icon: IconBot },
         ],
       },
     ],

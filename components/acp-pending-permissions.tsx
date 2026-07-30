@@ -4,12 +4,73 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { HelpTooltip } from "@/components/ui/tooltip";
 import { useToast } from "@/components/ui/toast";
-import { ApiError, resolveACPPermission, type ACPPendingPermissionInfo } from "@/lib/api";
+import {
+  ApiError,
+  resolveAgentPermission,
+  type ACPPendingPermissionInfo,
+  type ACPRuntimePermissionView,
+  type AgentPendingPermission,
+} from "@/lib/api";
 
 interface PermissionOption {
   optionId: string;
   name: string;
   kind?: string;
+}
+
+/**
+ * One pending permission, normalized across the three shapes the gateway exposes:
+ * the runtime-neutral broker record (`/admin/agents/{id}/permissions`), the raw
+ * ACP pool record embedded in an agent workspace (`owner_id`), and the ACP runtime
+ * overview view (`agent_id`, no payload). Resolution is agent-scoped in v0.5.0, so
+ * every source must supply the owning agent id.
+ */
+export interface PendingPermission {
+  requestId: string;
+  agentId: string;
+  sessionId?: string;
+  title?: string;
+  options: PermissionOption[];
+  expiresAt?: string;
+  raw?: unknown;
+}
+
+/** The broker record already carries structured options — no guessing needed. */
+export function normalizeBrokerPermission(p: AgentPendingPermission): PendingPermission {
+  return {
+    requestId: p.request_id,
+    agentId: p.agent_id,
+    sessionId: p.session_id,
+    options: (p.options ?? []).map((o) => ({
+      optionId: o.option_id,
+      name: o.name || o.option_id,
+      kind: o.kind,
+    })),
+    expiresAt: p.expires_at,
+    raw: p,
+  };
+}
+
+/** Raw ACP pool record from an agent workspace; the owner is the agent. */
+export function normalizeACPPoolPermission(p: ACPPendingPermissionInfo): PendingPermission {
+  return {
+    requestId: p.request_id,
+    agentId: p.owner_id,
+    sessionId: p.session_id,
+    title: permissionTitle(p.data),
+    options: parseOptions(p.data),
+    raw: p.data,
+  };
+}
+
+/** ACP runtime overview view: identity only, so options fall back to manual entry. */
+export function normalizeACPRuntimePermission(p: ACPRuntimePermissionView): PendingPermission {
+  return {
+    requestId: p.request_id,
+    agentId: p.agent_id,
+    sessionId: p.session_id,
+    options: [],
+  };
 }
 
 /** Best-effort extraction of selectable options from a raw ACP permission request. */
@@ -30,40 +91,40 @@ function parseOptions(data: unknown): PermissionOption[] {
   return [];
 }
 
-function permissionTitle(data: unknown): string | null {
+function permissionTitle(data: unknown): string | undefined {
   if (data && typeof data === "object" && "toolCall" in data) {
     const tc = (data as { toolCall?: { title?: unknown } }).toolCall;
     if (tc && typeof tc.title === "string") return tc.title;
   }
-  return null;
+  return undefined;
 }
 
 /**
- * Inline list of pending ACP permission requests with approve/reject actions.
- * Shared by the ACP Runtime page and the agent Overview "Live Runtime" card.
- * Callers own the surrounding Card/heading; `onResolved` should re-fetch the
- * source data (SWR mutate) after a decision.
+ * Inline list of pending permission requests with approve/reject actions. Shared
+ * by the ACP Runtime page and the agent Overview "Live Runtime" card. Callers own
+ * the surrounding Card/heading; `onResolved` should re-fetch the source data
+ * (SWR mutate) after a decision.
  */
 export function PendingPermissions({
   pending,
   onResolved,
   emptyText = "No pending permission requests.",
 }: {
-  pending: ACPPendingPermissionInfo[];
+  pending: PendingPermission[];
   onResolved: () => void;
   emptyText?: string;
 }) {
   const { showToast } = useToast();
   const [busyId, setBusyId] = useState<string | null>(null);
   // Fallback manual-resolve modal for permissions without parseable options.
-  const [manual, setManual] = useState<ACPPendingPermissionInfo | null>(null);
+  const [manual, setManual] = useState<PendingPermission | null>(null);
   const [manualOptionId, setManualOptionId] = useState("");
 
-  const resolve = async (p: ACPPendingPermissionInfo, outcome: "selected" | "cancelled", optionId?: string) => {
-    setBusyId(p.request_id);
+  const resolve = async (p: PendingPermission, outcome: "selected" | "cancelled", optionId?: string) => {
+    setBusyId(p.requestId);
     try {
-      await resolveACPPermission(p.request_id, {
-        request_id: p.request_id,
+      await resolveAgentPermission(p.agentId, p.requestId, {
+        request_id: p.requestId,
         outcome,
         ...(outcome === "selected" && optionId ? { option_id: optionId } : {}),
       });
@@ -86,22 +147,21 @@ export function PendingPermissions({
     <>
       <div className="space-y-2">
         {pending.map((p) => {
-          const options = parseOptions(p.data);
-          const title = permissionTitle(p.data);
-          const busy = busyId === p.request_id;
+          const busy = busyId === p.requestId;
           return (
-            <div key={p.request_id} className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+            <div key={p.requestId} className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
-                  {title && <p className="text-sm font-medium text-amber-100">{title}</p>}
-                  <p className="font-mono text-xs text-amber-300">{p.request_id}</p>
+                  {p.title && <p className="text-sm font-medium text-amber-100">{p.title}</p>}
+                  <p className="font-mono text-xs text-amber-300">{p.requestId}</p>
                   <p className="mt-0.5 font-mono text-[11px] text-slate-400">
-                    service: {p.service_id}{p.session_id ? ` · session: ${p.session_id}` : ""}
+                    agent: {p.agentId}
+                    {p.sessionId ? ` · session: ${p.sessionId}` : ""}
                   </p>
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-                  {options.length > 0 ? (
-                    options.map((o) => (
+                  {p.options.length > 0 ? (
+                    p.options.map((o) => (
                       <Button
                         key={o.optionId}
                         variant={o.kind?.startsWith("reject") || o.kind === "cancel" ? "danger" : "primary"}
@@ -122,10 +182,10 @@ export function PendingPermissions({
                   </Button>
                 </div>
               </div>
-              {p.data != null && (
+              {p.raw != null && (
                 <details className="mt-2">
                   <summary className="cursor-pointer text-[11px] text-slate-500 hover:text-slate-300">Raw request</summary>
-                  <pre className="mt-1 max-h-40 overflow-auto rounded bg-slate-950/70 p-2 font-mono text-[11px] text-slate-400">{JSON.stringify(p.data, null, 2)}</pre>
+                  <pre className="mt-1 max-h-40 overflow-auto rounded bg-slate-950/70 p-2 font-mono text-[11px] text-slate-400">{JSON.stringify(p.raw, null, 2)}</pre>
                 </details>
               )}
             </div>
@@ -137,7 +197,7 @@ export function PendingPermissions({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-modal-overlay" onClick={() => setManual(null)}>
           <div className="w-full max-w-md glass-card animate-modal-card rounded-lg p-4" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-sm font-semibold text-slate-100">Resolve Permission</h3>
-            <p className="mt-1 font-mono text-[11px] text-slate-400">{manual.request_id}</p>
+            <p className="mt-1 font-mono text-[11px] text-slate-400">{manual.requestId}</p>
             <label className="mt-3 mb-1.5 block text-sm font-medium text-slate-300">
               Option ID
               <HelpTooltip content="Exact option ID from the agent's permission offer (see raw request). Required to approve." />
@@ -149,10 +209,10 @@ export function PendingPermissions({
               className="glass-input w-full rounded-md px-3 py-2 text-sm text-slate-100"
             />
             <div className="mt-4 flex justify-end gap-1.5">
-              <Button variant="ghost" onClick={() => setManual(null)} disabled={busyId === manual.request_id}>Cancel</Button>
-              <Button variant="danger" onClick={() => void resolve(manual, "cancelled")} disabled={busyId === manual.request_id}>Reject</Button>
-              <Button onClick={() => void resolve(manual, "selected", manualOptionId.trim())} disabled={busyId === manual.request_id || !manualOptionId.trim()}>
-                {busyId === manual.request_id ? "Resolving…" : "Approve"}
+              <Button variant="ghost" onClick={() => setManual(null)} disabled={busyId === manual.requestId}>Cancel</Button>
+              <Button variant="danger" onClick={() => void resolve(manual, "cancelled")} disabled={busyId === manual.requestId}>Reject</Button>
+              <Button onClick={() => void resolve(manual, "selected", manualOptionId.trim())} disabled={busyId === manual.requestId || !manualOptionId.trim()}>
+                {busyId === manual.requestId ? "Resolving…" : "Approve"}
               </Button>
             </div>
           </div>

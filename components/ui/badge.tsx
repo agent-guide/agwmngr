@@ -48,15 +48,23 @@ export function Badge({
   );
 }
 
-/** Maps a route/runtime protocol to a consistent accent colour (§4.11). */
+/**
+ * Maps a route/runtime protocol to a consistent accent colour (§4.11).
+ * Accepts both route kinds (llm / mcp / agent) and agent runtime types
+ * (acp / builtin / http) since both are rendered as protocol chips.
+ */
 export function protocolTone(kind?: string): BadgeTone {
   switch ((kind ?? "").toLowerCase()) {
     case "llm":
       return "blue";
     case "mcp":
       return "violet";
+    // The unified agent ingress kind and the ACP runtime share the agent accent.
+    case "agent":
     case "acp":
       return "teal";
+    case "builtin":
+      return "green";
     case "http":
       return "cyan";
     default:

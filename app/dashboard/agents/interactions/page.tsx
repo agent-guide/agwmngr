@@ -44,9 +44,9 @@ function InteractionsView() {
   const [source, setSource] = useState("data");
 
   // Agent options for the filter. The interactions endpoint resolves agent_id to
-  // the agent's full attribution server-side (durable tag OR its owned routes/ACP
-  // service — same selector as the Usage page and /admin/agents/{id}/*), so
-  // narrowing to one agent stays complete even for untagged-but-mappable spans.
+  // the agent's full attribution server-side (durable tag OR its owned routes —
+  // same selector as the Usage page and /admin/agents/{id}/*), so narrowing to one
+  // agent stays complete even for untagged-but-mappable spans.
   const { data: agents } = useAdminSWR("agents-for-interactions", listAgents, {});
 
   const { data, error, isLoading, mutate, isValidating, lastUpdated } = useAdminSWR(
@@ -57,17 +57,21 @@ function InteractionsView() {
         ...(status !== "all" ? { success: status === "ok" } : {}),
         ...(agent !== "all" ? { agent_id: agent } : {}),
       };
-      // Each query is one server-side slice; admin can only appear under route_kind=acp,
-      // so route_kind=llm/mcp are inherently admin-free and acp is pinned to a data-plane
-      // route_protocol (openai/anthropic/cc/mcp/acp) to exclude the "admin" polls.
+      // Each query is one server-side slice. Admin audit spans only ever carry
+      // route_kind=acp + route_protocol=admin, so route_kind=llm/mcp/agent are
+      // inherently admin-free; agent ingress is additionally pinned to
+      // route_protocol=agent so a future admin span cannot leak in.
       const queries: MetricsQuery[] = [];
-      const dataAcp = { route_kind: "acp", route_protocol: "acp" };
+      const dataAgent = { route_kind: "agent", route_protocol: "agent" };
       if (source === "admin") {
-        queries.push({ ...base, route_protocol: "admin", ...(kind !== "all" ? { route_kind: kind } : {}) });
+        // Admin audit is the manager's own ACP-runtime polling, not per-protocol
+        // traffic, so the Protocol selector does not partition it — constraining
+        // by route_kind here would return an empty list for every choice but acp.
+        queries.push({ ...base, route_protocol: "admin" });
       } else if (source === "data") {
-        if (kind === "acp") queries.push({ ...base, ...dataAcp });
+        if (kind === "agent") queries.push({ ...base, ...dataAgent });
         else if (kind !== "all") queries.push({ ...base, route_kind: kind });
-        else queries.push({ ...base, route_kind: "llm" }, { ...base, route_kind: "mcp" }, { ...base, ...dataAcp });
+        else queries.push({ ...base, route_kind: "llm" }, { ...base, route_kind: "mcp" }, { ...base, ...dataAgent });
       } else {
         // "all" — no source constraint; honour the Protocol selector only.
         queries.push({ ...base, ...(kind !== "all" ? { route_kind: kind } : {}) });
@@ -100,7 +104,7 @@ function InteractionsView() {
           options={[{ value: "all", label: "All agents" }, ...(agents ?? []).map((a) => ({ value: a.id, label: a.name || a.id }))]}
         />
         <span className="ml-2">Protocol</span>
-        <Select name="kind" value={kind} onChange={setKind} options={[{ value: "all", label: "All" }, { value: "llm", label: "LLM" }, { value: "mcp", label: "MCP" }, { value: "acp", label: "ACP" }]} />
+        <Select name="kind" value={kind} onChange={setKind} options={[{ value: "all", label: "All" }, { value: "llm", label: "LLM" }, { value: "mcp", label: "MCP" }, { value: "agent", label: "Agent" }]} />
         <span className="ml-2">Status</span>
         <Select name="status" value={status} onChange={setStatus} options={[{ value: "all", label: "All" }, { value: "ok", label: "Success" }, { value: "err", label: "Failure" }]} />
         <span className="ml-2">Source</span>

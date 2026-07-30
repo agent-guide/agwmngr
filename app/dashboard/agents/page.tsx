@@ -91,11 +91,24 @@ export default function AgentsListPage() {
                 <Badge tone={protocolTone(a.runtime.type)}>{a.runtime.type}</Badge>
               </div>
               {a.description && <p className="mt-2 line-clamp-2 text-xs text-slate-400">{a.description}</p>}
+              {a.capabilities?.executable === false && !a.disabled && (
+                <div className="mt-3 rounded-md border border-rose-500/60 bg-rose-500/10 px-3 py-2 text-xs text-rose-200" role="alert">
+                  <p className="font-semibold">Runtime not executable</p>
+                  <p className="mt-0.5 text-[11px] text-rose-300/90">
+                    This Agent and its route can exist, but turns cannot run. POST /turn returns 501 runtime_not_executable.
+                  </p>
+                </div>
+              )}
               <div className="mt-3 flex flex-wrap items-center gap-1.5">
                 {a.disabled ? <Badge tone="neutral">disabled</Badge> : <Badge tone="green">enabled</Badge>}
-                {a.runtime.acp?.service_id && <Badge tone="teal" mono>{a.runtime.acp.service_id}</Badge>}
+                {/* Runtime config is inlined on the agent now, so surface the
+                    identifying field of whichever backend is bound. */}
+                {a.runtime.acp?.agent_type && <Badge tone="teal" mono>{a.runtime.acp.agent_type}</Badge>}
+                {a.runtime.builtin?.topology?.kind && <Badge tone="teal" mono>{a.runtime.builtin.topology.kind}</Badge>}
+                {a.runtime.http?.endpoint && <Badge tone="teal" mono>{a.runtime.http.endpoint}</Badge>}
+                {a.runtime_status?.state && <Badge tone="neutral">{a.runtime_status.state}</Badge>}
                 <span className="text-[11px] text-slate-500">
-                  {countResources(a.routes.acp_route_ids, a.routes.llm_route_ids, a.routes.mcp_route_ids)} routes ·{" "}
+                  {countResources(a.routes.llm_route_ids, a.routes.mcp_route_ids)} routes ·{" "}
                   {countResources(a.resources.provider_ids, a.resources.mcp_service_ids, a.resources.virtual_key_ids)} resources
                 </span>
               </div>

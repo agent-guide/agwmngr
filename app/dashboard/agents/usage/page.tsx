@@ -27,7 +27,7 @@ import {
 } from "@/lib/api";
 import { TIME_RANGES, type TimeRange, rangeToQuery, num, pivotTimeseries, errorRate, pct } from "@/lib/metrics-util";
 
-const PROTOCOLS = ["LLM", "MCP", "ACP"] as const;
+const PROTOCOLS = ["LLM", "MCP", "Agent"] as const;
 type Protocol = (typeof PROTOCOLS)[number];
 
 function fmt(n: number): string {
@@ -138,7 +138,7 @@ function UsageView() {
 
       {tab === "LLM" && <LLMTab range={range} setRange={setRange} agentId={agentId} />}
       {tab === "MCP" && <MCPTab range={range} setRange={setRange} agentId={agentId} />}
-      {tab === "ACP" && <ACPTab range={range} setRange={setRange} agentId={agentId} />}
+      {tab === "Agent" && <AgentTab range={range} setRange={setRange} agentId={agentId} />}
     </div>
   );
 }
@@ -318,35 +318,39 @@ function MCPTab({ range, setRange, agentId }: TabProps) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// ACP tab
+// Agent tab (backed by the /metrics/acp/* family, which still stores ACP-typed
+// runtime events; the route dimensions are what became runtime-neutral)
 // ──────────────────────────────────────────────────────────────────────────
 
 const ACP_GROUP_OPTIONS = [
   { value: "route_id", label: "Route" },
-  { value: "service_id", label: "Service" },
   { value: "agent_type", label: "Agent Type" },
   { value: "operation", label: "Operation" },
 ];
 
-// Source selector for the ACP tab. The manager's own Admin API polling of
-// `/admin/acp` is recorded into the same usage table with route_protocol="admin"
-// (data-plane turns carry route_protocol="acp"). Those audit spans would
-// otherwise inflate every ACP stat, so default to data-plane only — mirrors the
-// Interactions page Source filter, except here it must be applied server-side
-// because the stat cards/timeseries are pre-aggregated by the gateway.
-const ACP_SOURCE_OPTIONS = [
+// Source selector for the Agent tab. The manager's own Admin API polling of
+// `/admin/acp` is recorded into the same usage table with route_protocol="admin".
+// Those audit spans would otherwise inflate every agent stat, so default to
+// data-plane only — mirrors the Interactions page Source filter, except here it
+// must be applied server-side because the stat cards/timeseries are
+// pre-aggregated by the gateway.
+//
+// v0.5.0 cutover: unified agent ingress records route_protocol="agent", not
+// "acp" (unified-agent-runtime.md §6.10). Filtering on "acp" now silently
+// matches nothing, which reads as "no traffic" rather than as a broken filter.
+const AGENT_SOURCE_OPTIONS = [
   { value: "data", label: "Data-plane" },
   { value: "admin", label: "Admin audit" },
   { value: "all", label: "All" },
 ];
 
 function sourceProtocol(source: string): string | undefined {
-  if (source === "data") return "acp";
+  if (source === "data") return "agent";
   if (source === "admin") return "admin";
   return undefined;
 }
 
-function ACPTab({ range, setRange, agentId }: TabProps) {
+function AgentTab({ range, setRange, agentId }: TabProps) {
   const [groupBy, setGroupBy] = useState("route_id");
   const [source, setSource] = useState("data");
   const q = useMemo(() => rangeToQuery(range), [range]);
@@ -383,7 +387,7 @@ function ACPTab({ range, setRange, agentId }: TabProps) {
     <div className="space-y-4">
       <ControlBar range={range} setRange={setRange}>
         <span>Source</span>
-        <Select name="acp-source" value={source} onChange={setSource} options={ACP_SOURCE_OPTIONS} />
+        <Select name="agent-source" value={source} onChange={setSource} options={AGENT_SOURCE_OPTIONS} />
         <span className="ml-2">Group by</span>
         <Select name="acp-group-by" value={groupBy} onChange={setGroupBy} options={ACP_GROUP_OPTIONS} />
         <AutoRefreshControl lastUpdated={breakdown.lastUpdated} onRefresh={() => { void breakdown.mutate(); void timeseries.mutate(); void events.mutate(); }} refreshing={breakdown.isValidating} />
@@ -503,7 +507,11 @@ function BreakdownCard({ title, items, groupBy, tokens, emptyText }: { title: st
 /** Best-effort primary label per protocol for the recent-events feed. */
 function eventPrimary(e: InteractionEvent): string {
   if (e.route_kind === "mcp") return e.tool_name ?? e.method ?? e.route_id;
-  if (e.route_kind === "acp") return e.operation ?? e.agent_type ?? e.route_id;
+  // Unified ingress reports route_kind "agent"; "acp" still appears on admin
+  // audit spans, so accept both.
+  if (e.route_kind === "agent" || e.route_kind === "acp") {
+    return e.operation ?? e.agent_type ?? e.route_id;
+  }
   return e.upstream_model ?? e.route_id;
 }
 

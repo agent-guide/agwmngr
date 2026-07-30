@@ -1,11 +1,23 @@
 import { requireGatewayAccess, finalizeAccess } from "@/lib/access";
-import { ACPRouteError, dataplaneCandidates, resolveACPRouteTarget } from "@/lib/acp-dataplane";
+import {
+  AgentRouteError,
+  dataplaneCandidates,
+  resolveAgentRouteTarget,
+  resolveAgentRuntimeType,
+} from "@/lib/acp-dataplane";
 
-// Streaming proxy: forwards a chat turn to the ACP data plane and pipes the
+// Streaming proxy: forwards a chat turn to the agent data plane and pipes the
 // SSE response straight back to the browser. The manager session is required
 // here; the data-plane virtual key is injected server-side so it never has to
 // live in the browser. This is an explicit route, so it takes precedence over
 // the /api/admin/[[...path]] gateway-admin catch-all.
+
+interface PermissionDecision {
+  request_id?: string;
+  outcome?: string;
+  option_id?: string;
+  decisions?: { action_id: string; outcome: string }[];
+}
 
 interface TurnBody {
   route_id?: string;
@@ -17,7 +29,30 @@ interface TurnBody {
   model?: string;
   fresh_session?: boolean;
   config_overrides?: Record<string, string>;
+  // Carries a permission decision for runtimes whose resume mode is
+  // `new_stream` (builtin): they do not accept the side-channel POST
+  // /permission, the decision rides a fresh turn instead.
+  permission?: PermissionDecision;
 }
+
+// The AgentRoute turn decoder is strict (DisallowUnknownFields): it accepts only
+// input/session_id/permission/options, and every runtime-specific field must sit
+// inside the versioned options envelope. Sending the old flat body — or omitting
+// options.version — is a hard 400, not a silently ignored field.
+// See unified-agent-runtime.md §6.5 and docs/v0.5-alignment-plan.md §2.4.
+const TURN_OPTIONS_VERSION = "v1";
+
+// options.runtime is decoded by the *selected backend*, also with
+// DisallowUnknownFields, so its accepted keys are per-runtime — not universal:
+//
+//   acp     → acpRuntimeOptionsV1; thread_id is mandatory (empty ⇒ 400)
+//   builtin → an empty struct; ANY key is rejected as unsupported_option, which
+//             surfaces as "runtime option is not supported"
+//   http    → not executable yet; the gateway answers 501
+//
+// So the envelope has to be built per backend. Sending the ACP shape to a
+// builtin agent fails the whole turn.
+const ACP_ONLY_FIELDS = ["thread_id", "cwd", "model", "fresh_session", "config_overrides"] as const;
 
 export const dynamic = "force-dynamic";
 
@@ -47,14 +82,20 @@ export async function POST(req: Request): Promise<Response> {
 
   const routeId = payload.route_id?.trim();
   if (!routeId) return fail(Response.json({ error: "route_id is required" }, { status: 400 }), 400, "bad_request");
-  if (!payload.thread_id?.trim()) return fail(Response.json({ error: "thread_id is required" }, { status: 400 }), 400, "bad_request");
-  if (!payload.input?.trim()) return fail(Response.json({ error: "input is required" }, { status: 400 }), 400, "bad_request");
+  // The dispatcher accepts a turn carrying only a permission decision — that is
+  // how a `new_stream` runtime resumes — so input is required only without one.
+  const permissionRequestId = payload.permission?.request_id?.trim();
+  if (!payload.input?.trim() && !permissionRequestId) {
+    return fail(Response.json({ error: "input or permission is required" }, { status: 400 }), 400, "bad_request");
+  }
 
   let target;
+  let runtimeType: string;
   try {
-    target = await resolveACPRouteTarget(routeId, gateway);
+    target = await resolveAgentRouteTarget(routeId, gateway);
+    runtimeType = await resolveAgentRuntimeType(target.agentId, gateway);
   } catch (e) {
-    if (e instanceof ACPRouteError) return fail(Response.json({ error: e.message }, { status: e.status }), e.status, "route_error");
+    if (e instanceof AgentRouteError) return fail(Response.json({ error: e.message }, { status: e.status }), e.status, "route_error");
     return fail(Response.json({ error: `gateway unreachable: ${String(e)}` }, { status: 502 }), 502, "gateway_unreachable");
   }
 
@@ -63,16 +104,53 @@ export async function POST(req: Request): Promise<Response> {
     return fail(Response.json({ error: "this route requires a virtual key" }, { status: 400 }), 400, "virtual_key_required");
   }
 
-  const turnBody: Record<string, unknown> = {
-    thread_id: payload.thread_id,
-    input: payload.input,
-  };
+  // thread_id/cwd/model/fresh_session/config_overrides are ACP-runtime options,
+  // so they belong under options.runtime rather than at the top level — and only
+  // when the target actually runs on ACP.
+  const options: Record<string, unknown> = { version: TURN_OPTIONS_VERSION };
+  if (runtimeType === "acp") {
+    if (!payload.thread_id?.trim()) {
+      return fail(Response.json({ error: "thread_id is required" }, { status: 400 }), 400, "bad_request");
+    }
+    const runtimeOptions: Record<string, unknown> = { thread_id: payload.thread_id.trim() };
+    if (payload.cwd?.trim()) runtimeOptions.cwd = payload.cwd.trim();
+    if (payload.model?.trim()) runtimeOptions.model = payload.model.trim();
+    if (payload.fresh_session) runtimeOptions.fresh_session = true;
+    if (payload.config_overrides && Object.keys(payload.config_overrides).length > 0) {
+      runtimeOptions.config_overrides = payload.config_overrides;
+    }
+    options.runtime = runtimeOptions;
+  } else {
+    // Omit options.runtime entirely: the backend treats an absent object as {}.
+    // Reject supplied ACP-only fields instead of dropping them silently — the
+    // caller asked for behaviour this runtime cannot give (a builtin agent has
+    // no threads and no cwd), and a quiet drop would look like it took effect.
+    const rejected = ACP_ONLY_FIELDS.filter((field) => {
+      const value = payload[field];
+      if (typeof value === "string") return value.trim() !== "";
+      if (typeof value === "object" && value !== null) return Object.keys(value).length > 0;
+      return Boolean(value);
+    });
+    if (rejected.length > 0) {
+      return fail(
+        Response.json(
+          { error: `the ${runtimeType} runtime does not accept ${rejected.join(", ")}` },
+          { status: 400 },
+        ),
+        400,
+        "bad_request",
+      );
+    }
+  }
+
+  const turnBody: Record<string, unknown> = { input: payload.input ?? "", options };
   if (payload.session_id?.trim()) turnBody.session_id = payload.session_id.trim();
-  if (payload.cwd?.trim()) turnBody.cwd = payload.cwd.trim();
-  if (payload.model?.trim()) turnBody.model = payload.model.trim();
-  if (payload.fresh_session) turnBody.fresh_session = true;
-  if (payload.config_overrides && Object.keys(payload.config_overrides).length > 0) {
-    turnBody.config_overrides = payload.config_overrides;
+  if (permissionRequestId) {
+    const decision: Record<string, unknown> = { request_id: permissionRequestId };
+    if (payload.permission?.outcome?.trim()) decision.outcome = payload.permission.outcome.trim();
+    if (payload.permission?.option_id?.trim()) decision.option_id = payload.permission.option_id.trim();
+    if (payload.permission?.decisions?.length) decision.decisions = payload.permission.decisions;
+    turnBody.permission = decision;
   }
 
   const headers: Record<string, string> = {

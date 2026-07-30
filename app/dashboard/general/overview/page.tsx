@@ -13,8 +13,8 @@ import {
   listLLMRoutes,
   listMCPServices,
   listMCPRoutes,
-  listACPServices,
-  listACPRoutes,
+  listAgents,
+  listAgentRoutes,
   getACPRuntime,
   getCLIAuthRefresherStatus,
   getLLMTimeseries,
@@ -31,13 +31,13 @@ interface Counts {
   vkeysActive: number;
   mcpServices: number;
   mcpRoutes: number;
-  acpServices: number;
-  acpRoutes: number;
+  agents: number;
+  agentRoutes: number;
 }
 
 const EMPTY_COUNTS: Counts = {
   providers: 0, models: 0, llmRoutes: 0, llmRoutesActive: 0, vkeys: 0, vkeysActive: 0,
-  mcpServices: 0, mcpRoutes: 0, acpServices: 0, acpRoutes: 0,
+  mcpServices: 0, mcpRoutes: 0, agents: 0, agentRoutes: 0,
 };
 
 type Status = "checking" | "online" | "unreachable";
@@ -76,12 +76,12 @@ export default function OverviewPage() {
       adminFetch<{ items: { disabled?: boolean }[] }>("/admin/virtual_keys"),
       listMCPServices(),
       listMCPRoutes(),
-      listACPServices(),
-      listACPRoutes(),
+      listAgents(),
+      listAgentRoutes(),
       adminFetch<{ items: { public_url?: string; routes?: unknown[] }[] }>("/admin/caddy/servers"),
     ]);
 
-    const [providers, models, llmRoutes, vkeys, mcpServices, mcpRoutes, acpServices, acpRoutes, servers] = results;
+    const [providers, models, llmRoutes, vkeys, mcpServices, mcpRoutes, agents, agentRoutes, servers] = results;
     const ok = (r: PromiseSettledResult<unknown>) => r.status === "fulfilled";
     const anyOk = results.some(ok);
 
@@ -99,8 +99,8 @@ export default function OverviewPage() {
     }
     if (mcpServices.status === "fulfilled") next.mcpServices = mcpServices.value.length;
     if (mcpRoutes.status === "fulfilled") next.mcpRoutes = mcpRoutes.value.length;
-    if (acpServices.status === "fulfilled") next.acpServices = acpServices.value.length;
-    if (acpRoutes.status === "fulfilled") next.acpRoutes = acpRoutes.value.length;
+    if (agents.status === "fulfilled") next.agents = agents.value.length;
+    if (agentRoutes.status === "fulfilled") next.agentRoutes = agentRoutes.value.length;
 
     if (servers.status === "fulfilled") {
       const withUrl = (servers.value.items ?? []).filter((s) => s.public_url);
@@ -169,7 +169,7 @@ export default function OverviewPage() {
     { label: "LLM Routes", value: counts.llmRoutes, sub: `${counts.llmRoutesActive} active`, href: "/dashboard/llm/routes", icon: P_ROUTE, accent: "text-indigo-300" },
     { label: "Virtual Keys", value: counts.vkeys, sub: `${counts.vkeysActive} active`, href: "/dashboard/general/virtual-keys", icon: P_KEY, accent: "text-amber-300" },
     { label: "MCP Services", value: counts.mcpServices, sub: `${counts.mcpRoutes} routes`, href: "/dashboard/mcp/services", icon: P_PLUG, accent: "text-violet-300" },
-    { label: "ACP Services", value: counts.acpServices, sub: `${counts.acpRoutes} routes`, href: "/dashboard/acp/services", icon: P_BOT, accent: "text-teal-300" },
+    { label: "Agents", value: counts.agents, sub: `${counts.agentRoutes} routes`, href: "/dashboard/agents", icon: P_BOT, accent: "text-teal-300" },
   ];
 
   // ── Snippets ───────────────────────────────────────────────────────────────
@@ -212,9 +212,9 @@ export default function OverviewPage() {
     },
     {
       title: "ACP", items: [
-        { label: "Services", href: "/dashboard/acp/services", desc: "Codex / OpenCode agents" },
-        { label: "Routes", href: "/dashboard/acp/routes", desc: "Expose agents over paths" },
-        { label: "Runtime", href: "/dashboard/acp/runtime", desc: "Instances & permissions" },
+        { label: "Agents", href: "/dashboard/agents", desc: "ACP / builtin / HTTP runtimes" },
+        { label: "Agent Routes", href: "/dashboard/agents/routes", desc: "Expose agents over paths" },
+        { label: "ACP Runtime", href: "/dashboard/acp/runtime", desc: "Pool & process diagnostics" },
       ],
     },
     {

@@ -17,7 +17,7 @@ describe("canonicalSegments", () => {
 describe("actionForProxyPath — method defaults", () => {
   test("GET/HEAD default to gateway:read", () => {
     expect(actionForProxyPath("GET", "/admin/mcp/services")).toBe("gateway:read");
-    expect(actionForProxyPath("HEAD", "/admin/acp/routes")).toBe("gateway:read");
+    expect(actionForProxyPath("HEAD", "/admin/agents/routes")).toBe("gateway:read");
   });
 
   test("mutating methods default to gateway:write", () => {
@@ -48,6 +48,55 @@ describe("actionForProxyPath — runtime override (execute-on-read POSTs)", () =
 
   test("GET on those paths is NOT runtime:chat (only POST executes)", () => {
     expect(actionForProxyPath("GET", "/admin/mcp/services/svc/tools/call")).toBe("gateway:read");
+  });
+});
+
+describe("actionForProxyPath — agent runtime operations (v0.5.0)", () => {
+  test("resolving a pending agent permission is runtime:permission_resolve", () => {
+    expect(actionForProxyPath("POST", "/admin/agents/my-agent/permissions/req-1")).toBe(
+      "runtime:permission_resolve",
+    );
+  });
+
+  test("listing permissions is a plain read, not a resolve", () => {
+    expect(actionForProxyPath("GET", "/admin/agents/my-agent/permissions")).toBe("gateway:read");
+  });
+
+  test("the permissions override needs the exact 5-segment shape", () => {
+    // Missing request id — this is the list endpoint's path with a POST, which
+    // is not a resolve and must not be granted to a viewer by accident.
+    expect(actionForProxyPath("POST", "/admin/agents/my-agent/permissions")).toBe("gateway:write");
+    // A deeper path is not a resolve either.
+    expect(actionForProxyPath("POST", "/admin/agents/a/permissions/req-1/extra")).toBe(
+      "gateway:write",
+    );
+    // 'permissions' must be in the right position, not merely present.
+    expect(actionForProxyPath("POST", "/admin/agents/a/runs/permissions")).toBe("gateway:write");
+  });
+
+  test("'routes' is the reserved ingress collection, never an agent id", () => {
+    // /admin/agents/routes/{id} is route CRUD. Even in the (impossible) 5-segment
+    // shape it must not be mistaken for an agent permission resolve.
+    expect(actionForProxyPath("POST", "/admin/agents/routes/permissions/req-1")).toBe(
+      "gateway:write",
+    );
+    expect(actionForProxyPath("POST", "/admin/agents/routes")).toBe("gateway:write");
+    expect(actionForProxyPath("PUT", "/admin/agents/routes/agent:a:/x")).toBe("gateway:write");
+    expect(actionForProxyPath("DELETE", "/admin/agents/routes/agent:a:/x")).toBe("gateway:write");
+  });
+
+  test("run cancellation and ACP thread recovery are ordinary writes", () => {
+    expect(actionForProxyPath("DELETE", "/admin/agents/my-agent/runs/run-1")).toBe("gateway:write");
+    expect(actionForProxyPath("DELETE", "/admin/acp/runtime/agents/my-agent/threads/t-1")).toBe(
+      "gateway:write",
+    );
+  });
+
+  test("agent runtime diagnostics stay reads", () => {
+    expect(actionForProxyPath("GET", "/admin/agents/my-agent/capabilities")).toBe("gateway:read");
+    expect(actionForProxyPath("GET", "/admin/agents/my-agent/runs")).toBe("gateway:read");
+    expect(actionForProxyPath("GET", "/admin/builtin/runtime")).toBe("gateway:read");
+    expect(actionForProxyPath("GET", "/admin/acp/runtime")).toBe("gateway:read");
   });
 });
 

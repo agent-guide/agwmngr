@@ -19,21 +19,34 @@ import {
   getAgentWorkspace,
   getAgentResources,
   getAgentHealth,
-  listACPRoutes,
+  listAgentRoutes,
   listLLMRoutes,
   listMCPRoutes,
   listVirtualKeys,
+  type AgentCapabilities,
   type AgentResourceRef,
+  type AgentRoute,
   type AgentWorkspace,
   type LLMRoute,
   type MCPRoute,
-  type ACPRoute,
 } from "@/lib/api";
 import { AcpChat } from "@/components/acp-chat/acp-chat";
-import { PendingPermissions } from "@/components/acp-pending-permissions";
+import { PendingPermissions, normalizeACPPoolPermission } from "@/components/acp-pending-permissions";
 
 const TABS = ["Overview", "Chat", "Resources", "Health", "Configuration"] as const;
 type Tab = (typeof TABS)[number];
+
+/**
+ * Tab visibility is capability-driven, not runtime.type-driven: the backend's
+ * capabilities object is authoritative about what an agent actually supports, so
+ * a builtin agent that streams turns gets a Chat tab and an ACP agent whose
+ * backend is down does not (docs/v0.5-alignment-plan.md D4).
+ */
+function visibleTabs(capabilities: AgentCapabilities | undefined): Tab[] {
+  // Before capabilities load, keep the static tabs so the shell does not jump.
+  const chattable = capabilities ? capabilities.executable && capabilities.turn?.streaming !== false : false;
+  return TABS.filter((t) => t !== "Chat" || chattable);
+}
 
 export default function AgentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -45,12 +58,16 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
 
   const ws = useAdminSWR(["agent-ws", id], () => getAgentWorkspace(id), { live: true });
   const agent = ws.data?.agent;
+  const tabs = visibleTabs(ws.data?.capabilities);
+  // The selected tab can vanish once capabilities arrive (e.g. Chat on a
+  // non-executable runtime), so fall back rather than render a blank panel.
+  const activeTab = tabs.includes(tab) ? tab : "Overview";
 
   const handleDelete = async () => {
     setDeleting(true);
     try {
-      const res = await deleteAgent(id);
-      showToast(`Agent deleted${res.unbound?.acp_service_id ? ` (service ${res.unbound.acp_service_id} left intact)` : ""}`, "success");
+      await deleteAgent(id);
+      showToast("Agent deleted", "success");
       router.push("/dashboard/agents");
     } catch (err) {
       showToast(err instanceof ApiError ? err.message : "Failed to delete agent", "error");
@@ -90,14 +107,22 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
         <Card className="p-8 text-center text-sm text-rose-300">{ws.error instanceof Error ? ws.error.message : "Failed to load agent"}</Card>
       ) : (
         <>
+          {ws.data?.capabilities?.executable === false && !agent?.disabled && (
+            <div className="rounded-lg border-2 border-rose-500/70 bg-rose-500/10 p-4 shadow-[0_0_24px_rgba(244,63,94,0.12)]" role="alert">
+              <p className="text-sm font-semibold text-rose-200">This Agent runtime is not executable</p>
+              <p className="mt-1 text-xs leading-5 text-rose-300/90">
+                The Agent and its ingress route are valid and may accept VirtualKey assignment, but the runtime backend is inactive. Calls to POST /turn return 501 runtime_not_executable. Do not troubleshoot route matching or authentication for this state.
+              </p>
+            </div>
+          )}
           <div className="flex flex-wrap gap-1 border-b border-slate-700/70">
-            {TABS.map((t) => (
+            {tabs.map((t) => (
               <button
                 key={t}
                 type="button"
                 onClick={() => setTab(t)}
                 className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
-                  tab === t ? "border-blue-500 text-slate-100" : "border-transparent text-slate-400 hover:text-slate-200"
+                  activeTab === t ? "border-blue-500 text-slate-100" : "border-transparent text-slate-400 hover:text-slate-200"
                 }`}
               >
                 {t}
@@ -105,11 +130,11 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
             ))}
           </div>
 
-          {tab === "Overview" && <OverviewTab id={id} workspace={ws.data} loading={ws.isLoading && !ws.data} refresh={() => void ws.mutate()} />}
-          {tab === "Chat" && <ChatTab workspace={ws.data} loading={ws.isLoading && !ws.data} />}
-          {tab === "Resources" && <ResourcesTab id={id} />}
-          {tab === "Health" && <HealthTab id={id} />}
-          {tab === "Configuration" && <ConfigurationTab id={id} workspace={ws.data} />}
+          {activeTab === "Overview" && <OverviewTab id={id} workspace={ws.data} loading={ws.isLoading && !ws.data} refresh={() => void ws.mutate()} />}
+          {activeTab === "Chat" && <ChatTab workspace={ws.data} loading={ws.isLoading && !ws.data} />}
+          {activeTab === "Resources" && <ResourcesTab id={id} />}
+          {activeTab === "Health" && <HealthTab id={id} />}
+          {activeTab === "Configuration" && <ConfigurationTab id={id} workspace={ws.data} />}
         </>
       )}
 
@@ -120,7 +145,8 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
         title="Delete agent?"
         message={
           <span>
-            This unbinds the agent. The backing ACP service and routes are <strong>left intact</strong> (non-cascading).
+            Deleting drains this agent&apos;s pending permissions and cancels its in-flight runs. The gateway
+            <strong> refuses with 409</strong> while any agent route still targets it — delete those routes first.
             {deleting && " Deleting…"}
           </span>
         }
@@ -142,13 +168,36 @@ function KV({ label, value, mono }: { label: string; value: React.ReactNode; mon
   );
 }
 
+function runtimeStateTone(state: string): "green" | "amber" | "red" | "neutral" {
+  if (state === "ready") return "green";
+  if (state === "starting" || state === "degraded") return "amber";
+  if (state === "unhealthy" || state === "not_executable") return "red";
+  return "neutral";
+}
+
+/**
+ * Pending permissions come from the ACP pool for ACP agents and from the
+ * runtime-neutral summary for everything else; prefer whichever is populated.
+ */
+function pendingCount(
+  rv: AgentWorkspace["runtime_view"],
+  summary: AgentWorkspace["runtime"],
+): number {
+  return rv?.pending_permissions?.length ?? summary?.pending_permissions ?? 0;
+}
+
 function OverviewTab({ id, workspace, loading, refresh }: { id: string; workspace: AgentWorkspace | undefined; loading: boolean; refresh: () => void }) {
   if (loading || !workspace) return <Card className="p-8 text-center text-sm text-slate-400">Loading workspace…</Card>;
 
-  const svc = workspace.acp_service;
   const rv = workspace.runtime_view;
   const usage = workspace.usage;
-  const isHttp = workspace.runtime !== "acp";
+  const runtimeType = workspace.runtime_type;
+  const summary = workspace.runtime;
+  const acp = workspace.agent.runtime.acp;
+  const builtin = workspace.builtin;
+  // ACP is the only runtime with a native process pool to inspect; the others
+  // report through the runtime-neutral summary alone.
+  const hasPool = runtimeType === "acp";
 
   return (
     <div className="space-y-4">
@@ -160,77 +209,129 @@ function OverviewTab({ id, workspace, loading, refresh }: { id: string; workspac
         <StatCard label="Avg Latency" value={`${num(usage?.avg_latency_ms).toLocaleString()} ms`} />
       </StatGrid>
 
-      {isHttp ? (
+      <div className="grid gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle>HTTP Runtime</CardTitle></CardHeader>
-          <p className="text-xs text-slate-400">
-            This agent owns its own process lifecycle. The gateway hands it tasks and observes results — there is no pooled instance, session, or permission flow to manage here.
-          </p>
-          <div className="mt-2">
-            <KV label="Endpoint" value={workspace.agent.runtime.http?.endpoint} mono />
-            <KV label="Auth ref" value={workspace.agent.runtime.http?.auth_ref} mono />
-          </div>
-        </Card>
-      ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
-            <CardHeader><CardTitle>Backing ACP Service</CardTitle></CardHeader>
-            {svc ? (
-              <div>
-                <KV label="Service" value={<Link href="/dashboard/acp/services" className="text-blue-400 hover:underline">{svc.id}</Link>} />
-                <KV label="Agent type" value={svc.agent_type} />
-                <KV label="Permission mode" value={svc.permission_mode} />
-                <KV label="Default cwd" value={svc.default_cwd ?? svc.cwd} mono />
-                <KV label="Max instances" value={svc.max_instances} />
-                <KV label="Allowed roots" value={svc.allowed_roots?.length ? svc.allowed_roots.join(", ") : "—"} mono />
-                <p className="mt-2 text-[11px] text-slate-500">Policy is owned by the service — edit it on the ACP Services page.</p>
-              </div>
-            ) : (
-              <p className="text-xs text-slate-500">Backing service unavailable.</p>
-            )}
-          </Card>
+          <CardHeader><CardTitle>Runtime</CardTitle></CardHeader>
+          <KV label="Type" value={runtimeType} />
+          <KV
+            label="State"
+            value={
+              summary ? (
+                <Badge tone={runtimeStateTone(summary.state)}>{summary.state}</Badge>
+              ) : (
+                "—"
+              )
+            }
+          />
+          <KV label="Executable" value={summary ? (summary.executable ? "Yes" : "No") : "—"} />
+          <KV label="Active runs" value={num(summary?.active_runs)} />
+          <KV label="Sessions" value={num(summary?.session_count)} />
+          <KV
+            label="Last activity"
+            value={summary?.last_activity_at ? new Date(summary.last_activity_at).toLocaleString() : "—"}
+          />
 
-          <Card>
-            <CardHeader><CardTitle>Live Runtime</CardTitle></CardHeader>
-            <div className="grid grid-cols-3 gap-2">
-              <div className="rounded-md border border-slate-700/60 bg-slate-900/40 px-3 py-2">
-                <p className="text-[11px] uppercase tracking-wide text-slate-500">Pooled</p>
-                <p className="text-lg font-semibold tabular-nums text-slate-100">{rv?.pooled_instances?.length ?? 0}</p>
-              </div>
-              <div className="rounded-md border border-slate-700/60 bg-slate-900/40 px-3 py-2">
-                <p className="text-[11px] uppercase tracking-wide text-slate-500">In-flight</p>
-                <p className="text-lg font-semibold tabular-nums text-slate-100">{num(rv?.in_flight_turns)}</p>
-              </div>
-              <Link href="/dashboard/acp/runtime" className="rounded-md border border-slate-700/60 bg-slate-900/40 px-3 py-2 transition-colors hover:border-amber-500/40">
-                <p className="text-[11px] uppercase tracking-wide text-slate-500">Pending</p>
-                <p className={`text-lg font-semibold tabular-nums ${(rv?.pending_permissions?.length ?? 0) > 0 ? "text-amber-300" : "text-slate-100"}`}>{rv?.pending_permissions?.length ?? 0}</p>
-              </Link>
+          {runtimeType === "acp" && acp && (
+            <div className="mt-3 border-t border-slate-700/50 pt-2">
+              <KV label="Agent type" value={acp.agent_type} />
+              <KV label="Permission mode" value={acp.permission_mode} />
+              <KV label="Working directory" value={acp.cwd} mono />
+              <KV label="Allowed roots" value={acp.allowed_roots?.length ? acp.allowed_roots.join(", ") : "—"} mono />
+              <KV label="Default model" value={acp.default_model} mono />
+              <KV label="Max instances" value={acp.max_instances} />
             </div>
-            {(rv?.pending_permissions?.length ?? 0) > 0 && (
-              <div className="mt-3">
-                <p className="mb-1.5 text-[11px] uppercase tracking-wide text-amber-400/80">Pending Permissions</p>
-                <PendingPermissions pending={rv!.pending_permissions!} onResolved={refresh} />
+          )}
+
+          {runtimeType === "builtin" && builtin && (
+            <div className="mt-3 border-t border-slate-700/50 pt-2">
+              <KV label="Topology" value={builtin.definition.topology_kind} />
+              <KV
+                label="LLM route"
+                value={
+                  <Link href="/dashboard/llm/routes" className="text-blue-400 hover:underline">
+                    {builtin.definition.llm_route_id}
+                  </Link>
+                }
+              />
+              <KV label="Model" value={builtin.definition.model} mono />
+              <KV
+                label="Tool services"
+                value={builtin.definition.tool_service_ids?.length ? builtin.definition.tool_service_ids.join(", ") : "—"}
+                mono
+              />
+              <KV label="Max concurrent turns" value={builtin.definition.max_concurrent_turns} />
+              <KV label="Turn timeout" value={builtin.definition.turn_timeout_seconds ? `${builtin.definition.turn_timeout_seconds}s` : "—"} />
+              <KV label="Summarization" value={builtin.definition.summarization_enabled ? "Enabled" : "Disabled"} />
+            </div>
+          )}
+
+          {runtimeType === "http" && (
+            <div className="mt-3 border-t border-slate-700/50 pt-2">
+              <KV label="Endpoint" value={workspace.agent.runtime.http?.endpoint} mono />
+              <KV label="Auth ref" value={workspace.agent.runtime.http?.auth_ref} mono />
+              <p className="mt-2 text-[11px] leading-4 text-slate-500">
+                This agent owns its own process lifecycle. The HTTP execution backend does not ship in v0.5.0, so
+                there is no pooled instance, session, or permission flow here and a turn returns
+                501 runtime_not_executable.
+              </p>
+            </div>
+          )}
+        </Card>
+
+        <Card>
+          <CardHeader><CardTitle>Live Runtime</CardTitle></CardHeader>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-md border border-slate-700/60 bg-slate-900/40 px-3 py-2">
+              <p className="text-[11px] uppercase tracking-wide text-slate-500">{hasPool ? "Pooled" : "Runs"}</p>
+              <p className="text-lg font-semibold tabular-nums text-slate-100">
+                {hasPool ? rv?.pooled_instances?.length ?? 0 : num(summary?.active_runs)}
+              </p>
+            </div>
+            <div className="rounded-md border border-slate-700/60 bg-slate-900/40 px-3 py-2">
+              <p className="text-[11px] uppercase tracking-wide text-slate-500">In-flight</p>
+              <p className="text-lg font-semibold tabular-nums text-slate-100">
+                {hasPool ? num(rv?.in_flight_turns) : num(summary?.active_runs)}
+              </p>
+            </div>
+            <Link
+              href={hasPool ? "/dashboard/acp/runtime" : "/dashboard/agents/routes"}
+              className="rounded-md border border-slate-700/60 bg-slate-900/40 px-3 py-2 transition-colors hover:border-amber-500/40"
+            >
+              <p className="text-[11px] uppercase tracking-wide text-slate-500">Pending</p>
+              <p className={`text-lg font-semibold tabular-nums ${pendingCount(rv, summary) > 0 ? "text-amber-300" : "text-slate-100"}`}>
+                {pendingCount(rv, summary)}
+              </p>
+            </Link>
+          </div>
+          {(rv?.pending_permissions?.length ?? 0) > 0 && (
+            <div className="mt-3">
+              <p className="mb-1.5 text-[11px] uppercase tracking-wide text-amber-400/80">Pending Permissions</p>
+              <PendingPermissions
+                pending={rv!.pending_permissions!.map(normalizeACPPoolPermission)}
+                onResolved={refresh}
+              />
+            </div>
+          )}
+          {workspace.agent_routes && workspace.agent_routes.length > 0 && (
+            <div className="mt-3">
+              <p className="mb-1 text-[11px] uppercase tracking-wide text-slate-500">Agent Routes</p>
+              <div className="flex flex-wrap gap-1.5">
+                {workspace.agent_routes.map((r) => (
+                  <Link key={r.id} href="/dashboard/agents/routes">
+                    <Badge tone="teal" mono>{r.path_prefix ?? r.id}</Badge>
+                  </Link>
+                ))}
               </div>
-            )}
-            {workspace.acp_routes && workspace.acp_routes.length > 0 && (
-              <div className="mt-3">
-                <p className="mb-1 text-[11px] uppercase tracking-wide text-slate-500">ACP Routes</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {workspace.acp_routes.map((r) => (
-                    <Badge key={r.id} tone="teal" mono>{r.path_prefix ?? r.id}</Badge>
-                  ))}
-                </div>
-              </div>
-            )}
-            {workspace.links && (
-              <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                {workspace.links.admin_sessions && <Link href="/dashboard/acp/services" className="text-blue-400 hover:underline">Sessions →</Link>}
-                {workspace.links.admin_runtime && <Link href="/dashboard/acp/runtime" className="text-blue-400 hover:underline">Runtime →</Link>}
-              </div>
-            )}
-          </Card>
-        </div>
-      )}
+            </div>
+          )}
+          {!workspace.agent_routes?.length && (
+            <p className="mt-3 text-[11px] text-amber-400/90">
+              No ingress route targets this agent yet, so nothing can call it.{" "}
+              <Link href="/dashboard/agents/routes" className="text-blue-400 hover:underline">Create one →</Link>
+            </p>
+          )}
+        </Card>
+      </div>
       <p className="text-[11px] text-slate-600">Workspace is a summary/index — full session content is fetched on demand from the linked endpoints, never aggregated here. Agent: {id}</p>
     </div>
   );
@@ -239,32 +340,53 @@ function OverviewTab({ id, workspace, loading, refresh }: { id: string; workspac
 // ── Chat ────────────────────────────────────────────────────────────────────
 
 function ChatTab({ workspace, loading }: { workspace: AgentWorkspace | undefined; loading: boolean }) {
-  const serviceId = workspace?.acp_service?.id ?? "";
-  const isAcp = workspace?.runtime === "acp";
+  const agentId = workspace?.agent.id ?? "";
+  const capabilities = workspace?.capabilities;
+  // Chat is available whenever the backend can stream a turn — ACP and builtin
+  // both can, so this must not be gated on runtime.type.
+  const chattable = !!capabilities?.executable && capabilities.turn?.streaming !== false;
 
-  // The workspace's acp_routes are a thin index; fetch the full routes to get
-  // auth_policy/service_id, then scope to this agent's backing service.
+  // Fetch every agent route and scope to the ones targeting this agent; the
+  // workspace's agent_routes list is a thin index without auth_policy.
   const { data: routes, isLoading: loadingRoutes } = useAdminSWR(
-    isAcp && serviceId ? ["agent-acp-routes", serviceId] : null,
-    () => listACPRoutes(),
+    chattable && agentId ? ["agent-routes", agentId] : null,
+    () => listAgentRoutes(),
     {},
   );
   const scopedRoutes = useMemo(
-    () => (routes ?? []).filter((r) => !r.disabled && r.service_id === serviceId),
-    [routes, serviceId],
+    () => (routes ?? []).filter((r) => !r.disabled && r.agent_id === agentId),
+    [routes, agentId],
   );
 
   if (loading || !workspace) return <Card className="p-8 text-center text-sm text-slate-400">Loading workspace…</Card>;
-  if (!isAcp) {
+  if (!chattable) {
     return (
       <Card className="p-8 text-center text-sm text-slate-500">
-        Interactive chat is only available for ACP-runtime agents. This agent owns its own process lifecycle and is driven
-        by the gateway, not by a data-plane turn endpoint.
+        This agent&apos;s runtime does not advertise streaming turns, so there is nothing to drive interactively.
+        {capabilities?.executable === false && " Its runtime backend reports as not executable."}
+      </Card>
+    );
+  }
+  if (!loadingRoutes && scopedRoutes.length === 0) {
+    return (
+      <Card className="p-8 text-center text-sm text-slate-500">
+        No enabled agent route targets this agent, so there is no data-plane path to chat over.{" "}
+        <Link href="/dashboard/agents/routes" className="text-blue-400 hover:underline">Create one →</Link>
       </Card>
     );
   }
 
-  return <AcpChat routes={scopedRoutes} loadingRoutes={loadingRoutes && !routes} />;
+  // The runtime decides how a turn must be shaped (only ACP takes a thread id /
+  // cwd) and the capabilities decide which session affordances exist, so both
+  // are handed down rather than re-derived inside the chat surface.
+  return (
+    <AcpChat
+      routes={scopedRoutes}
+      loadingRoutes={loadingRoutes && !routes}
+      runtimeType={workspace.runtime_type || workspace.agent.runtime.type}
+      capabilities={capabilities}
+    />
+  );
 }
 
 // ── Resources ────────────────────────────────────────────────────────────--
@@ -286,14 +408,15 @@ function routeProviders(route: LLMRoute): string[] {
 type RouteTarget = { kind: string; target: string; disabled: boolean };
 
 /** Index every route id → its protocol + downstream target, for reachability resolution. */
-function indexRoutes(llm: LLMRoute[], mcp: MCPRoute[], acp: ACPRoute[]): Map<string, RouteTarget> {
+function indexRoutes(llm: LLMRoute[], mcp: MCPRoute[], agentRoutes: AgentRoute[]): Map<string, RouteTarget> {
   const m = new Map<string, RouteTarget>();
   for (const r of llm) {
     const provs = routeProviders(r);
     m.set(r.id, { kind: "llm", target: provs.length ? provs.join(", ") : "no provider target", disabled: r.disabled });
   }
   for (const r of mcp) m.set(r.id, { kind: "mcp", target: r.service_id || "no service", disabled: r.disabled });
-  for (const r of acp) m.set(r.id, { kind: "acp", target: r.service_id || "no service", disabled: r.disabled });
+  // An agent route resolves to an agent, not a protocol service.
+  for (const r of agentRoutes) m.set(r.id, { kind: "agent", target: r.agent_id || "no agent", disabled: r.disabled });
   return m;
 }
 
@@ -306,22 +429,22 @@ function AgentReachability({ keyRefs }: { keyRefs?: AgentResourceRef[] }) {
   const vks = useAdminSWR("reach-vks", listVirtualKeys);
   const llm = useAdminSWR("reach-llm-routes", listLLMRoutes);
   const mcp = useAdminSWR("reach-mcp-routes", listMCPRoutes);
-  const acp = useAdminSWR("reach-acp-routes", listACPRoutes);
+  const agentRoutes = useAdminSWR("reach-agent-routes", listAgentRoutes);
 
   const routeIndex = useMemo(
-    () => indexRoutes(llm.data ?? [], mcp.data ?? [], acp.data ?? []),
-    [llm.data, mcp.data, acp.data],
+    () => indexRoutes(llm.data ?? [], mcp.data ?? [], agentRoutes.data ?? []),
+    [llm.data, mcp.data, agentRoutes.data],
   );
   const allRouteIds = useMemo(() => [...routeIndex.keys()], [routeIndex]);
-  const ready = !!(vks.data && llm.data && mcp.data && acp.data);
+  const ready = !!(vks.data && llm.data && mcp.data && agentRoutes.data);
 
   if (!keyRefs || keyRefs.length === 0) {
     return (
       <Card>
         <CardHeader><CardTitle>Reachability</CardTitle></CardHeader>
         <p className="text-xs text-slate-500">
-          This agent holds no virtual keys, so it has no key-gated outbound reach. Inbound exposure (how callers reach this
-          agent) is listed under ACP Routes below.
+          This agent holds no virtual keys, so it has no key-gated outbound reach. Inbound exposure (how callers reach
+          this agent) is configured on the Agent Routes page.
         </p>
       </Card>
     );
@@ -433,7 +556,6 @@ function ResourcesTab({ id }: { id: string }) {
           <ResourceGroup title="Virtual Keys" refs={r?.virtual_keys} />
           <ResourceGroup title="LLM Routes" refs={r?.llm_routes} />
           <ResourceGroup title="MCP Routes" refs={r?.mcp_routes} />
-          <ResourceGroup title="ACP Routes" refs={r?.acp_routes} />
         </>
       )}
       <p className="text-[11px] text-slate-600">
@@ -493,7 +615,18 @@ function ConfigurationTab({ id, workspace }: { id: string; workspace: AgentWorks
       <Card>
         <CardHeader><CardTitle>Runtime &amp; Policy</CardTitle></CardHeader>
         <KV label="Runtime type" value={agent.runtime.type} />
-        {agent.runtime.acp && <KV label="ACP service" value={agent.runtime.acp.service_id} mono />}
+        {agent.runtime.acp && (
+          <>
+            <KV label="ACP agent type" value={agent.runtime.acp.agent_type} />
+            <KV label="Working directory" value={agent.runtime.acp.cwd} mono />
+          </>
+        )}
+        {agent.runtime.builtin && (
+          <>
+            <KV label="Builtin topology" value={agent.runtime.builtin.topology?.kind} />
+            <KV label="Builtin LLM route" value={agent.runtime.builtin.model?.llm_route_id} mono />
+          </>
+        )}
         {agent.runtime.http && <KV label="HTTP endpoint" value={agent.runtime.http.endpoint} mono />}
         <KV label="Max agent depth" value={agent.policy.max_agent_depth} />
         <KV label="Max turns/day" value={agent.policy.budget?.max_turns_per_day} />

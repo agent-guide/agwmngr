@@ -30,13 +30,25 @@ export interface ACPTurnEventData {
 export interface ACPTurnRequest {
   route_id: string;
   virtual_key?: string;
-  thread_id: string;
-  session_id?: string;
-  input: string;
+  // ACP-only runtime options. The manager's turn proxy resolves the target
+  // agent's runtime and rejects these for runtimes that cannot accept them
+  // (a builtin agent has no thread or cwd), so send them only for ACP.
+  thread_id?: string;
   cwd?: string;
   model?: string;
   fresh_session?: boolean;
   config_overrides?: Record<string, string>;
+  session_id?: string;
+  // Either input or permission must be present. A turn carrying only a decision
+  // is how a `new_stream` runtime (builtin) resumes after a permission prompt —
+  // it rejects the side-channel POST /permission with capability_not_supported.
+  input?: string;
+  permission?: {
+    request_id: string;
+    outcome?: string;
+    option_id?: string;
+    decisions?: { action_id: string; outcome: string }[];
+  };
 }
 
 export interface ACPTurnCallbacks {

@@ -1,9 +1,14 @@
 import { API_BASE_URL, clearSession, getToken } from "./auth";
+import { extractApiError, extractRuntimeErrorType } from "./utils";
 
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
     message: string,
+    // Stable code from the Agent runtime error contract ({error_type, message}),
+    // when the failing endpoint answers with one. Callers branch on this rather
+    // than on the status, since one status covers several causes.
+    public readonly errorType?: string,
   ) {
     super(message);
     this.name = "ApiError";
@@ -44,14 +49,20 @@ export async function adminFetch<T = unknown>(
   }
 
   if (!res.ok) {
+    // Two error contracts reach here: the manager's own {error} bodies and the
+    // gateway's normalized runtime contract ({error_type, message}, no wrapper).
+    // Reading only `error` left every runtime failure reporting the bare HTTP
+    // status name ("Bad Gateway"), which says nothing about what failed.
     let msg = res.statusText;
+    let errorType: string | undefined;
     try {
-      const body = (await res.json()) as { error?: string };
-      if (body.error) msg = body.error;
+      const body: unknown = await res.json();
+      msg = extractApiError(body, res.statusText);
+      errorType = extractRuntimeErrorType(body);
     } catch {
-      // ignore parse errors
+      // Non-JSON body; keep the status name.
     }
-    throw new ApiError(res.status, msg);
+    throw new ApiError(res.status, msg, errorType);
   }
 
   if (res.status === 204) return undefined as T;
@@ -798,11 +809,17 @@ export async function deleteMCPRoute(id: string): Promise<void> {
 }
 
 // ============================================================================
-// ACP (Agent Control Protocol) — Agent Control surface
-// Mirrors the gateway /admin/acp/* admin API.
+// Agent runtime — execution config, ingress routes, and runtime diagnostics
+// Mirrors the gateway /admin/agents/* and /admin/{acp,builtin}/runtime APIs.
+//
+// v0.5.0 removed the ACP "service" object entirely: execution config is inlined
+// on Agent.runtime.acp, ingress is one unified AgentRoute keyed by agent_id, and
+// session/transcript/permission/run operations are agent-scoped. Only genuinely
+// lower-level pool and host inspection stays under /admin/{acp,builtin}/runtime.
+// See docs/v0.5-alignment-plan.md §2 and unified-agent-runtime.md §6.7.
 // ============================================================================
 
-// ---- ACP Service types ----
+// ---- ACP execution config (inlined at Agent.runtime.acp) ----
 
 export type ACPAgentType = "codex" | "opencode";
 export type ACPPermissionMode = "deny" | "auto_approve" | "interactive";
@@ -819,64 +836,90 @@ export interface ACPCodexConfig {
   retry_turn_on_crash?: boolean;
 }
 
-export interface ACPService {
-  id: string;
-  name: string;
-  agent_type: ACPAgentType;
-  cwd: string;
-  allowed_roots?: string[];
-  default_model?: string;
-  env?: Record<string, string>;
-  config_overrides?: Record<string, string>;
-  idle_ttl?: number;
-  permission_mode?: ACPPermissionMode;
-  disabled?: boolean;
-  description?: string;
-  created_at?: string;
-  updated_at?: string;
-  codex?: ACPCodexConfig;
-  source?: string;
-  read_only?: boolean;
-}
+// ---- Agent session / transcript types ----
+// runtimeapi.Session drops the flat `cwd` field the old ACP service sessions
+// carried; backend-specific fields now live in the opaque `details` blob.
 
-export type ACPServicePayload = Omit<ACPService, "created_at" | "updated_at" | "source" | "read_only">;
-
-// ---- ACP session / transcript types ----
-
-export interface ACPSessionInfo {
+export interface AgentSessionInfo {
   session_id: string;
-  cwd: string;
   title?: string;
   updated_at?: string;
-  _meta?: unknown;
+  details?: unknown;
 }
 
-export interface ACPListSessionsResponse {
-  sessions: ACPSessionInfo[];
+export interface AgentListSessionsResponse {
+  sessions: AgentSessionInfo[];
   next_cursor?: string;
 }
 
-export interface ACPTranscriptMessage {
+export interface AgentTranscriptMessage {
   role: string; // "user" | "assistant" | "reasoning"
   text: string;
 }
 
-export interface ACPTranscriptResponse {
+export interface AgentTranscriptResponse {
   session_id: string;
-  messages: ACPTranscriptMessage[];
+  messages: AgentTranscriptMessage[];
 }
 
-// ---- ACP runtime types ----
+// ---- Agent run lifecycle ----
 
-export interface ACPInFlightTurn {
-  scope: string;
-  trace_id?: string;
-  span_id?: string;
-  service_id?: string;
-  thread_id?: string;
+export type AgentRunState = "running" | "completed" | "cancelled" | "failed";
+
+export interface AgentRunInfo {
+  agent_id: string;
+  runtime_type: string;
+  run_id: string;
   session_id?: string;
-  started_at?: string;
+  state: AgentRunState;
+  started_at: string;
+  finished_at?: string;
+  stop_reason?: string;
 }
+
+export type AgentCancelMode = "force" | "graceful";
+
+export interface AgentCancelResult {
+  run_id: string;
+  state: AgentRunState;
+  stop_reason?: string;
+  finished_at?: string;
+}
+
+// ---- Agent permissions (runtime-neutral broker records) ----
+
+export interface AgentPermissionAction {
+  action_id: string;
+  name?: string;
+}
+
+export interface AgentPermissionOption {
+  option_id: string;
+  kind?: string;
+  name?: string;
+}
+
+export interface AgentPendingPermission {
+  request_id: string;
+  agent_id: string;
+  runtime_type: string;
+  run_id: string;
+  session_id?: string;
+  created_at: string;
+  expires_at: string;
+  actions?: AgentPermissionAction[];
+  options?: AgentPermissionOption[];
+  resume_mode: "active_stream" | "new_stream";
+}
+
+export interface AgentPermissionDecision {
+  request_id: string;
+  outcome?: "selected" | "cancelled";
+  option_id?: string;
+  decisions?: { action_id: string; outcome: string }[];
+}
+
+// ---- ACP runtime diagnostics (native pool/process state) ----
 
 export interface ACPSessionMetadata {
   config_options?: unknown;
@@ -886,6 +929,7 @@ export interface ACPSessionMetadata {
   usage?: unknown;
 }
 
+/** Raw acpruntime.PooledInstanceInfo, as embedded in an agent workspace. */
 export interface ACPPooledInstanceInfo {
   scope: string;
   session_id?: string;
@@ -896,150 +940,195 @@ export interface ACPPooledInstanceInfo {
   metadata?: ACPSessionMetadata;
 }
 
+/** Raw acpruntime.PendingPermissionInfo — note `owner_id`, not `agent_id`. */
 export interface ACPPendingPermissionInfo {
   request_id: string;
-  service_id: string;
+  owner_id: string;
   session_id?: string;
   created_at: string;
   data?: unknown;
 }
 
-export interface ACPRuntimeOverview {
-  in_flight: ACPInFlightTurn[];
-  instances: ACPPooledInstanceInfo[];
-  pending_permissions: ACPPendingPermissionInfo[];
+// The /admin/acp/runtime views wrap the raw pool records with the owning
+// agent_id (pkg/admin/acp.go). The workspace runtime_view embeds the raw
+// records instead, so the two shapes are deliberately modelled apart.
+
+export interface ACPRuntimeInFlightTurn {
+  agent_id: string;
+  scope: string;
 }
 
-export interface ACPPermissionDecision {
+export interface ACPRuntimeInstanceView extends ACPPooledInstanceInfo {
+  agent_id: string;
+}
+
+export interface ACPRuntimePermissionView {
   request_id: string;
-  outcome: "selected" | "cancelled";
-  option_id?: string;
+  agent_id: string;
+  session_id?: string;
+  created_at: string;
 }
 
-// ---- ACP Route types ----
+export interface ACPRuntimeOverview {
+  in_flight: ACPRuntimeInFlightTurn[];
+  instances: ACPRuntimeInstanceView[];
+  pending_permissions: ACPRuntimePermissionView[];
+}
 
-export interface ACPRoute {
+// ---- Builtin runtime diagnostics ----
+// The builtin host reports materialization state; its payload is not part of a
+// stable wire contract yet, so it stays opaque until the P2 diagnostics page.
+
+export type BuiltinRuntimeOverview = Record<string, unknown>;
+
+// ---- Agent ingress route types ----
+
+export interface AgentRoute {
   id: string;
-  kind?: string;
-  protocol?: string;
+  kind?: string; // always "agent"
+  protocol?: string; // always "agent"
   description?: string;
   disabled: boolean;
   match_policy: RouteMatchPolicy;
   auth_policy: { require_virtual_key: boolean };
-  service_id: string;
+  agent_id: string;
   created_at: string;
   updated_at: string;
   source?: string;
   read_only?: boolean;
 }
 
-export type ACPRoutePayload = Pick<
-  ACPRoute,
-  "id" | "description" | "disabled" | "match_policy" | "auth_policy" | "service_id"
+export type AgentRoutePayload = Pick<
+  AgentRoute,
+  "id" | "description" | "disabled" | "match_policy" | "auth_policy" | "agent_id"
 >;
 
-// ---- ACP Service API functions ----
+// ---- Agent ingress route API functions ----
+//
+// The literal segment "routes" is a reserved agent id: the gateway dispatches
+// /admin/agents/routes* to a separate mux ahead of /admin/agents/{id}, so an
+// agent named "routes" would be shadowed (docs/v0.5-alignment-plan.md §8.4).
 
-export async function listACPServices(): Promise<ACPService[]> {
-  const res = await adminFetch<{ items: ACPService[] }>("/admin/acp/services");
+export const RESERVED_AGENT_ID = "routes";
+
+export async function listAgentRoutes(): Promise<AgentRoute[]> {
+  const res = await adminFetch<{ items: AgentRoute[] }>("/admin/agents/routes");
   return res.items ?? [];
 }
 
-export async function getACPService(id: string): Promise<ACPService> {
-  return adminFetch<ACPService>(`/admin/acp/services/${encodeURIComponent(id)}`);
+export async function getAgentRoute(id: string): Promise<AgentRoute> {
+  return adminFetch<AgentRoute>(`/admin/agents/routes/${encodeURIComponent(id)}`);
 }
 
-export async function createACPService(payload: ACPServicePayload): Promise<ACPService> {
-  return adminFetch<ACPService>("/admin/acp/services", {
+export async function createAgentRoute(payload: AgentRoutePayload): Promise<AgentRoute> {
+  return adminFetch<AgentRoute>("/admin/agents/routes", {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
-export async function updateACPService(id: string, payload: ACPServicePayload): Promise<ACPService> {
-  return adminFetch<ACPService>(`/admin/acp/services/${encodeURIComponent(id)}`, {
+export async function updateAgentRoute(id: string, payload: AgentRoutePayload): Promise<AgentRoute> {
+  return adminFetch<AgentRoute>(`/admin/agents/routes/${encodeURIComponent(id)}`, {
     method: "PUT",
     body: JSON.stringify(payload),
   });
 }
 
-export async function deleteACPService(id: string): Promise<void> {
-  await adminFetch(`/admin/acp/services/${encodeURIComponent(id)}`, { method: "DELETE" });
+export async function deleteAgentRoute(id: string): Promise<void> {
+  await adminFetch(`/admin/agents/routes/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
-export async function listACPServiceSessions(
+// ---- Agent runtime operation API functions ----
+
+export async function getAgentCapabilities(id: string): Promise<AgentCapabilities> {
+  return adminFetch<AgentCapabilities>(`/admin/agents/${encodeURIComponent(id)}/capabilities`);
+}
+
+export async function listAgentSessions(
   id: string,
   params?: { cwd?: string; cursor?: string },
-): Promise<ACPListSessionsResponse> {
+): Promise<AgentListSessionsResponse> {
   const query = new URLSearchParams();
   if (params?.cwd) query.set("cwd", params.cwd);
   if (params?.cursor) query.set("cursor", params.cursor);
   const qs = query.toString() ? `?${query.toString()}` : "";
-  return adminFetch<ACPListSessionsResponse>(
-    `/admin/acp/services/${encodeURIComponent(id)}/sessions${qs}`,
+  return adminFetch<AgentListSessionsResponse>(
+    `/admin/agents/${encodeURIComponent(id)}/sessions${qs}`,
   );
 }
 
-export async function getACPSessionTranscript(
+export async function getAgentTranscript(
   id: string,
   sessionId: string,
   cwd?: string,
-): Promise<ACPTranscriptResponse> {
+): Promise<AgentTranscriptResponse> {
   const qs = cwd ? `?cwd=${encodeURIComponent(cwd)}` : "";
-  return adminFetch<ACPTranscriptResponse>(
-    `/admin/acp/services/${encodeURIComponent(id)}/sessions/${encodeURIComponent(sessionId)}/transcript${qs}`,
+  return adminFetch<AgentTranscriptResponse>(
+    `/admin/agents/${encodeURIComponent(id)}/sessions/${encodeURIComponent(sessionId)}/transcript${qs}`,
   );
 }
 
-// ---- ACP Route API functions ----
-
-export async function listACPRoutes(): Promise<ACPRoute[]> {
-  const res = await adminFetch<{ items: ACPRoute[] }>("/admin/acp/routes");
+export async function listAgentRuns(id: string): Promise<AgentRunInfo[]> {
+  const res = await adminFetch<{ items: AgentRunInfo[]; durable: boolean }>(
+    `/admin/agents/${encodeURIComponent(id)}/runs`,
+  );
   return res.items ?? [];
 }
 
-export async function createACPRoute(payload: ACPRoutePayload): Promise<ACPRoute> {
-  return adminFetch<ACPRoute>("/admin/acp/routes", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+/** Cancel one exact run. An unadvertised mode returns 501 capability_not_supported. */
+export async function cancelAgentRun(
+  id: string,
+  runId: string,
+  mode: AgentCancelMode = "force",
+): Promise<AgentCancelResult> {
+  return adminFetch<AgentCancelResult>(
+    `/admin/agents/${encodeURIComponent(id)}/runs/${encodeURIComponent(runId)}?mode=${mode}`,
+    { method: "DELETE" },
+  );
 }
 
-export async function updateACPRoute(id: string, payload: ACPRoutePayload): Promise<ACPRoute> {
-  return adminFetch<ACPRoute>(`/admin/acp/routes/${encodeURIComponent(id)}`, {
-    method: "PUT",
-    body: JSON.stringify(payload),
-  });
+export async function listAgentPermissions(id: string): Promise<AgentPendingPermission[]> {
+  const res = await adminFetch<{ items: AgentPendingPermission[] }>(
+    `/admin/agents/${encodeURIComponent(id)}/permissions`,
+  );
+  return res.items ?? [];
 }
 
-export async function deleteACPRoute(id: string): Promise<void> {
-  await adminFetch(`/admin/acp/routes/${encodeURIComponent(id)}`, { method: "DELETE" });
+export async function resolveAgentPermission(
+  id: string,
+  requestId: string,
+  decision: AgentPermissionDecision,
+): Promise<{ status: string }> {
+  return adminFetch(
+    `/admin/agents/${encodeURIComponent(id)}/permissions/${encodeURIComponent(requestId)}`,
+    { method: "POST", body: JSON.stringify(decision) },
+  );
 }
 
-// ---- ACP Runtime API functions ----
+// ---- Runtime diagnostics API functions ----
 
 export async function getACPRuntime(): Promise<ACPRuntimeOverview> {
   return adminFetch<ACPRuntimeOverview>("/admin/acp/runtime");
 }
 
-export async function resolveACPPermission(
-  requestId: string,
-  decision: ACPPermissionDecision,
-): Promise<{ status: string }> {
-  return adminFetch(`/admin/acp/runtime/permissions/${encodeURIComponent(requestId)}`, {
-    method: "POST",
-    body: JSON.stringify(decision),
-  });
-}
-
+/** Destructive ACP pool recovery — deliberately separate from run cancellation. */
 export async function closeACPThread(
-  serviceId: string,
+  agentId: string,
   threadId: string,
 ): Promise<{ closed: number }> {
   return adminFetch(
-    `/admin/acp/runtime/threads/${encodeURIComponent(serviceId)}/${encodeURIComponent(threadId)}`,
+    `/admin/acp/runtime/agents/${encodeURIComponent(agentId)}/threads/${encodeURIComponent(threadId)}`,
     { method: "DELETE" },
   );
+}
+
+export async function getBuiltinRuntime(): Promise<BuiltinRuntimeOverview> {
+  return adminFetch<BuiltinRuntimeOverview>("/admin/builtin/runtime");
+}
+
+export async function listBuiltinInFlight(): Promise<unknown[]> {
+  const res = await adminFetch<{ items: unknown[] }>("/admin/builtin/runtime/inflight");
+  return res.items ?? [];
 }
 
 // ---- ACP Chat (data-plane) API functions ----
@@ -1063,6 +1152,21 @@ export async function resolveACPChatPermission(payload: {
 
 // ---- Virtual Key types / API functions ----
 
+export interface VirtualKeyRateLimit {
+  requests_per_minute: number;
+  burst: number;
+}
+
+/**
+ * Per-protocol request limits. The gateway decodes these strictly (unknown
+ * fields are rejected), so only send the protocols actually being limited.
+ */
+export interface VirtualKeyRateLimits {
+  llm?: VirtualKeyRateLimit;
+  mcp?: VirtualKeyRateLimit;
+  agent?: VirtualKeyRateLimit;
+}
+
 export interface VirtualKeyItem {
   id: string;
   key: string;
@@ -1070,6 +1174,7 @@ export interface VirtualKeyItem {
   description?: string;
   disabled: boolean;
   allowed_route_ids?: string[];
+  rate_limits?: VirtualKeyRateLimits;
   read_only?: boolean;
 }
 
@@ -1159,7 +1264,8 @@ export interface InteractionEvent {
   started_at: string;
   finished_at?: string;
   route_id: string;
-  route_kind: string; // "llm" | "mcp" | "acp"
+  /** "llm" | "mcp" | "agent"; admin audit spans still report "acp". */
+  route_kind: string;
   route_protocol?: string;
   virtual_key_id?: string;
   success: boolean;
@@ -1167,6 +1273,9 @@ export interface InteractionEvent {
   error_type?: string | null;
   latency_ms: number;
   agent_id?: string | null;
+  /** Which backend executed the turn: "acp" | "builtin" | "http". */
+  runtime_type?: string | null;
+  run_id?: string | null;
   // Protocol-specific extras (present depending on route_kind).
   provider_id?: string;
   provider_type?: string;
@@ -1250,23 +1359,108 @@ export async function getInteractionsSummary(q?: MetricsQuery): Promise<Breakdow
 }
 
 // ============================================================================
-// Agents Control Plane (/admin/agents/*) — P0a/P0b/P1 implemented.
+// Agents Control Plane (/admin/agents/*)
+//
+// The Agent is the unit of execution: runtime.<type> is authoritative and binds
+// the agent to exactly one backend. Exactly one of acp/http/builtin is present,
+// selected by runtime.type — the gateway nils out the others on normalize.
 // ============================================================================
 
+export type AgentRuntimeType = "acp" | "http" | "builtin";
+
+/** Inlined ACP execution config. v0.5.0 replaced the old `service_id` ref. */
 export interface AgentRuntimeACP {
-  service_id: string;
+  agent_type: ACPAgentType;
+  cwd: string;
+  allowed_roots?: string[];
+  default_model?: string;
+  env?: Record<string, string>;
+  config_overrides?: Record<string, string>;
+  idle_ttl?: number; // nanoseconds (Go time.Duration)
+  max_instances?: number;
+  permission_mode?: ACPPermissionMode;
+  codex?: ACPCodexConfig;
 }
+
+/** The agent service owns its own lifecycle; not executable before M8. */
 export interface AgentRuntimeHTTP {
   endpoint: string;
   auth_ref?: string;
 }
+
+// ---- Builtin (in-process eino ADK) runtime ----
+
+export type BuiltinTopologyKind =
+  | "single"
+  | "sequential"
+  | "parallel"
+  | "loop"
+  | "supervisor"
+  | "planexecute"
+  | "deep"
+  | "custom";
+
+export interface BuiltinModel {
+  llm_route_id: string;
+  model?: string;
+  retry?: { max_retries: number }; // 1..5
+}
+export interface BuiltinGeneration {
+  max_tokens?: number;
+  temperature?: number;
+  top_p?: number;
+}
+export interface BuiltinToolSelection {
+  mcp_service_id: string;
+  tools?: string[]; // empty means every tool the service exposes
+}
+export interface BuiltinSubAgent {
+  name?: string;
+  description?: string;
+  model?: BuiltinModel;
+  system_prompt?: string;
+  tools?: BuiltinToolSelection[];
+  topology?: BuiltinTopology;
+  [key: string]: unknown;
+}
+export interface BuiltinTopology {
+  kind: BuiltinTopologyKind;
+  factory?: string; // required only when kind is "custom"
+  max_iterations?: number;
+  sub_agents?: BuiltinSubAgent[];
+  plan_execute?: Record<string, unknown>;
+}
+export interface BuiltinPermissions {
+  mode?: "auto_approve" | "interactive";
+  timeout_seconds?: number;
+  max_pending?: number;
+  /** Fully-qualified "<mcp_service_id>/<tool_name>" entries. */
+  auto_approve_tools?: string[];
+}
+export interface AgentRuntimeBuiltin {
+  model: BuiltinModel;
+  system_prompt?: string;
+  generation?: BuiltinGeneration;
+  tools?: BuiltinToolSelection[];
+  topology: BuiltinTopology;
+  middlewares?: Record<string, unknown>;
+  permissions?: BuiltinPermissions;
+  limits?: Record<string, unknown>;
+}
+
 export interface AgentRuntime {
-  type: string; // "acp" | "http"
+  type: AgentRuntimeType;
   acp?: AgentRuntimeACP;
   http?: AgentRuntimeHTTP;
+  builtin?: AgentRuntimeBuiltin;
 }
-export interface AgentRoutes {
-  acp_route_ids?: string[];
+
+/**
+ * Management/display route references used for attribution. Ingress is NOT
+ * here: an AgentRoute points at the agent, never the reverse, so `acp_route_ids`
+ * is gone (unified-agent-runtime.md §6.2, ownership is one-way).
+ */
+export interface AgentRouteRefs {
   llm_route_ids?: string[];
   mcp_route_ids?: string[];
 }
@@ -1288,40 +1482,38 @@ export interface Agent {
   name: string;
   description?: string;
   runtime: AgentRuntime;
-  routes: AgentRoutes;
+  routes: AgentRouteRefs;
   resources: AgentResources;
   policy: AgentPolicy;
   disabled: boolean;
-  owns_service?: boolean;
   created_at: string;
   updated_at: string;
   source?: string;
+  runtime_status?: AgentRuntimeSummary;
+  capabilities?: AgentCapabilities;
 }
 export type AgentPayload = Pick<
   Agent,
   "id" | "name" | "description" | "runtime" | "routes" | "resources" | "policy" | "disabled"
 >;
 
-export interface AgentWorkspaceACPService {
-  id: string;
-  name: string;
-  agent_type?: string;
-  cwd?: string;
-  max_instances?: number;
-  permission_mode?: string;
-  allowed_roots?: string[];
-  default_cwd?: string;
-  idle_ttl_ms?: number;
-  disabled?: boolean;
-  created_at?: string;
-  updated_at?: string;
-  source?: string;
-  read_only?: boolean;
-}
 export interface AgentWorkspaceRoute {
   id: string;
   path_prefix?: string;
-  service_id?: string;
+  agent_id: string;
+}
+export interface BuiltinDefinitionSummary {
+  llm_route_id: string;
+  model?: string;
+  topology_kind: string;
+  tool_service_ids?: string[];
+  max_concurrent_turns?: number;
+  turn_timeout_seconds?: number;
+  summarization_enabled: boolean;
+}
+export interface BuiltinWorkspaceView {
+  definition: BuiltinDefinitionSummary;
+  host_state: unknown;
 }
 export interface AgentWorkspaceUsage {
   request_count?: number;
@@ -1335,20 +1527,35 @@ export interface AgentWorkspaceRuntimeView {
   in_flight_turns?: number;
   pending_permissions?: ACPPendingPermissionInfo[];
 }
-export interface AgentWorkspaceLinks {
-  sessions?: string;
-  transcript?: string;
-  admin_sessions?: string;
-  admin_runtime?: string;
+export interface AgentRuntimeSummary {
+  type: string;
+  executable: boolean;
+  healthy: boolean;
+  state: "unknown" | "disabled" | "not_executable" | "starting" | "ready" | "degraded" | "unhealthy";
+  active_runs: number;
+  pending_permissions: number;
+  session_count: number;
+  last_activity_at?: string;
+}
+export interface AgentCapabilities {
+  executable: boolean;
+  turn?: { streaming?: boolean };
+  sessions?: { resume?: boolean; list?: boolean; transcript?: boolean; durable?: boolean };
+  permissions?: { interactive?: boolean; resume_mode?: string };
+  cancellation?: { force?: boolean; graceful?: boolean };
+  events?: string[];
 }
 export interface AgentWorkspace {
   agent: Agent;
-  runtime: string;
-  acp_service?: AgentWorkspaceACPService | null;
-  acp_routes?: AgentWorkspaceRoute[];
+  runtime_type: string;
+  runtime?: AgentRuntimeSummary;
+  runtime_details?: unknown;
+  capabilities?: AgentCapabilities;
+  agent_routes?: AgentWorkspaceRoute[];
+  builtin?: BuiltinWorkspaceView;
   runtime_view?: AgentWorkspaceRuntimeView;
   usage?: AgentWorkspaceUsage;
-  links?: AgentWorkspaceLinks;
+  links?: Record<string, string>;
 }
 
 export interface AgentResourceRef {
@@ -1364,17 +1571,17 @@ export interface AgentResourcesResolved {
   virtual_keys?: AgentResourceRef[];
   llm_routes?: AgentResourceRef[];
   mcp_routes?: AgentResourceRef[];
-  acp_routes?: AgentResourceRef[];
 }
 export interface AgentResourcesView {
   resources: AgentResources;
-  routes: AgentRoutes;
+  routes: AgentRouteRefs;
   resolved: AgentResourcesResolved;
 }
 
 export interface AgentActivity {
   interactions: InteractionEvent[];
-  pending_permissions: ACPPendingPermissionInfo[];
+  /** From the runtime-neutral permission broker, not the raw ACP pool. */
+  pending_permissions: AgentPendingPermission[];
 }
 
 export interface AgentUsage {
@@ -1399,10 +1606,15 @@ export interface AgentHealth {
   pipeline?: { dropped_events?: number; write_failures?: number };
 }
 
+/**
+ * Agent delete now fails closed rather than orphaning ingress: the gateway
+ * answers 409 with `agent is targeted by an agent route` while any AgentRoute
+ * still points at the agent, so its routes must be deleted first. On success it
+ * drains pending permissions and cancels in-flight runs.
+ */
 export interface AgentDeleteResult {
   status: string;
   id: string;
-  unbound?: { acp_service_id?: string; acp_route_ids?: string[] };
 }
 
 export async function listAgents(): Promise<Agent[]> {

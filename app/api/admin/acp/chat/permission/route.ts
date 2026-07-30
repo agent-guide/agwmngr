@@ -1,5 +1,5 @@
 import { requireGatewayAccess, finalizeAccess } from "@/lib/access";
-import { ACPRouteError, dataplaneCandidates, resolveACPRouteTarget } from "@/lib/acp-dataplane";
+import { AgentRouteError, dataplaneCandidates, resolveAgentRouteTarget } from "@/lib/acp-dataplane";
 
 // Resolves an interactive permission request on the ACP data plane. The agent's
 // turn (held open on /turn) resumes once this lands. Explicit route — takes
@@ -41,9 +41,9 @@ export async function POST(req: Request): Promise<Response> {
 
   let target;
   try {
-    target = await resolveACPRouteTarget(routeId, gateway);
+    target = await resolveAgentRouteTarget(routeId, gateway);
   } catch (e) {
-    if (e instanceof ACPRouteError) return done(Response.json({ error: e.message }, { status: e.status }), e.status, "route_error");
+    if (e instanceof AgentRouteError) return done(Response.json({ error: e.message }, { status: e.status }), e.status, "route_error");
     return done(Response.json({ error: `gateway unreachable: ${String(e)}` }, { status: 502 }), 502, "gateway_unreachable");
   }
 
