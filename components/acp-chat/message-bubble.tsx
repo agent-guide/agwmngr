@@ -8,6 +8,7 @@ import type { ChatMessage } from "./types";
 import { ToolCallCard } from "./tool-call-card";
 import { PlanList } from "./plan-list";
 import { PermissionCard } from "./permission-card";
+import { Badge } from "@/components/ui/badge";
 
 // Tailwind-styled element map so agent markdown (headings, bold, lists, code,
 // tables, links) renders inside the dark bubble instead of showing raw `##` /
@@ -123,7 +124,7 @@ interface MessageBubbleProps {
 
 export function MessageBubble({ message, onResolvePermission }: MessageBubbleProps) {
   const isUser = message.role === "user";
-  const isError = message.role === "error";
+  const isError = message.role === "error" || message.status === "error";
 
   const hasBody =
     message.text.trim() ||
@@ -142,6 +143,11 @@ export function MessageBubble({ message, onResolvePermission }: MessageBubblePro
           isError && "border-rose-500/40 bg-rose-500/10 text-rose-200",
         )}
       >
+        {message.errorType && (
+          <div className="mb-2">
+            <Badge tone="red" mono>{message.errorType}</Badge>
+          </div>
+        )}
         {message.plan != null && <PlanList plan={message.plan} />}
 
         <Reasoning text={message.reasoning} />

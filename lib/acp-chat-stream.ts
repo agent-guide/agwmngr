@@ -1,4 +1,5 @@
 import { API_BASE_URL, clearSession, getToken } from "./auth";
+import { extractApiError, extractRuntimeErrorType } from "./utils";
 
 // SSE event names emitted by the ACP data plane (pkg/acp/runtime/acpupdate).
 export type ACPTurnEventKind =
@@ -24,6 +25,7 @@ export interface ACPTurnEventData {
   text?: string;
   stop_reason?: string;
   message?: string;
+  error_type?: string;
   data?: unknown;
 }
 
@@ -55,7 +57,7 @@ export interface ACPTurnCallbacks {
   // Fired for every parsed SSE event (including `done` and `error`).
   onEvent?: (kind: ACPTurnEventKind, data: ACPTurnEventData) => void;
   // Transport-level failure (request rejected, connection dropped, etc.).
-  onTransportError?: (message: string) => void;
+  onTransportError?: (message: string, errorType?: string) => void;
   // Stream closed for any reason (normal completion, error, or abort).
   onClose?: () => void;
 }
@@ -107,13 +109,15 @@ export class ACPTurnStream {
 
     if (!res.ok || !res.body) {
       let msg = `request failed (${res.status})`;
+      let errorType: string | undefined;
       try {
-        const body = (await res.json()) as { error?: string };
-        if (body.error) msg = body.error;
+        const body: unknown = await res.json();
+        msg = extractApiError(body, msg);
+        errorType = extractRuntimeErrorType(body);
       } catch {
         // keep default message
       }
-      this.cb.onTransportError?.(msg);
+      this.cb.onTransportError?.(msg, errorType);
       this.cb.onClose?.();
       return;
     }

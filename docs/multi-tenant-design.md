@@ -67,7 +67,7 @@ The override table is the security-critical part, because for **proxied** gatewa
 |---|---|---|
 | `/admin/credentials`, `/admin/llm/providers` (config with secret fields) | GET | `secrets:read-redacted` **only if** the upstream already redacts; if the endpoint can return unredacted secrets it maps to `gateway:secrets_raw` (platform-admin only, still gateway-scoped) |
 | `/admin/mcp/services/*/tools/call`, `/admin/mcp/services/*/resources/read` | POST | `runtime:chat`-class (read-like but executes) — not `gateway:read` |
-| `/admin/acp/services/*/sessions/*/transcript` | GET | `gateway:read` (no secret material) |
+| `/admin/agents/*/sessions/*/transcript` | GET | `gateway:read` (no secret material) |
 
 > Rule of thumb: a viewer/operator is granted `secrets:read-redacted` **only** for paths where the manager (or a known-redacting upstream) guarantees no raw secret leaves the server. Where redaction cannot be guaranteed, the path maps to `gateway:secrets_raw` (platform-admin only, but still gateway-scoped via `requireGatewayAccess`), never silently downgraded to a plain read. The table starts as a deny-by-default allowlist and is widened deliberately as upstream redaction is verified per endpoint.
 

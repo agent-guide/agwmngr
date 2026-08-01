@@ -31,6 +31,8 @@ export interface ChatMessage {
   usage?: unknown;
   status: ChatMessageStatus;
   stopReason?: string;
+  /** Stable runtime error contract code, e.g. capability_not_supported. */
+  errorType?: string;
 }
 
 // A permission option as offered by the agent inside a `permission` event's data.

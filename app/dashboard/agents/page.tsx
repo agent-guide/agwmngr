@@ -69,7 +69,7 @@ export default function AgentsListPage() {
           {(!data || data.length === 0) && (
             <>
               <p className="max-w-md text-xs text-slate-500">
-                An agent binds a runtime (an ACP service or an HTTP endpoint) plus the resources it may use. Create one to start observing and operating it.
+                An agent owns one runtime configuration (ACP, builtin, or HTTP) plus the resources it may use. Create one to start observing and operating it.
               </p>
               <Link href="/dashboard/agents/new"><Button className="px-3 py-1.5 text-xs">+ Create your first agent</Button></Link>
             </>

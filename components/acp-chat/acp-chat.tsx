@@ -330,6 +330,7 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
             ...m,
             status: "error",
             text: m.text || data.message || "Agent error",
+            errorType: data.error_type,
           }));
           break;
         default:
@@ -358,11 +359,12 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
         },
         {
           onEvent: (kind, data) => handleEvent(messageId, kind, data),
-          onTransportError: (message) =>
+          onTransportError: (message, errorType) =>
             updateAgent(messageId, (m) => ({
               ...m,
               status: "error",
               text: m.text || message,
+              errorType,
             })),
           onClose: () => {
             setStreaming(false);

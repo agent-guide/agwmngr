@@ -85,7 +85,7 @@ function UsageView() {
   const [tab, setTab] = useState<Protocol>("LLM");
   // Agent is deep-linkable (?agent=<id>) so the agent workspace can jump here.
   // agent_id scopes every stat server-side via the gateway's full attribution
-  // (durable tag OR the agent's owned routes/ACP service), so a scoped read is a
+  // (durable tag OR the agent's owned routes), so a scoped read is a
   // strict superset of the per-agent usage rollup — same data, plus group-by,
   // donuts, source filter, and event feeds.
   const [agent, setAgentState] = useState(searchParams.get("agent") ?? "all");
@@ -106,7 +106,7 @@ function UsageView() {
         title="Usage Statistics"
         description={
           agentId
-            ? "Live LLM, MCP, and ACP traffic scoped to the selected agent (durable agent_id tag or its owned routes/ACP service)."
+            ? "Live LLM, MCP, and Agent traffic scoped to the selected agent (durable agent_id tag or its owned routes)."
             : "Live LLM, MCP, and ACP traffic across all agents. Filter by Agent to scope every stat to one agent."
         }
       />

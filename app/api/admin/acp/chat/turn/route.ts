@@ -5,6 +5,7 @@ import {
   resolveAgentRouteTarget,
   resolveAgentRuntimeType,
 } from "@/lib/acp-dataplane";
+import { extractApiError, extractRuntimeErrorType } from "@/lib/utils";
 
 // Streaming proxy: forwards a chat turn to the agent data plane and pipes the
 // SSE response straight back to the browser. The manager session is required
@@ -186,9 +187,20 @@ export async function POST(req: Request): Promise<Response> {
 
     if (upstream.status >= 400) {
       const text = await upstream.text().catch(() => "");
+      let error = text.trim() || `data plane returned ${upstream.status}`;
+      let errorType: string | undefined;
+      if (text.trim()) {
+        try {
+          const body: unknown = JSON.parse(text);
+          error = extractApiError(body, error);
+          errorType = extractRuntimeErrorType(body);
+        } catch {
+          // Preserve a non-JSON upstream error body verbatim.
+        }
+      }
       return fail(
         Response.json(
-          { error: text.trim() || `data plane returned ${upstream.status}` },
+          { error, ...(errorType && { error_type: errorType }) },
           { status: upstream.status },
         ),
         upstream.status,
