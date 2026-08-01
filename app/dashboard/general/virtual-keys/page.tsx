@@ -9,7 +9,15 @@ import { useAgentAttribution } from "@/hooks/use-agent-attribution";
 import { UsedByAgents } from "@/components/used-by-agents";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { HelpTooltip } from "@/components/ui/tooltip";
-import { adminFetch } from "@/lib/api";
+import { adminFetch, type VirtualKeyRateLimits } from "@/lib/api";
+import {
+  RATE_LIMIT_PROTOCOLS,
+  emptyRateLimitsForm,
+  rateLimitsFromForm,
+  rateLimitsToForm,
+  type RateLimitProtocol,
+  type RateLimitsFormValue,
+} from "@/lib/virtual-key-rate-limits";
 
 interface VirtualKey {
   id: string;
@@ -19,6 +27,7 @@ interface VirtualKey {
   description?: string;
   disabled: boolean;
   allowed_route_ids?: string[];
+  rate_limits?: VirtualKeyRateLimits;
   status_message?: string;
   created_at: string;
   updated_at: string;
@@ -45,6 +54,7 @@ interface CreateForm {
   description: string;
   allowed_route_ids: string[];
   expires_at: string;
+  rate_limits: RateLimitsFormValue;
 }
 
 interface EditForm {
@@ -53,6 +63,7 @@ interface EditForm {
   allowed_route_ids: string[];
   expires_at: string;
   disabled: boolean;
+  rate_limits: RateLimitsFormValue;
 }
 
 const emptyForm = (): CreateForm => ({
@@ -61,6 +72,7 @@ const emptyForm = (): CreateForm => ({
   description: "",
   allowed_route_ids: [],
   expires_at: "",
+  rate_limits: emptyRateLimitsForm(),
 });
 
 const emptyEditForm = (): EditForm => ({
@@ -69,7 +81,106 @@ const emptyEditForm = (): EditForm => ({
   allowed_route_ids: [],
   expires_at: "",
   disabled: false,
+  rate_limits: emptyRateLimitsForm(),
 });
+
+const RATE_LIMIT_LABELS: Record<RateLimitProtocol, string> = {
+  llm: "LLM",
+  mcp: "MCP",
+  agent: "Agent",
+};
+
+function RateLimitsEditor({
+  value,
+  onChange,
+}: {
+  value: RateLimitsFormValue;
+  onChange: (value: RateLimitsFormValue) => void;
+}) {
+  const { errors } = rateLimitsFromForm(value);
+
+  const update = (protocol: RateLimitProtocol, patch: Partial<RateLimitsFormValue[RateLimitProtocol]>) => {
+    onChange({
+      ...value,
+      [protocol]: { ...value[protocol], ...patch },
+    });
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-1.5">
+        <label className="text-sm font-semibold text-slate-300">Rate Limits</label>
+        <HelpTooltip content="Optional token-bucket limits. Each protocol has its own capacity; disabled protocols are unlimited." />
+      </div>
+      <div className="grid gap-2 sm:grid-cols-3">
+        {RATE_LIMIT_PROTOCOLS.map((protocol) => {
+          const entry = value[protocol];
+          return (
+            <div
+              key={protocol}
+              className={`rounded-md border p-3 ${
+                entry.enabled
+                  ? "border-blue-400/40 bg-blue-500/5"
+                  : "border-slate-700/70 bg-slate-800/40"
+              }`}
+            >
+              <label className="flex items-center gap-2 text-sm font-medium text-slate-200">
+                <input
+                  type="checkbox"
+                  checked={entry.enabled}
+                  onChange={(event) => update(protocol, { enabled: event.target.checked })}
+                  className="h-4 w-4 rounded border-slate-600 bg-slate-800 text-blue-500"
+                />
+                {RATE_LIMIT_LABELS[protocol]}
+              </label>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  RPM
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    inputMode="numeric"
+                    value={entry.requestsPerMinute}
+                    disabled={!entry.enabled}
+                    onChange={(event) => update(protocol, { requestsPerMinute: event.target.value })}
+                    className="mt-1 w-full rounded-md border border-slate-600/60 bg-slate-900/60 px-2 py-1.5 text-sm font-normal text-slate-50 outline-none focus:border-blue-400/50 disabled:cursor-not-allowed disabled:opacity-40"
+                  />
+                </label>
+                <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  Burst
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    inputMode="numeric"
+                    value={entry.burst}
+                    disabled={!entry.enabled}
+                    onChange={(event) => update(protocol, { burst: event.target.value })}
+                    className="mt-1 w-full rounded-md border border-slate-600/60 bg-slate-900/60 px-2 py-1.5 text-sm font-normal text-slate-50 outline-none focus:border-blue-400/50 disabled:cursor-not-allowed disabled:opacity-40"
+                  />
+                </label>
+              </div>
+              {errors[protocol] && <p className="mt-2 text-xs text-red-300">{errors[protocol]}</p>}
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-xs text-slate-500">
+        RPM controls the refill rate; burst is the maximum immediate capacity. Leave a protocol disabled for unlimited traffic.
+      </p>
+    </div>
+  );
+}
+
+function rateLimitSummary(rateLimits?: VirtualKeyRateLimits): string | null {
+  if (!rateLimits) return null;
+  const parts = RATE_LIMIT_PROTOCOLS.flatMap((protocol) => {
+    const limit = rateLimits[protocol];
+    return limit ? [`${RATE_LIMIT_LABELS[protocol]} ${limit.requests_per_minute}/min · burst ${limit.burst}`] : [];
+  });
+  return parts.length > 0 ? parts.join("  ·  ") : null;
+}
 
 function keyPreview(key: string): string {
   if (key.length <= 8) return key;
@@ -254,12 +365,18 @@ export default function ApiKeysPage() {
       allowed_route_ids: apiKey.allowed_route_ids ?? [],
       expires_at: dateInputValue(apiKey.expires_at),
       disabled: apiKey.disabled,
+      rate_limits: rateLimitsToForm(apiKey.rate_limits),
     });
     setIsEditModalOpen(true);
     void loadRoutes();
   };
 
   const handleCreateKey = async () => {
+    const { rateLimits, errors } = rateLimitsFromForm(form.rate_limits);
+    if (Object.keys(errors).length > 0) {
+      showToast("Fix the invalid rate limits before creating the key", "error");
+      return;
+    }
     setCreating(true);
     try {
       const body: Record<string, unknown> = {
@@ -269,6 +386,7 @@ export default function ApiKeysPage() {
       if (form.description.trim()) body.description = form.description.trim();
       if (form.allowed_route_ids.length > 0) body.allowed_route_ids = form.allowed_route_ids;
       if (form.expires_at) body.expires_at = new Date(form.expires_at).toISOString();
+      if (rateLimits) body.rate_limits = rateLimits;
 
       const created = await adminFetch<VirtualKey>("/admin/virtual_keys", {
         method: "POST",
@@ -288,6 +406,11 @@ export default function ApiKeysPage() {
 
   const handleUpdateKey = async () => {
     if (!editingKey) return;
+    const { rateLimits, errors } = rateLimitsFromForm(editForm.rate_limits);
+    if (Object.keys(errors).length > 0) {
+      showToast("Fix the invalid rate limits before saving", "error");
+      return;
+    }
     setUpdating(true);
     try {
       const body: Record<string, unknown> = {
@@ -296,6 +419,8 @@ export default function ApiKeysPage() {
         description: editForm.description.trim(),
         disabled: editForm.disabled,
         allowed_route_ids: editForm.allowed_route_ids,
+        // null explicitly removes a previously configured policy on PUT.
+        rate_limits: rateLimits ?? null,
       };
       if (editForm.expires_at) {
         body.expires_at = new Date(editForm.expires_at).toISOString();
@@ -381,6 +506,11 @@ export default function ApiKeysPage() {
                     <UsedByAgents agentIds={attribution?.virtualKey[apiKey.id]} />
                   </div>
                   <p className="mt-0.5 truncate font-mono text-xs text-slate-400">{keyPreview(apiKey.key)}</p>
+                  {rateLimitSummary(apiKey.rate_limits) && (
+                    <p className="mt-1 truncate text-[11px] text-blue-300/80">
+                      {rateLimitSummary(apiKey.rate_limits)}
+                    </p>
+                  )}
                 </div>
                 <span className="text-xs text-slate-400">{new Date(apiKey.created_at).toLocaleDateString()}</span>
                 <span className="text-xs text-slate-400">
@@ -496,11 +626,23 @@ export default function ApiKeysPage() {
               />
               <p className="mt-1 text-xs text-slate-500">Leave empty for a non-expiring key.</p>
             </div>
+
+            <RateLimitsEditor
+              value={form.rate_limits}
+              onChange={(rate_limits) => setForm((current) => ({ ...current, rate_limits }))}
+            />
           </div>
         </ModalContent>
         <ModalFooter>
           <Button variant="ghost" onClick={() => setIsCreateModalOpen(false)} disabled={creating}>Cancel</Button>
-          <Button onClick={handleCreateKey} disabled={creating || !form.id.trim()}>
+          <Button
+            onClick={handleCreateKey}
+            disabled={
+              creating ||
+              !form.id.trim() ||
+              Object.keys(rateLimitsFromForm(form.rate_limits).errors).length > 0
+            }
+          >
             {creating ? "Creating..." : "Create Virtual Key"}
           </Button>
         </ModalFooter>
@@ -566,6 +708,11 @@ export default function ApiKeysPage() {
               <p className="mt-1 text-xs text-slate-500">Leave empty for a non-expiring key.</p>
             </div>
 
+            <RateLimitsEditor
+              value={editForm.rate_limits}
+              onChange={(rate_limits) => setEditForm((current) => ({ ...current, rate_limits }))}
+            />
+
             <label className="flex items-center gap-2 text-sm text-slate-300">
               <input
                 type="checkbox"
@@ -585,7 +732,12 @@ export default function ApiKeysPage() {
           >
             Cancel
           </Button>
-          <Button onClick={handleUpdateKey} disabled={updating}>
+          <Button
+            onClick={handleUpdateKey}
+            disabled={
+              updating || Object.keys(rateLimitsFromForm(editForm.rate_limits).errors).length > 0
+            }
+          >
             {updating ? "Saving..." : "Save Changes"}
           </Button>
         </ModalFooter>
