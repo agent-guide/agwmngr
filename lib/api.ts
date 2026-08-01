@@ -976,10 +976,47 @@ export interface ACPRuntimeOverview {
 }
 
 // ---- Builtin runtime diagnostics ----
-// The builtin host reports materialization state; its payload is not part of a
-// stable wire contract yet, so it stays opaque until the P2 diagnostics page.
 
-export type BuiltinRuntimeOverview = Record<string, unknown>;
+export interface BuiltinRuntimeEntryState {
+  materialized: boolean;
+  materialized_at?: string;
+  topology_kind?: string;
+  inflight_turns: number;
+  live_sessions: number;
+}
+
+export interface BuiltinInFlightTurn {
+  agent_id: string;
+  session_id: string;
+  run_id: string;
+  request_id?: string;
+  operation: "turn" | "resume" | string;
+  topology_kind?: string;
+  started_at: string;
+}
+
+export interface BuiltinPendingPermissionCall {
+  call_id: string;
+  mcp_service_id: string;
+  name: string;
+  arguments?: string;
+}
+
+export interface BuiltinPendingPermission {
+  request_id: string;
+  agent_id: string;
+  session_id: string;
+  run_id: string;
+  created_at: string;
+  expires_at: string;
+  calls: BuiltinPendingPermissionCall[];
+}
+
+export interface BuiltinRuntimeOverview {
+  agents: Record<string, BuiltinRuntimeEntryState>;
+  pending_permissions: BuiltinPendingPermission[];
+  in_flight: BuiltinInFlightTurn[];
+}
 
 // ---- Agent ingress route types ----
 
@@ -1126,8 +1163,8 @@ export async function getBuiltinRuntime(): Promise<BuiltinRuntimeOverview> {
   return adminFetch<BuiltinRuntimeOverview>("/admin/builtin/runtime");
 }
 
-export async function listBuiltinInFlight(): Promise<unknown[]> {
-  const res = await adminFetch<{ items: unknown[] }>("/admin/builtin/runtime/inflight");
+export async function getBuiltinInFlight(): Promise<BuiltinInFlightTurn[]> {
+  const res = await adminFetch<{ items: BuiltinInFlightTurn[] }>("/admin/builtin/runtime/inflight");
   return res.items ?? [];
 }
 
@@ -1513,7 +1550,7 @@ export interface BuiltinDefinitionSummary {
 }
 export interface BuiltinWorkspaceView {
   definition: BuiltinDefinitionSummary;
-  host_state: unknown;
+  host_state: BuiltinRuntimeEntryState;
 }
 export interface AgentWorkspaceUsage {
   request_count?: number;

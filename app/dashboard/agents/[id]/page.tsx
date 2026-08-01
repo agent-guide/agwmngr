@@ -15,6 +15,7 @@ import { useAdminSWR } from "@/hooks/use-admin-swr";
 import { num, errorRate, pct } from "@/lib/metrics-util";
 import {
   ApiError,
+  cancelAgentRun,
   deleteAgent,
   getAgentWorkspace,
   getAgentResources,
@@ -22,10 +23,13 @@ import {
   listAgentRoutes,
   listLLMRoutes,
   listMCPRoutes,
+  listAgentRuns,
   listVirtualKeys,
+  type AgentCancelMode,
   type AgentCapabilities,
   type AgentResourceRef,
   type AgentRoute,
+  type AgentRunInfo,
   type AgentWorkspace,
   type LLMRoute,
   type MCPRoute,
@@ -33,7 +37,7 @@ import {
 import { AcpChat } from "@/components/acp-chat/acp-chat";
 import { PendingPermissions, normalizeACPPoolPermission } from "@/components/acp-pending-permissions";
 
-const TABS = ["Overview", "Chat", "Resources", "Health", "Configuration"] as const;
+const TABS = ["Overview", "Chat", "Runs", "Resources", "Health", "Configuration"] as const;
 type Tab = (typeof TABS)[number];
 
 /**
@@ -43,9 +47,13 @@ type Tab = (typeof TABS)[number];
  * backend is down does not (docs/v0.5-alignment-plan.md D4).
  */
 function visibleTabs(capabilities: AgentCapabilities | undefined): Tab[] {
-  // Before capabilities load, keep the static tabs so the shell does not jump.
   const chattable = capabilities ? capabilities.executable && capabilities.turn?.streaming !== false : false;
-  return TABS.filter((t) => t !== "Chat" || chattable);
+  const cancellable = !!(capabilities?.cancellation?.force || capabilities?.cancellation?.graceful);
+  return TABS.filter((t) => {
+    if (t === "Chat") return chattable;
+    if (t === "Runs") return cancellable;
+    return true;
+  });
 }
 
 export default function AgentDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -132,6 +140,13 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
 
           {activeTab === "Overview" && <OverviewTab id={id} workspace={ws.data} loading={ws.isLoading && !ws.data} refresh={() => void ws.mutate()} />}
           {activeTab === "Chat" && <ChatTab workspace={ws.data} loading={ws.isLoading && !ws.data} />}
+          {activeTab === "Runs" && (
+            <RunsTab
+              id={id}
+              capabilities={ws.data?.capabilities}
+              onChanged={() => void ws.mutate()}
+            />
+          )}
           {activeTab === "Resources" && <ResourcesTab id={id} />}
           {activeTab === "Health" && <HealthTab id={id} />}
           {activeTab === "Configuration" && <ConfigurationTab id={id} workspace={ws.data} />}
@@ -333,6 +348,156 @@ function OverviewTab({ id, workspace, loading, refresh }: { id: string; workspac
         </Card>
       </div>
       <p className="text-[11px] text-slate-600">Workspace is a summary/index — full session content is fetched on demand from the linked endpoints, never aggregated here. Agent: {id}</p>
+    </div>
+  );
+}
+
+// ── Runs ────────────────────────────────────────────────────────────────────
+
+function runStateTone(state: AgentRunInfo["state"]): "green" | "amber" | "red" | "neutral" {
+  if (state === "completed") return "green";
+  if (state === "running") return "amber";
+  if (state === "failed") return "red";
+  return "neutral";
+}
+
+function formatRunTime(value?: string): string {
+  if (!value || value.startsWith("0001-01-01")) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function RunsTab({
+  id,
+  capabilities,
+  onChanged,
+}: {
+  id: string;
+  capabilities: AgentCapabilities | undefined;
+  onChanged: () => void;
+}) {
+  const { showToast } = useToast();
+  const runs = useAdminSWR(["agent-runs", id], () => listAgentRuns(id), { live: true });
+  const [pendingCancel, setPendingCancel] = useState<{ run: AgentRunInfo; mode: AgentCancelMode } | null>(null);
+  const [cancelling, setCancelling] = useState<string | null>(null);
+  const supportsForce = !!capabilities?.cancellation?.force;
+  const supportsGraceful = !!capabilities?.cancellation?.graceful;
+
+  const handleCancel = async () => {
+    if (!pendingCancel) return;
+    const { run, mode } = pendingCancel;
+    setCancelling(run.run_id);
+    try {
+      await cancelAgentRun(id, run.run_id, mode);
+      showToast(`Run cancellation requested (${mode})`, "success");
+      await runs.mutate();
+      onChanged();
+    } catch (err) {
+      const message = err instanceof ApiError
+        ? err.errorType ? `${err.message} (${err.errorType})` : err.message
+        : "Failed to cancel run";
+      showToast(message, "error");
+    } finally {
+      setCancelling(null);
+      setPendingCancel(null);
+    }
+  };
+
+  if (runs.error && !runs.data) {
+    return <Card className="p-8 text-center text-sm text-rose-300">{runs.error instanceof Error ? runs.error.message : "Failed to load runs"}</Card>;
+  }
+  if (runs.isLoading && !runs.data) {
+    return <Card className="p-8 text-center text-sm text-slate-400">Loading runs…</Card>;
+  }
+
+  const items = runs.data ?? [];
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <CardTitle>Runs</CardTitle>
+              <p className="mt-1 text-xs text-slate-500">Live and recently completed executions reported by this agent runtime.</p>
+            </div>
+            <AutoRefreshControl
+              lastUpdated={runs.lastUpdated}
+              onRefresh={() => void runs.mutate()}
+              refreshing={runs.isValidating}
+            />
+          </div>
+        </CardHeader>
+
+        {items.length === 0 ? (
+          <p className="py-8 text-center text-sm text-slate-500">No runs reported.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <div className="min-w-[760px]">
+              <div className="grid grid-cols-[minmax(180px,1fr)_110px_minmax(140px,0.8fr)_170px_minmax(210px,auto)] border-b border-slate-700/70 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                <span>Run</span><span>Status</span><span>Session</span><span>Started</span><span className="text-right">Actions</span>
+              </div>
+              {items.map((run) => {
+                const isRunning = run.state === "running";
+                const busy = cancelling === run.run_id;
+                return (
+                  <div
+                    key={run.run_id}
+                    className="grid grid-cols-[minmax(180px,1fr)_110px_minmax(140px,0.8fr)_170px_minmax(210px,auto)] items-center border-b border-slate-700/50 px-3 py-2.5 last:border-b-0"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-mono text-xs text-slate-200" title={run.run_id}>{run.run_id}</p>
+                      <p className="mt-0.5 truncate text-[11px] text-slate-500">
+                        {run.runtime_type}{run.stop_reason ? ` · ${run.stop_reason}` : run.state !== "running" && run.finished_at ? ` · ended ${formatRunTime(run.finished_at)}` : ""}
+                      </p>
+                    </div>
+                    <div><Badge tone={runStateTone(run.state)}>{run.state}</Badge></div>
+                    <span className="truncate font-mono text-xs text-slate-400" title={run.session_id}>{run.session_id ?? "—"}</span>
+                    <span className="text-xs text-slate-400">{formatRunTime(run.started_at)}</span>
+                    <div className="flex justify-end gap-1.5">
+                      <Button
+                        variant="secondary"
+                        className="px-2.5 py-1 text-xs"
+                        disabled={!isRunning || !supportsGraceful || busy}
+                        title={!supportsGraceful ? "Graceful cancellation is not supported by this runtime" : undefined}
+                        onClick={() => setPendingCancel({ run, mode: "graceful" })}
+                      >
+                        Graceful
+                      </Button>
+                      <Button
+                        variant="danger"
+                        className="px-2.5 py-1 text-xs"
+                        disabled={!isRunning || !supportsForce || busy}
+                        title={!supportsForce ? "Force cancellation is not supported by this runtime" : undefined}
+                        onClick={() => setPendingCancel({ run, mode: "force" })}
+                      >
+                        {busy ? "Cancelling…" : "Force"}
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </Card>
+
+      <p className="text-[11px] text-slate-600">
+        Graceful cancellation asks the runtime to stop cleanly; force cancellation terminates the run immediately. Unsupported modes stay disabled according to the agent&apos;s advertised capabilities.
+      </p>
+
+      <ConfirmDialog
+        isOpen={!!pendingCancel}
+        onClose={() => setPendingCancel(null)}
+        onConfirm={() => void handleCancel()}
+        title={`${pendingCancel?.mode === "force" ? "Force cancel" : "Gracefully cancel"} run?`}
+        message={
+          <span>
+            Run <span className="font-mono">{pendingCancel?.run.run_id}</span> will receive a {pendingCancel?.mode} cancellation request.
+          </span>
+        }
+        confirmLabel={pendingCancel?.mode === "force" ? "Force cancel" : "Cancel run"}
+        variant={pendingCancel?.mode === "force" ? "danger" : "warning"}
+      />
     </div>
   );
 }

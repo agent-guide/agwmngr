@@ -109,7 +109,8 @@ const NAV_GROUPS: NavGroup[] = [
         key: "runtimes",
         label: "Runtimes",
         items: [
-          { href: "/dashboard/acp/runtime", label: "ACP Pool", icon: IconBot },
+          { href: "/dashboard/acp/runtime", label: "ACP Runtime", icon: IconBot },
+          { href: "/dashboard/agents/runtimes/builtin", label: "Builtin Runtime", icon: IconBrain },
         ],
       },
     ],
