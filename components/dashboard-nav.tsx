@@ -57,62 +57,60 @@ function IconChevron({ className }: { className?: string }) {
 }
 
 type NavItem = { href: string; label: string; icon: ComponentType<{ className?: string }> };
-type SubGroup = { key: string; label: string; items: NavItem[] };
 type NavGroup = {
   key: string;
   label: string;
   icon: ComponentType<{ className?: string }>;
   adminOnly?: boolean;
-  items?: NavItem[];
-  subgroups?: SubGroup[];
+  items: NavItem[];
 };
 
 // The WORKSPACE zone is the agent-centric focus: the agent itself plus the
 // day-to-day views for working with it. It stays always-visible at the top.
-const WORKSPACE_ITEMS: NavItem[] = [
+const WORKSPACE_PRIMARY_ITEMS: NavItem[] = [
   { href: "/dashboard/general/overview", label: "Overview", icon: IconHome },
   { href: "/dashboard/agents", label: "Agents", icon: IconAgent },
   { href: "/dashboard/agents/routes", label: "Agent Routes", icon: IconRoute },
+];
+
+const WORKSPACE_ACTIVITY_ITEMS: NavItem[] = [
   { href: "/dashboard/agents/interactions", label: "Interactions", icon: IconActivity },
   { href: "/dashboard/agents/usage", label: "Usage", icon: IconBarChart },
   { href: "/dashboard/general/virtual-keys", label: "Virtual Keys", icon: IconKey },
 ];
 
-// Everything below is the shared infrastructure that backs agents. It is
-// collapsed into disclosure groups so it no longer competes with the agent
-// zone for the eye. LLM / MCP / Runtimes live inside one "Resources" group.
+const WORKSPACE_ITEMS = [...WORKSPACE_PRIMARY_ITEMS, ...WORKSPACE_ACTIVITY_ITEMS];
+
+// Shared infrastructure and host-wide diagnostics use independent disclosure
+// groups, so LLM and MCP can be expanded without a generic Resources wrapper.
 const NAV_GROUPS: NavGroup[] = [
   {
-    key: "resources",
-    label: "Resources",
+    key: "llm",
+    label: "LLM",
     icon: IconLayers,
-    subgroups: [
-      {
-        key: "llm",
-        label: "LLM",
-        items: [
-          { href: "/dashboard/llm/providers", label: "Providers", icon: IconLayers },
-          { href: "/dashboard/llm/models", label: "Models", icon: IconBrain },
-          { href: "/dashboard/llm/credentials", label: "Credentials", icon: IconCredential },
-          { href: "/dashboard/llm/routes", label: "Routes", icon: IconRoute },
-        ],
-      },
-      {
-        key: "mcp",
-        label: "MCP",
-        items: [
-          { href: "/dashboard/mcp/services", label: "Services", icon: IconPlug },
-          { href: "/dashboard/mcp/routes", label: "Routes", icon: IconRoute },
-        ],
-      },
-      {
-        key: "runtimes",
-        label: "Runtimes",
-        items: [
-          { href: "/dashboard/acp/runtime", label: "ACP Runtime", icon: IconBot },
-          { href: "/dashboard/agents/runtimes/builtin", label: "Builtin Runtime", icon: IconBrain },
-        ],
-      },
+    items: [
+      { href: "/dashboard/llm/providers", label: "Providers", icon: IconLayers },
+      { href: "/dashboard/llm/models", label: "Models", icon: IconBrain },
+      { href: "/dashboard/llm/credentials", label: "Credentials", icon: IconCredential },
+      { href: "/dashboard/llm/routes", label: "Routes", icon: IconRoute },
+    ],
+  },
+  {
+    key: "mcp",
+    label: "MCP",
+    icon: IconPlug,
+    items: [
+      { href: "/dashboard/mcp/services", label: "Services", icon: IconPlug },
+      { href: "/dashboard/mcp/routes", label: "Routes", icon: IconRoute },
+    ],
+  },
+  {
+    key: "runtimes",
+    label: "Runtimes",
+    icon: IconBot,
+    items: [
+      { href: "/dashboard/acp/runtime", label: "ACP Runtime", icon: IconBot },
+      { href: "/dashboard/agents/runtimes/builtin", label: "Builtin Runtime", icon: IconBrain },
     ],
   },
   {
@@ -138,7 +136,7 @@ const NAV_GROUPS: NavGroup[] = [
 ];
 
 function groupItems(group: NavGroup): NavItem[] {
-  return group.items ?? group.subgroups?.flatMap((sg) => sg.items) ?? [];
+  return group.items;
 }
 
 const STORAGE_KEY = "dashboard.nav.groups";
@@ -164,6 +162,8 @@ export function DashboardNav() {
   const { user } = useCurrentUser();
 
   const groups = NAV_GROUPS.filter((g) => !g.adminOnly || user?.is_platform_admin);
+  const runtimeGroup = groups.find((g) => g.key === "runtimes");
+  const lowerGroups = groups.filter((g) => g.key !== "runtimes");
 
   const allHrefs = [
     ...WORKSPACE_ITEMS.map((i) => i.href),
@@ -225,6 +225,39 @@ export function DashboardNav() {
     );
   };
 
+  const renderGroup = (group: NavGroup) => {
+    const GroupIcon = group.icon;
+    const hasActive = groupItems(group).some((i) => i.href === activeHref);
+    const groupOpen = isGroupOpen(group.key, hasActive);
+    return (
+      <li key={group.key}>
+        <button
+          type="button"
+          onClick={() => toggleGroup(group.key, groupOpen)}
+          aria-expanded={groupOpen}
+          className={cn(
+            "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200",
+            "glass-nav-item text-slate-300 hover:text-slate-100",
+            hasActive && !groupOpen && "text-slate-100"
+          )}
+        >
+          <GroupIcon className="h-4 w-4 shrink-0" />
+          <span className="flex-1 text-left">{group.label}</span>
+          {hasActive && !groupOpen && <span className="h-1.5 w-1.5 rounded-full bg-blue-400" aria-hidden="true" />}
+          <IconChevron className={cn("h-3.5 w-3.5 shrink-0 text-slate-500 transition-transform duration-200", groupOpen && "rotate-90")} />
+        </button>
+
+        {groupOpen && (
+          <div className="mt-1 pl-3">
+            <ul className="space-y-1 border-l border-slate-700/50 pl-1.5">
+              {group.items.map(renderLink)}
+            </ul>
+          </div>
+        )}
+      </li>
+    );
+  };
+
   return (
     <>
       {isOpen && (
@@ -266,62 +299,24 @@ export function DashboardNav() {
           /* Narrow rail: flatten everything to an icon list; the accordion is
              not usable at this width. */
           <ul className="space-y-1 lg:block">
-            {WORKSPACE_ITEMS.map(renderLink)}
+            {WORKSPACE_PRIMARY_ITEMS.map(renderLink)}
+            {runtimeGroup && groupItems(runtimeGroup).map(renderLink)}
+            {WORKSPACE_ACTIVITY_ITEMS.map(renderLink)}
             <li className="my-2 border-t border-slate-700/50" aria-hidden="true" />
-            {groups.flatMap((g) => groupItems(g)).map(renderLink)}
+            {lowerGroups.flatMap((g) => groupItems(g)).map(renderLink)}
           </ul>
         ) : (
           <div className="space-y-4">
-            {/* WORKSPACE — always visible, the agent-centric focus */}
+            {/* WORKSPACE — Runtimes follows Agent Routes in the operator flow. */}
             <ul className="space-y-1">
-              {WORKSPACE_ITEMS.map(renderLink)}
+              {WORKSPACE_PRIMARY_ITEMS.map(renderLink)}
+              {runtimeGroup && renderGroup(runtimeGroup)}
+              {WORKSPACE_ACTIVITY_ITEMS.map(renderLink)}
             </ul>
 
             {/* Collapsible infrastructure groups */}
             <ul className="space-y-1">
-              {groups.map((group) => {
-                const GroupIcon = group.icon;
-                const hasActive = groupItems(group).some((i) => i.href === activeHref);
-                const groupOpen = isGroupOpen(group.key, hasActive);
-                return (
-                  <li key={group.key}>
-                    <button
-                      type="button"
-                      onClick={() => toggleGroup(group.key, groupOpen)}
-                      aria-expanded={groupOpen}
-                      className={cn(
-                        "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors duration-200",
-                        "glass-nav-item text-slate-300 hover:text-slate-100",
-                        hasActive && !groupOpen && "text-slate-100"
-                      )}
-                    >
-                      <GroupIcon className="h-4 w-4 shrink-0" />
-                      <span className="flex-1 text-left">{group.label}</span>
-                      {hasActive && !groupOpen && <span className="h-1.5 w-1.5 rounded-full bg-blue-400" aria-hidden="true" />}
-                      <IconChevron className={cn("h-3.5 w-3.5 shrink-0 text-slate-500 transition-transform duration-200", groupOpen && "rotate-90")} />
-                    </button>
-
-                    {groupOpen && (
-                      <div className="mt-1 space-y-2 pl-3">
-                        {group.subgroups
-                          ? group.subgroups.map((sg) => (
-                              <div key={sg.key} className="space-y-1">
-                                <p className="px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{sg.label}</p>
-                                <ul className="space-y-1 border-l border-slate-700/50 pl-1.5">
-                                  {sg.items.map(renderLink)}
-                                </ul>
-                              </div>
-                            ))
-                          : (
-                            <ul className="space-y-1 border-l border-slate-700/50 pl-1.5">
-                              {(group.items ?? []).map(renderLink)}
-                            </ul>
-                          )}
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
+              {lowerGroups.map(renderGroup)}
             </ul>
           </div>
         )}
