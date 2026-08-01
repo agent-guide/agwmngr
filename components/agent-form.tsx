@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { useToast } from "@/components/ui/toast";
+import { agentPayload, agentPayloadYaml, parseAgentPayloadYaml } from "@/lib/agent-yaml";
 import { cn } from "@/lib/utils";
 import {
   ApiError,
@@ -117,6 +118,7 @@ function NewLink({ href }: { href: string }) {
 const TEXTAREA_CLASS = "w-full rounded-md border border-slate-700/70 bg-slate-900/60 px-3 py-2 font-mono text-xs text-slate-100 focus:border-blue-500/60 focus:outline-none";
 
 const WIZARD_STEPS = ["Basics", "Runtime", "Resources", "Review"] as const;
+type EditorMode = "form" | "yaml";
 
 export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard?: boolean }) {
   const isEdit = !!initial;
@@ -168,6 +170,8 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
   const [maxTokens, setMaxTokens] = useState(initial?.policy.budget?.max_tokens_per_day ? String(initial.policy.budget.max_tokens_per_day) : "");
   const [disabled, setDisabled] = useState(initial?.disabled ?? false);
   const [saving, setSaving] = useState(false);
+  const [editorMode, setEditorMode] = useState<EditorMode>(initial?.runtime.type === "builtin" ? "yaml" : "form");
+  const [yamlText, setYamlText] = useState(initial ? agentPayloadYaml(agentPayload(initial)) : "");
 
   const loadRef = useCallback(async () => {
     const [llmRoutes, mcpRoutes, mcpServices, providers, vkeys] = await Promise.allSettled([
@@ -282,6 +286,73 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
     disabled,
   });
 
+  const yamlParse = useMemo((): { value?: AgentPayload; error?: string } => {
+    if (!yamlText.trim()) return { error: "Agent YAML is empty" };
+    try {
+      const value = parseAgentPayloadYaml(yamlText);
+      if (isEdit && value.id !== initial?.id) return { error: `Agent ID is immutable and must remain ${initial?.id}` };
+      return { value };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "Invalid Agent YAML" };
+    }
+  }, [initial, isEdit, yamlText]);
+
+  const applyPayloadToForm = (payload: AgentPayload) => {
+    setId(payload.id);
+    setName(payload.name);
+    setDescription(payload.description ?? "");
+    setRuntimeType(payload.runtime.type);
+
+    const acp = payload.runtime.acp;
+    if (acp) {
+      setAcpAgentType(acp.agent_type);
+      setAcpCwd(acp.cwd);
+      setAcpAllowedRoots((acp.allowed_roots ?? []).join("\n"));
+      setAcpDefaultModel(acp.default_model ?? "");
+      setAcpEnv(formatKeyValueLines(acp.env));
+      setAcpConfigOverrides(formatKeyValueLines(acp.config_overrides));
+      setAcpPermissionMode(acp.permission_mode ?? "deny");
+      setAcpIdleTtl(acp.idle_ttl ? String(Math.round(acp.idle_ttl / NANOS_PER_SECOND)) : "0");
+      setAcpMaxInstances(acp.max_instances ? String(acp.max_instances) : "");
+      setAcpCodexMode(acp.codex?.mode ?? "adapter");
+      setAcpCodexCommand(acp.codex?.adapter_command ?? "");
+      setAcpCodexArgs((acp.codex?.adapter_args ?? []).join("\n"));
+    }
+    if (payload.runtime.builtin) setBuiltinJson(JSON.stringify(payload.runtime.builtin, null, 2));
+    if (payload.runtime.http) {
+      setHttpEndpoint(payload.runtime.http.endpoint);
+      setHttpAuthRef(payload.runtime.http.auth_ref ?? "");
+    }
+
+    setLlmRouteIds(payload.routes.llm_route_ids ?? []);
+    setMcpRouteIds(payload.routes.mcp_route_ids ?? []);
+    setProviderIds(payload.resources.provider_ids ?? []);
+    setMcpServiceIds(payload.resources.mcp_service_ids ?? []);
+    setVirtualKeyIds(payload.resources.virtual_key_ids ?? []);
+    setMaxAgentDepth(payload.policy.max_agent_depth ? String(payload.policy.max_agent_depth) : "");
+    setMaxTurns(payload.policy.budget?.max_turns_per_day ? String(payload.policy.budget.max_turns_per_day) : "");
+    setMaxTokens(payload.policy.budget?.max_tokens_per_day ? String(payload.policy.budget.max_tokens_per_day) : "");
+    setDisabled(payload.disabled);
+  };
+
+  const switchToYaml = () => {
+    if (runtimeType === "builtin" && builtinParse.error) {
+      showToast(`Builtin definition: ${builtinParse.error}`, "error");
+      return;
+    }
+    setYamlText(agentPayloadYaml(buildPayload()));
+    setEditorMode("yaml");
+  };
+
+  const switchToForm = () => {
+    if (yamlParse.error || !yamlParse.value) {
+      showToast(yamlParse.error ?? "Invalid Agent YAML", "error");
+      return;
+    }
+    applyPayloadToForm(yamlParse.value);
+    setEditorMode("form");
+  };
+
   // Returns an error message if the given wizard step is incomplete, else null.
   const validateStep = (s: number): string | null => {
     if (s === 0) {
@@ -314,13 +385,20 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
   };
 
   const submit = async () => {
-    for (let s = 0; s <= 1; s++) {
-      const err = validateStep(s);
-      if (err) { showToast(err, "error"); if (wizard) setStep(s); return; }
+    if (editorMode === "yaml") {
+      if (yamlParse.error || !yamlParse.value) {
+        showToast(yamlParse.error ?? "Invalid Agent YAML", "error");
+        return;
+      }
+    } else {
+      for (let s = 0; s <= 1; s++) {
+        const err = validateStep(s);
+        if (err) { showToast(err, "error"); if (wizard) setStep(s); return; }
+      }
     }
     setSaving(true);
     try {
-      const payload = buildPayload();
+      const payload = editorMode === "yaml" ? yamlParse.value! : buildPayload();
       const saved = isEdit ? await updateAgent(initial!.id, payload) : await createAgent(payload);
       showToast(isEdit ? "Agent updated" : "Agent created", "success");
       router.push(`/dashboard/agents/${encodeURIComponent(saved.id)}`);
@@ -495,7 +573,15 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
           <Select
             name="runtime-type"
             value={runtimeType}
-            onChange={(v) => setRuntimeType(v as AgentRuntimeType)}
+            onChange={(v) => {
+              const nextType = v as AgentRuntimeType;
+              if (nextType === "builtin" && runtimeType !== "builtin") {
+                const builtin = JSON.parse(BUILTIN_TEMPLATE) as AgentRuntimeBuiltin;
+                setYamlText(agentPayloadYaml({ ...buildPayload(), runtime: { type: "builtin", builtin } }));
+                setEditorMode("yaml");
+              }
+              setRuntimeType(nextType);
+            }}
             options={[
               { value: "acp", label: "acp — gateway-managed process" },
               { value: "builtin", label: "builtin — in-process ADK" },
@@ -626,10 +712,62 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
     </Card>
   );
 
+  const modeToggle = (
+    <div className="flex items-center justify-between gap-3 rounded-md border border-slate-700/60 bg-slate-900/30 px-3 py-2">
+      <div>
+        <p className="text-sm font-medium text-slate-200">Editor</p>
+        <p className="text-xs text-slate-500">Form for guided editing; YAML for the exact Admin API payload.</p>
+      </div>
+      <div className="flex rounded-md border border-slate-700/70 bg-slate-950/50 p-0.5" role="group" aria-label="Agent editor mode">
+        <Button variant={editorMode === "form" ? "secondary" : "ghost"} className="border-0 px-3 py-1 text-xs" onClick={editorMode === "yaml" ? switchToForm : undefined}>Form</Button>
+        <Button variant={editorMode === "yaml" ? "secondary" : "ghost"} className="border-0 px-3 py-1 text-xs" onClick={editorMode === "form" ? switchToYaml : undefined}>YAML</Button>
+      </div>
+    </div>
+  );
+
+  const yamlEditor = (
+    <div className="space-y-4">
+      {modeToggle}
+      <Card>
+        <CardHeader><CardTitle>Agent YAML</CardTitle></CardHeader>
+        <p className="mb-3 text-xs leading-5 text-slate-500">
+          Edit one Agent Admin API payload. You can also paste an <span className="font-mono">agents:</span> fragment or a
+          one-agent GatewayBundle; switching back to Form applies every field below.
+        </p>
+        <textarea
+          value={yamlText}
+          onChange={(event) => setYamlText(event.target.value)}
+          rows={28}
+          spellCheck={false}
+          aria-label="Agent YAML editor"
+          className={cn(TEXTAREA_CLASS, "min-h-[32rem] resize-y", yamlParse.error && "border-rose-500/70")}
+        />
+        {yamlParse.error ? (
+          <p className="mt-3 rounded-md border border-rose-500/40 bg-rose-500/5 px-3 py-2 font-mono text-xs text-rose-300" role="alert">
+            {yamlParse.error}
+          </p>
+        ) : (
+          <p className="mt-3 text-xs text-emerald-400">
+            Valid Agent YAML · runtime: <span className="font-mono">{yamlParse.value?.runtime.type}</span>
+          </p>
+        )}
+      </Card>
+      <div className="flex justify-end gap-1.5">
+        <Button variant="ghost" onClick={() => router.back()} disabled={saving}>Cancel</Button>
+        <Button onClick={() => void submit()} disabled={saving || !!yamlParse.error}>
+          {saving ? "Saving…" : isEdit ? "Save Changes" : "Create Agent"}
+        </Button>
+      </div>
+    </div>
+  );
+
+  if (editorMode === "yaml") return yamlEditor;
+
   // ── Full edit form (single-page layout) ──
   if (!wizard) {
     return (
       <div className="space-y-4">
+        {modeToggle}
         {identityCard}
         {runtimeCard}
         {routesCard}
@@ -653,6 +791,7 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
 
   return (
     <div className="space-y-4">
+      {modeToggle}
       {/* Stepper header */}
       <div className="flex items-center gap-1.5">
         {WIZARD_STEPS.map((label, i) => {

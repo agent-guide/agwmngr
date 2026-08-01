@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { parse } from "yaml";
 import type { Agent } from "@/lib/api";
-import { agentPayload, agentYamlFragment } from "@/lib/agent-yaml";
+import { agentPayload, agentPayloadYaml, agentYamlFragment, parseAgentPayloadYaml } from "@/lib/agent-yaml";
 
 const agent: Agent = {
   id: "support",
@@ -44,5 +44,59 @@ describe("agentYamlFragment", () => {
     expect(yaml).not.toContain("updated_at");
     expect(yaml).not.toContain("runtime_status");
     expect(yaml).not.toContain("source:");
+  });
+});
+
+describe("agent form YAML", () => {
+  test("round-trips a direct Admin API payload", () => {
+    const payload = agentPayload(agent);
+    expect(parseAgentPayloadYaml(agentPayloadYaml(payload))).toEqual(payload);
+  });
+
+  test("accepts the one-agent fragment shown on the detail page", () => {
+    expect(parseAgentPayloadYaml(agentYamlFragment(agent))).toEqual(agentPayload(agent));
+  });
+
+  test("accepts a complete one-agent GatewayBundle", () => {
+    const fragment = agentYamlFragment(agent);
+    expect(parseAgentPayloadYaml(`apiVersion: gateway.agw/v1alpha1\nkind: GatewayBundle\n${fragment}`)).toEqual(agentPayload(agent));
+  });
+
+  test("fills optional containers with API defaults", () => {
+    expect(parseAgentPayloadYaml(`
+id: minimal
+name: Minimal
+runtime:
+  type: http
+  http:
+    endpoint: https://agent.example/run
+`)).toEqual({
+      id: "minimal",
+      name: "Minimal",
+      runtime: { type: "http", http: { endpoint: "https://agent.example/run" } },
+      routes: {},
+      resources: {},
+      policy: {},
+      disabled: false,
+    });
+  });
+
+  test("rejects multiple agents, managed fields, and mismatched runtimes", () => {
+    expect(() => parseAgentPayloadYaml("agents: []")).toThrow("exactly one agent");
+    expect(() => parseAgentPayloadYaml(agentPayloadYaml({ ...agentPayload(agent), created_at: "nope" } as never))).toThrow("created_at");
+    expect(() => parseAgentPayloadYaml(`
+id: bad
+name: Bad
+runtime:
+  type: http
+  http: { endpoint: https://example.test }
+  acp: { agent_type: codex, cwd: /tmp }
+`)).toThrow("does not match runtime.type");
+    expect(() => parseAgentPayloadYaml(`
+id: bad
+name: Bad
+runtime: { type: http, http: { endpoint: https://example.test } }
+routes: { future_route_ids: [future] }
+`)).toThrow("Unsupported routes field");
   });
 });
