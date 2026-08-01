@@ -13,6 +13,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { useAdminSWR } from "@/hooks/use-admin-swr";
 import { num, errorRate, pct } from "@/lib/metrics-util";
+import { agentYamlFragment } from "@/lib/agent-yaml";
 import {
   ApiError,
   cancelAgentRun,
@@ -764,8 +765,23 @@ function HealthTab({ id }: { id: string }) {
 // ── Configuration ───────────────────────────────────────────────────────────
 
 function ConfigurationTab({ id, workspace }: { id: string; workspace: AgentWorkspace | undefined }) {
+  const { showToast } = useToast();
+  const [copied, setCopied] = useState(false);
   const agent = workspace?.agent;
   if (!agent) return <Card className="p-8 text-center text-sm text-slate-400">Loading configuration…</Card>;
+  const yaml = agentYamlFragment(agent);
+
+  const copyYaml = async () => {
+    try {
+      await navigator.clipboard.writeText(yaml);
+      setCopied(true);
+      showToast("Agent YAML copied", "success");
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      showToast("Failed to copy Agent YAML", "error");
+    }
+  };
+
   return (
     <div className="space-y-4">
       <Card>
@@ -796,6 +812,31 @@ function ConfigurationTab({ id, workspace }: { id: string; workspace: AgentWorks
         <KV label="Max agent depth" value={agent.policy.max_agent_depth} />
         <KV label="Max turns/day" value={agent.policy.budget?.max_turns_per_day} />
         <KV label="Max tokens/day" value={agent.policy.budget?.max_tokens_per_day} />
+      </Card>
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle>Agent YAML</CardTitle>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                Read-only GatewayBundle fragment. Paste it into a bundle alongside its referenced resources, then apply with agwctl.
+              </p>
+            </div>
+            <Button variant="secondary" className="px-2.5 py-1 text-xs" onClick={() => void copyYaml()}>
+              {copied ? "Copied" : "Copy YAML"}
+            </Button>
+          </div>
+        </CardHeader>
+        <pre
+          className="max-h-[32rem] overflow-auto rounded-md border border-slate-700/70 bg-slate-950/70 p-4 font-mono text-[11px] leading-5 text-slate-300"
+          aria-label="Read-only Agent YAML"
+          tabIndex={0}
+        >
+          {yaml}
+        </pre>
+        <p className="mt-2 text-[11px] leading-4 text-slate-600">
+          Gateway-managed fields such as source, runtime status, and timestamps are omitted. Referenced routes, providers, services, and virtual keys are not embedded in this fragment.
+        </p>
       </Card>
       <div className="flex justify-end">
         <Link href={`/dashboard/agents/${encodeURIComponent(id)}/edit`}><Button className="px-3 py-1.5 text-xs">Edit Configuration</Button></Link>

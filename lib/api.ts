@@ -112,8 +112,15 @@ export interface ProviderItem {
   base_url?: string;
   default_model?: string;
   options?: Record<string, unknown>;
+  source?: string;
   read_only?: boolean;
 }
+
+export type ProviderPayload = Pick<
+  ProviderItem,
+  "id" | "provider_type" | "api_key" | "base_url" | "default_model" | "options"
+>;
+export type ProviderUpdatePayload = Omit<ProviderPayload, "id">;
 
 // ---- Provider API functions ----
 
@@ -132,13 +139,7 @@ export async function listProviders(providerType?: string): Promise<ProviderItem
   return res.items ?? [];
 }
 
-export async function createProvider(payload: {
-  id: string;
-  provider_type: string;
-  api_key?: string;
-  base_url?: string;
-  default_model?: string;
-}): Promise<ProviderItem> {
+export async function createProvider(payload: ProviderPayload): Promise<ProviderItem> {
   return adminFetch<ProviderItem>("/admin/llm/providers", {
     method: "POST",
     body: JSON.stringify(payload),
@@ -147,12 +148,7 @@ export async function createProvider(payload: {
 
 export async function updateProvider(
   id: string,
-  payload: {
-    provider_type: string;
-    api_key?: string;
-    base_url?: string;
-    default_model?: string;
-  },
+  payload: ProviderUpdatePayload,
 ): Promise<ProviderItem> {
   return adminFetch<ProviderItem>(`/admin/llm/providers/${encodeURIComponent(id)}`, {
     method: "PUT",
@@ -1212,12 +1208,31 @@ export interface VirtualKeyItem {
   disabled: boolean;
   allowed_route_ids?: string[];
   rate_limits?: VirtualKeyRateLimits;
+  status_message?: string;
+  expires_at?: string;
+  source?: string;
   read_only?: boolean;
 }
+
+export type VirtualKeyPayload = Omit<VirtualKeyItem, "key" | "source" | "read_only">;
 
 export async function listVirtualKeys(): Promise<VirtualKeyItem[]> {
   const res = await adminFetch<{ items: VirtualKeyItem[] }>("/admin/virtual_keys");
   return res.items ?? [];
+}
+
+export async function createVirtualKey(payload: VirtualKeyPayload): Promise<VirtualKeyItem> {
+  return adminFetch<VirtualKeyItem>("/admin/virtual_keys", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateVirtualKey(id: string, payload: VirtualKeyPayload): Promise<VirtualKeyItem> {
+  return adminFetch<VirtualKeyItem>(`/admin/virtual_keys/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
 }
 
 // ============================================================================
