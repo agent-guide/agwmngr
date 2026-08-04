@@ -81,6 +81,14 @@ const WORKSPACE_ACTIVITY_ITEMS: NavItem[] = [
 
 const WORKSPACE_ITEMS = [...WORKSPACE_PRIMARY_ITEMS, ...WORKSPACE_ACTIVITY_ITEMS];
 
+// Credentials are shared by LLM, MCP, and other gateway capabilities, so they
+// live alongside the protocol groups instead of belonging to the LLM group.
+const CREDENTIALS_ITEM: NavItem = {
+  href: "/dashboard/llm/credentials",
+  label: "Credentials",
+  icon: IconCredential,
+};
+
 // Shared infrastructure and host-wide diagnostics use independent disclosure
 // groups, so LLM and MCP can be expanded without a generic Resources wrapper.
 const NAV_GROUPS: NavGroup[] = [
@@ -91,7 +99,6 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/dashboard/llm/providers", label: "Providers", icon: IconLayers },
       { href: "/dashboard/llm/models", label: "Models", icon: IconBrain },
-      { href: "/dashboard/llm/credentials", label: "Credentials", icon: IconCredential },
       { href: "/dashboard/llm/routes", label: "Routes", icon: IconRoute },
     ],
   },
@@ -167,6 +174,7 @@ export function DashboardNav() {
 
   const allHrefs = [
     ...WORKSPACE_ITEMS.map((i) => i.href),
+    CREDENTIALS_ITEM.href,
     ...groups.flatMap((g) => groupItems(g).map((i) => i.href)),
   ];
   const activeHref = resolveActiveHref(pathname, allHrefs);
@@ -303,7 +311,11 @@ export function DashboardNav() {
             {runtimeGroup && groupItems(runtimeGroup).map(renderLink)}
             {WORKSPACE_ACTIVITY_ITEMS.map(renderLink)}
             <li className="my-2 border-t border-slate-700/50" aria-hidden="true" />
-            {lowerGroups.flatMap((g) => groupItems(g)).map(renderLink)}
+            {lowerGroups.flatMap((group) =>
+              group.key === "mcp"
+                ? [...groupItems(group), CREDENTIALS_ITEM]
+                : groupItems(group)
+            ).map(renderLink)}
           </ul>
         ) : (
           <div className="space-y-4">
@@ -316,7 +328,11 @@ export function DashboardNav() {
 
             {/* Collapsible infrastructure groups */}
             <ul className="space-y-1">
-              {lowerGroups.map(renderGroup)}
+              {lowerGroups.flatMap((group) =>
+                group.key === "mcp"
+                  ? [renderGroup(group), renderLink(CREDENTIALS_ITEM)]
+                  : [renderGroup(group)]
+              )}
             </ul>
           </div>
         )}

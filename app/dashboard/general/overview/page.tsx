@@ -197,7 +197,6 @@ export default function OverviewPage() {
       title: "LLM", items: [
         { label: "Providers", href: "/dashboard/llm/providers", desc: "Upstream LLM backends" },
         { label: "Models", href: "/dashboard/llm/models", desc: "Managed model catalog" },
-        { label: "Credentials", href: "/dashboard/llm/credentials", desc: "API keys & OAuth tokens" },
         { label: "Routes", href: "/dashboard/llm/routes", desc: "Request routing rules" },
       ],
     },
@@ -215,7 +214,8 @@ export default function OverviewPage() {
       ],
     },
     {
-      title: "General & Config", items: [
+      title: "Shared & Operations", items: [
+        { label: "Credentials", href: "/dashboard/llm/credentials", desc: "Shared upstream authentication" },
         { label: "Virtual Keys", href: "/dashboard/general/virtual-keys", desc: "Caller auth tokens" },
         { label: "Usage", href: "/dashboard/agents/usage", desc: "Traffic statistics" },
         { label: "Servers", href: "/dashboard/configuration/servers", desc: "HTTP listeners & TLS" },
