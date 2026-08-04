@@ -53,9 +53,19 @@ body {
  * Tailwind v4 compiles those to `var(--color-slate-N)`, so instead of editing
  * every component we invert the slate scale here: high numbers (used for dark
  * backgrounds) become light, low numbers (used for bright text) become dark.
- * `slate-500` (the neutral mid) is intentionally left unchanged. Accent hues
- * (blue/red/amber/emerald/…) are left as-is so status colors stay meaningful.
+ * `slate-500` (the neutral mid) is only nudged slightly darker so the most-used
+ * muted text tier still clears 4.5:1 on a near-white card.
  * The `.glass-*` utilities use hardcoded rgba, so they get explicit overrides.
+ *
+ * Accent hues keep their *identity* (blue stays blue) but not their lightness:
+ * shades 100–400 are authored as bright-on-dark text (`text-rose-300`,
+ * `text-amber-300`, …) and would wash out on a light surface, so each is
+ * remapped to its dark-side counterpart. Prominence is preserved by inverting
+ * the ramp — a shade that was *lighter* in dark mode becomes *darker* here.
+ * Shades 500+ are untouched: they back the tinted chips (`bg-blue-500/15`),
+ * borders, and solid buttons, which already read correctly on light.
+ * Every hue is listed even if currently unused, so a new `text-pink-300`
+ * does not silently become unreadable.
  */
 [data-theme="light"] {
   color-scheme: light;
@@ -65,12 +75,84 @@ body {
   --color-slate-200: #1e293b;
   --color-slate-300: #334155;
   --color-slate-400: #475569;
-  --color-slate-500: #64748b;
+  --color-slate-500: #5a6675;
   --color-slate-600: #94a3b8;
   --color-slate-700: #cbd5e1;
   --color-slate-800: #e2e8f0;
   --color-slate-900: #f1f5f9;
   --color-slate-950: #f8fafc;
+
+  /* 400 → 600, 300 → 700, 200/100 → 800 (hues already dark enough at 600). */
+  --color-blue-400: #2563eb;
+  --color-blue-300: #1d4ed8;
+  --color-blue-200: #1e40af;
+  --color-blue-100: #1e40af;
+  --color-indigo-400: #4f46e5;
+  --color-indigo-300: #4338ca;
+  --color-indigo-200: #3730a3;
+  --color-indigo-100: #3730a3;
+  --color-violet-400: #7c3aed;
+  --color-violet-300: #6d28d9;
+  --color-violet-200: #5b21b6;
+  --color-violet-100: #5b21b6;
+  --color-purple-400: #9333ea;
+  --color-purple-300: #7e22ce;
+  --color-purple-200: #6b21a8;
+  --color-purple-100: #6b21a8;
+  --color-red-400: #dc2626;
+  --color-red-300: #b91c1c;
+  --color-red-200: #991b1b;
+  --color-red-100: #991b1b;
+
+  /* 400 → 700, 300/200/100 → 800 (600 is too light to read on white). */
+  --color-sky-400: #0369a1;
+  --color-sky-300: #075985;
+  --color-sky-200: #075985;
+  --color-sky-100: #075985;
+  --color-cyan-400: #0e7490;
+  --color-cyan-300: #155e75;
+  --color-cyan-200: #155e75;
+  --color-cyan-100: #155e75;
+  --color-teal-400: #0f766e;
+  --color-teal-300: #115e59;
+  --color-teal-200: #115e59;
+  --color-teal-100: #115e59;
+  --color-emerald-400: #047857;
+  --color-emerald-300: #065f46;
+  --color-emerald-200: #065f46;
+  --color-emerald-100: #065f46;
+  --color-green-400: #15803d;
+  --color-green-300: #166534;
+  --color-green-200: #166534;
+  --color-green-100: #166534;
+  --color-lime-400: #4d7c0f;
+  --color-lime-300: #3f6212;
+  --color-lime-200: #3f6212;
+  --color-lime-100: #3f6212;
+  --color-yellow-400: #a16207;
+  --color-yellow-300: #854d0e;
+  --color-yellow-200: #854d0e;
+  --color-yellow-100: #854d0e;
+  --color-amber-400: #b45309;
+  --color-amber-300: #92400e;
+  --color-amber-200: #92400e;
+  --color-amber-100: #92400e;
+  --color-orange-400: #c2410c;
+  --color-orange-300: #9a3412;
+  --color-orange-200: #9a3412;
+  --color-orange-100: #9a3412;
+  --color-rose-400: #be123c;
+  --color-rose-300: #9f1239;
+  --color-rose-200: #9f1239;
+  --color-rose-100: #9f1239;
+  --color-pink-400: #be185d;
+  --color-pink-300: #9d174d;
+  --color-pink-200: #9d174d;
+  --color-pink-100: #9d174d;
+  --color-fuchsia-400: #a21caf;
+  --color-fuchsia-300: #86198f;
+  --color-fuchsia-200: #86198f;
+  --color-fuchsia-100: #86198f;
 
   --surface-base: rgba(255, 255, 255, 0.74);
   --surface-muted: rgba(255, 255, 255, 0.9);
@@ -139,13 +221,25 @@ input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(1) bright
 .avatar-glow:hover { border-color: rgba(96,165,250,0.5); box-shadow: 0 0 12px rgba(59,130,246,0.25); }
 
 /* ---- Light theme surface overrides ---- */
+/*
+ * The main content area is transparent, so this *is* the page surface next to
+ * the near-white `.glass-nav`. Keep the base close to the nav and the tints
+ * faint — a heavier wash reads as "the right half is dimmer than the sidebar".
+ */
 [data-theme="light"] body {
   background:
-    radial-gradient(circle at 0% 0%, rgba(59, 130, 246, 0.1), transparent 34%),
-    radial-gradient(circle at 100% 0%, rgba(148, 163, 184, 0.16), transparent 42%),
-    #eef2f7;
+    radial-gradient(circle at 0% 0%, rgba(59, 130, 246, 0.07), transparent 36%),
+    radial-gradient(circle at 100% 0%, rgba(99, 102, 241, 0.05), transparent 44%),
+    #f6f8fb;
   color: #0f172a;
 }
+
+/*
+ * `slate-600` is the dimmest text tier. Its inverted value (#94a3b8) is a fine
+ * border on light but far too pale to read, so text keeps a darker value while
+ * `border-slate-600` / `bg-slate-600` still use the token above.
+ */
+[data-theme="light"] .text-slate-600 { color: #6b7788; }
 
 [data-theme="light"] ::-webkit-scrollbar-track { background: rgba(15,23,42,0.04); }
 [data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(15,23,42,0.18); }
@@ -153,14 +247,23 @@ input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(1) bright
 
 [data-theme="light"] ::selection { background: rgba(37,99,235,0.22); color: #0f172a; }
 
+[data-theme="light"] input[type="date"],
+[data-theme="light"] input[type="time"],
+[data-theme="light"] input[type="datetime-local"],
+[data-theme="light"] input[type="month"],
+[data-theme="light"] input[type="week"] { color-scheme: light; }
 [data-theme="light"] input[type="date"]::-webkit-calendar-picker-indicator,
 [data-theme="light"] input[type="datetime-local"]::-webkit-calendar-picker-indicator,
 [data-theme="light"] input[type="month"]::-webkit-calendar-picker-indicator,
 [data-theme="light"] input[type="week"]::-webkit-calendar-picker-indicator,
 [data-theme="light"] input[type="time"]::-webkit-calendar-picker-indicator { filter: none; opacity: 0.7; }
 
+/* Cards carry a hardcoded near-black drop shadow for the dark theme; on light
+ * it darkens the gaps between cards. Overridden here rather than per-component
+ * (this selector outranks the `shadow-[…]` utility on the same element). */
 [data-theme="light"] .glass-card {
-  background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(248,250,252,0.82));
+  background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(255,255,255,0.88));
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.06);
 }
 [data-theme="light"] .glass-input:focus { background: #ffffff; border-color: rgba(37,99,235,0.5); }
 [data-theme="light"] .glass-button-secondary { background: rgba(241,245,249,0.9); }

@@ -9,7 +9,7 @@ import { Select } from "@/components/ui/select";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { Badge, protocolTone } from "@/components/ui/badge";
 import { AutoRefreshControl } from "@/components/ui/auto-refresh-control";
-import { TimeLineChart, DonutChart, CHART_COLORS } from "@/components/ui/charts";
+import { TimeLineChart, DonutChart, useChartPalette, useChartTones } from "@/components/ui/charts";
 import { useAdminSWR } from "@/hooks/use-admin-swr";
 import {
   getLLMBreakdown,
@@ -420,6 +420,7 @@ function AgentTab({ range, setRange, agentId }: TabProps) {
 // ──────────────────────────────────────────────────────────────────────────
 
 function TimeChartCard({ data }: { data: ReturnType<typeof pivotTimeseries> }) {
+  const tones = useChartTones();
   return (
     <Card>
       <CardHeader><CardTitle>Requests Over Time</CardTitle></CardHeader>
@@ -429,8 +430,8 @@ function TimeChartCard({ data }: { data: ReturnType<typeof pivotTimeseries> }) {
         <TimeLineChart
           data={data}
           series={[
-            { key: "success", label: "Success", color: "#22c55e" },
-            { key: "failure", label: "Failure", color: "#ef4444" },
+            { key: "success", label: "Success", color: tones.success },
+            { key: "failure", label: "Failure", color: tones.danger },
           ]}
         />
       )}
@@ -439,6 +440,7 @@ function TimeChartCard({ data }: { data: ReturnType<typeof pivotTimeseries> }) {
 }
 
 function ShareCard({ groupLabel, data }: { groupLabel: string; data: { name: string; value: number }[] }) {
+  const palette = useChartPalette();
   return (
     <Card>
       <CardHeader><CardTitle>Share by {groupLabel}</CardTitle></CardHeader>
@@ -451,7 +453,7 @@ function ShareCard({ groupLabel, data }: { groupLabel: string; data: { name: str
             {data.slice(0, 5).map((d, i) => (
               <div key={`${d.name}-${i}`} className="flex items-center justify-between text-xs">
                 <span className="flex min-w-0 items-center gap-1.5">
-                  <span className="h-2 w-2 shrink-0 rounded-sm" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
+                  <span className="h-2 w-2 shrink-0 rounded-sm" style={{ background: palette[i % palette.length] }} />
                   <span className="truncate font-mono text-slate-300">{d.name}</span>
                 </span>
                 <span className="tabular-nums text-slate-400">{fmt(d.value)}</span>
