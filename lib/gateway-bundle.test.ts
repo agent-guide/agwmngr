@@ -19,7 +19,6 @@ function snapshot(overrides: Partial<BundleSnapshot> = {}): BundleSnapshot {
     managedModels: [],
     llmRoutes: [],
     virtualKeys: [],
-    cliAuthAuthenticators: [],
     mcpServices: [],
     mcpRoutes: [],
     agentRoutes: [],
@@ -92,27 +91,6 @@ describe("GatewayBundle validation and planning", () => {
       { id: "fixed", action: "skip" },
       { id: "new", action: "create" },
     ]);
-  });
-
-  test("marks unknown CLI authenticators as conflicts", () => {
-    const bundle: GatewayBundle = {
-      apiVersion: "gateway.agw/v1alpha1",
-      kind: "GatewayBundle",
-      cliAuthAuthenticators: [{ name: "missing", enabled: true, config: {} }],
-    };
-    expect(planGatewayBundle(bundle, snapshot())[0]).toMatchObject({ action: "conflict", id: "missing" });
-  });
-
-  test("ignores stored CLI authenticator config while disabled", () => {
-    const bundle: GatewayBundle = {
-      apiVersion: "gateway.agw/v1alpha1",
-      kind: "GatewayBundle",
-      cliAuthAuthenticators: [{ name: "codex", enabled: false, config: { callback_port: 9000 } }],
-    };
-    const current = snapshot({
-      cliAuthAuthenticators: [{ name: "codex", enabled: false, read_only: false, config: { callback_port: 8000 } }],
-    });
-    expect(planGatewayBundle(bundle, current)[0]).toMatchObject({ action: "skip", reason: "Unchanged" });
   });
 
   test("marks unavailable cross-object references as conflicts", () => {

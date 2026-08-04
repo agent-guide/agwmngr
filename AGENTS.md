@@ -60,7 +60,7 @@ manager/
 │   │       └── acp/                  ← ACP runtime diagnostics only (services/routes were removed in v0.5.0; chat lives on the agent Chat tab)
 │   │       └── platform/             ← Platform admin: Users, Gateways (+ members + test), Audit Log
 │   │  (general/overview, /virtual-keys are grouped under the "Agents" nav section, not a standalone "General" group — see dashboard-nav.tsx)
-│   │       └── configuration/        ← Bundle import/export, CLI Authenticators, Servers pages
+│   │       └── configuration/        ← Bundle import/export and Servers pages
 │   ├── layout.tsx                    ← Root layout (fonts, globals)
 │   └── page.tsx                      ← Redirects to /dashboard
 ├── components/
@@ -217,7 +217,6 @@ Proxied gateway Admin API endpoints include (see agent-gateway README for full r
 - Virtual keys: `GET/POST /virtual_keys`, `GET/PUT/DELETE /virtual_keys/{key}`, enable/disable
 - Credentials: `GET/POST /credentials`, `GET/PUT/DELETE /credentials/{credential_id}`
 - Models: discovered models, managed models, logical models
-- CLI auth: authenticators config, login flows, refresher status
 - MCP services: `GET/POST /mcp/services`, `GET/PUT/DELETE /mcp/services/{id}`, plus `/capabilities`, `/sessions`, `/tools`, `/tools/call`, `/resources`, `/resource-templates`, `/resources/read`, `/prompts`
 - MCP routes: `GET/POST /mcp/routes`, `GET/PUT/DELETE /mcp/routes/{id}` (id auto-generated as `mcp:<service_id>:<path_prefix>`)
 - MCP runtime: `GET /mcp/runtime`, `/mcp/runtime/inflight`, `/mcp/runtime/progress`, `/mcp/runtime/history`
@@ -257,12 +256,12 @@ Since v0.5.0 the agent **is** the runtime: `Agent.runtime.<type>` inlines the ex
 
 > Navigation grouping ≠ URL path. `Overview` and `Virtual Keys` still live under `/dashboard/general/*` but are surfaced in the top-level **WORKSPACE** zone (with Agents/Interactions/Usage); the all-agents `Usage` page lives at `/dashboard/agents/usage`. There is no standalone "General" nav group.
 >
-> **Nav layout (`components/dashboard-nav.tsx`):** the sidebar is two-tier — the agent-centric operator flow starts with Overview, Agents, Agent Routes, then the collapsible **Runtimes** diagnostics group, followed by Interactions, Usage, and Virtual Keys. Lower infrastructure uses independent collapsible **LLM**, **MCP**, **Configuration** (Bundle, CLI Authenticators, Servers), and **Platform** (admin-gated) groups; there is no generic Resources wrapper. Group openness is **derived, not effect-synced**: `openGroups[key] ?? hasActive` — a group defaults open iff it owns the active route (longest-prefix match via `resolveActiveHref`), and an explicit user toggle (persisted to `localStorage` `dashboard.nav.groups`) then wins. The narrow collapsed rail flattens every item to an icon list in the same order (the accordion is unusable at that width).
+> **Nav layout (`components/dashboard-nav.tsx`):** the sidebar is two-tier — the agent-centric operator flow starts with Overview, Agents, Agent Routes, then the collapsible **Runtimes** diagnostics group, followed by Interactions, Usage, and Virtual Keys. Lower infrastructure uses independent collapsible **LLM**, **MCP**, **Configuration** (Bundle, Servers), and **Platform** (admin-gated) groups; there is no generic Resources wrapper. Group openness is **derived, not effect-synced**: `openGroups[key] ?? hasActive` — a group defaults open iff it owns the active route (longest-prefix match via `resolveActiveHref`), and an explicit user toggle (persisted to `localStorage` `dashboard.nav.groups`) then wins. The narrow collapsed rail flattens every item to an icon list in the same order (the accordion is unusable at that width).
 
 ### Navigation Structure
 
 **Agents** (first-class, top of nav):
-- Overview (`/dashboard/general/overview`) — stat cards + **System Health dashboard** (24h request volume sparkline, error rate, pending permissions, ACP runtime, CLI refresher) + quick start guide + integration snippets. This is the dashboard landing route.
+- Overview (`/dashboard/general/overview`) — stat cards + **System Health dashboard** (24h request volume sparkline, error rate, pending permissions, ACP runtime) + quick start guide + integration snippets. This is the dashboard landing route.
 - Agents (`/dashboard/agents`) — agent list with search/runtime filter; non-executable runtimes require an alert panel that explains the route can exist while `POST /turn` returns `501 runtime_not_executable` (a normal badge is insufficient); create via `/dashboard/agents/new` (a 4-step **wizard**: Basics→Runtime→Resources→Review). Resources stay independently creatable — the wizard does not gate resource creation; it just threads runtime→resources→virtual-key with "+ New" deep-links (open in a new tab) + a refresh control. Resource list pages (providers, MCP services, virtual keys, LLM/MCP routes) carry a **"used by N agents"** chip (`useAgentAttribution` + `UsedByAgents`) that flags orphans and links to the owning agent
 - Agent detail (`/dashboard/agents/[id]`) — workspace tabs, **gated by `GET /admin/agents/{id}/capabilities` rather than `runtime.type`** (`visibleTabs()`): **Overview** (runtime-neutral summary — state/executable/active runs/sessions/last activity — plus a per-backend detail block for acp / builtin / http, the live pool view with **pending permissions and inline Approve/Reject** via the shared `PendingPermissions` component, and a warning when no ingress route targets the agent), **Chat** (interactive data-plane conversation over one of the agent's own agent routes; shown iff the backend advertises streaming turns, so builtin agents get it too), **Runs** (shown iff force or graceful cancellation is advertised; live run list with capability-gated cancel actions), **Resources** (agent-centric **Reachability** map — Agent → virtual keys it holds → permitted LLM/MCP/agent routes → target provider/service/agent, with dangling highlight — followed by the flat resolved resource groups), **Health** (shallow), **Configuration** (runtime/policy summary + copyable read-only Agent YAML bundle fragment, with gateway-managed metadata omitted). Edit at `/dashboard/agents/[id]/edit`. There is no per-agent Activity tab and no per-agent Usage tab — a single agent's call chains and usage are viewed on the **Interactions** and **Usage** pages via their **Agent** filter. The agent detail header has **Usage** and **Interactions** buttons that jump to those pages pre-filtered (`?agent=<id>`).
 - Interactions (`/dashboard/agents/interactions`) — cross-protocol call chains grouped by `trace_id`, reconstructed as span-tree waterfalls (`components/interaction-traces.tsx`); the orchestration view and the single-agent activity view (there is no per-agent Activity tab). Filters: **Agent** (server-side `agent_id` **full attribution** — durable tag OR the agent's owned routes, the same selector the Usage page and `/admin/agents/{id}/*` use, so untagged-but-mappable spans still surface; deep-linkable via `?agent=<id>` — the agent detail header has an **Interactions** button that jumps here pre-filtered), Protocol (llm/mcp/**agent**), Status, Source (data-plane/admin/all). Source=Admin audit deliberately drops the Protocol constraint: admin spans are only ever `route_kind=acp`, so partitioning them by the user's protocol choice would return an empty list for every option. Spans carry `runtime_type`, rendered as a second chip beside the protocol chip so an agent span shows which backend ran it
@@ -273,7 +272,7 @@ Since v0.5.0 the agent **is** the runtime: `Agent.runtime.<type>` inlines the ex
 **LLM** (shared infrastructure):
 - Providers (`/dashboard/llm/providers`) — CRUD for LLM providers
 - Models (`/dashboard/llm/models`) — CRUD for managed models
-- Credentials (`/dashboard/llm/credentials`) — CRUD for upstream credentials + CLI auth login flow; visibly states that gateway bundle import/export excludes managed credentials and is not a complete backup
+- Credentials (`/dashboard/llm/credentials`) — CRUD for upstream credentials; externally created OAuth credentials are also listed, and the page visibly states that gateway bundle import/export excludes managed credentials and is not a complete backup
 - Routes (`/dashboard/llm/routes`) — CRUD for gateway LLM routes (direct-provider + logical-model targets)
 
 **MCP:**
@@ -285,7 +284,6 @@ Since v0.5.0 the agent **is** the runtime: `Agent.runtime.<type>` inlines the ex
 - Builtin Runtime (`/dashboard/agents/runtimes/builtin`) — host-wide materialization state, live sessions, in-flight turns, and suspended interactive tool permissions. It is diagnostics-only: run cancellation stays on each agent's Runs tab, while builtin permission continuation stays in Chat on a new turn stream.
 
 **Configuration:**
-- CLI Authenticators (`/dashboard/configuration/cliauth`) — CLI authenticator config, login flow, refresher control
 - Servers (`/dashboard/configuration/servers`) — Caddy HTTP server management, TLS, route dispatcher config
 
 **Platform** (visible only to platform admins; the section is hidden via `useCurrentUser()` in `dashboard-nav.tsx`):
@@ -298,7 +296,7 @@ The active gateway is chosen via the **header gateway switcher** (`components/ga
 ### Frontend Conventions
 
 - `lib/auth.ts`: localStorage helpers — `getToken()`, `saveSession()`, `clearSession()`, `isAuthenticated()`.
-- `lib/api.ts`: typed `adminFetch<T>()` wrapper that injects `Authorization: Bearer <token>`, auto-redirects to `/login` on 401. Also contains typed wrapper functions for all gateway Admin API resources (providers, credentials, models, CLI auth, MCP services/routes/runtime, ACP + builtin runtime diagnostics, **metrics** (`getLLM*`, `getInteractions`, …), and **agents** (`listAgents`, `getAgentWorkspace`, `getAgentCapabilities`, `listAgentRuns`, `cancelAgentRun`, `listAgentRoutes`, …)). Runtime endpoints answer the normalized `{error_type, message}` contract with no `error` wrapper, so **`adminFetch` parses both contracts through `extractApiError()`** and puts the stable code on `ApiError.errorType` (via `extractRuntimeErrorType()`). Branch on `errorType`, not on the status: one status covers several causes (a 502 is `turn_failed` for anything the ACP backend could not classify — including a spawn that failed because the agent's configured `cwd` no longer exists). Reading only `error` used to leave every runtime failure reporting the bare HTTP status name ("Bad Gateway").
+- `lib/api.ts`: typed `adminFetch<T>()` wrapper that injects `Authorization: Bearer <token>`, auto-redirects to `/login` on 401. Also contains typed wrapper functions for all gateway Admin API resources (providers, credentials, models, MCP services/routes/runtime, ACP + builtin runtime diagnostics, **metrics** (`getLLM*`, `getInteractions`, …), and **agents** (`listAgents`, `getAgentWorkspace`, `getAgentCapabilities`, `listAgentRuns`, `cancelAgentRun`, `listAgentRoutes`, …)). Runtime endpoints answer the normalized `{error_type, message}` contract with no `error` wrapper, so **`adminFetch` parses both contracts through `extractApiError()`** and puts the stable code on `ApiError.errorType` (via `extractRuntimeErrorType()`). Branch on `errorType`, not on the status: one status covers several causes (a 502 is `turn_failed` for anything the ACP backend could not classify — including a spawn that failed because the agent's configured `cwd` no longer exists). Reading only `error` used to leave every runtime failure reporting the bare HTTP status name ("Bad Gateway").
 - **Data fetching**: prefer `useAdminSWR(key, fetcher, { live })` from `hooks/use-admin-swr.ts` over manual `useState/useEffect/loading`. Passing `live: true` ties the request to the global auto-refresh interval (`AutoRefreshProvider` in the dashboard layout); pair it with `<AutoRefreshControl>` in the page header. The hook returns the standard SWR response plus `lastUpdated`.
 - **Primitives**: build pages from `PageHeader`, `Card`, `StatCard`/`StatGrid`, `Badge` (`protocolTone()` for llm/mcp/acp/agent/http accents), `Select`, `MultiSelect`, and `charts.tsx` (Recharts wrappers) rather than hand-rolled markup. Body text stays ≥ 12px.
 - `components/auth-guard.tsx`: validates session via `GET /admin/auth/me`, protects dashboard routes.
@@ -329,7 +327,7 @@ interface CaddyRoute { group?: string; match: CaddyMatch[]; handle: CaddyHandler
 class AppError { status: number; message: string }
 ```
 
-Gateway resource types (providers, credentials, models, virtual keys, routes, CLI auth) are defined inline in `lib/api.ts` alongside their API functions.
+Gateway resource types (providers, credentials, models, virtual keys, routes) are defined inline in `lib/api.ts` alongside their API functions.
 
 ## Error Handling
 

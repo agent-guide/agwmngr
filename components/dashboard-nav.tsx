@@ -119,7 +119,6 @@ const NAV_GROUPS: NavGroup[] = [
     icon: IconServer,
     items: [
       { href: "/dashboard/configuration/bundle", label: "Bundle", icon: IconLayers },
-      { href: "/dashboard/configuration/cliauth", label: "CLI Authenticators", icon: IconGateway },
       { href: "/dashboard/configuration/servers", label: "Servers", icon: IconServer },
     ],
   },

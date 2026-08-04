@@ -10,7 +10,6 @@ import {
   createVirtualKey,
   listAgentRoutes,
   listAgents,
-  listCLIAuthAuthenticators,
   listLLMRoutes,
   listMCPRoutes,
   listMCPServices,
@@ -20,7 +19,6 @@ import {
   listVirtualKeys,
   updateAgent,
   updateAgentRoute,
-  updateCLIAuthAuthenticator,
   updateLLMRoute,
   updateMCPRoute,
   updateMCPService,
@@ -31,7 +29,6 @@ import {
   type AgentPayload,
   type AgentRoute,
   type AgentRoutePayload,
-  type AuthenticatorState,
   type LLMRoute,
   type LLMRoutePayload,
   type MCPRoute,
@@ -60,7 +57,6 @@ export const BUNDLE_FAMILIES = [
   "agents",
   "agentRoutes",
   "virtualKeys",
-  "cliAuthAuthenticators",
 ] as const;
 
 export type BundleFamily = (typeof BUNDLE_FAMILIES)[number];
@@ -73,7 +69,6 @@ export interface GatewayBundle {
   managedModels?: BundleObject[];
   llmRoutes?: BundleObject[];
   virtualKeys?: BundleObject[];
-  cliAuthAuthenticators?: BundleObject[];
   mcpServices?: BundleObject[];
   mcpRoutes?: BundleObject[];
   agentRoutes?: BundleObject[];
@@ -86,7 +81,6 @@ export interface BundleSnapshot {
   managedModels: ManagedConcreteModel[];
   llmRoutes: LLMRoute[];
   virtualKeys: VirtualKeyItem[];
-  cliAuthAuthenticators: AuthenticatorState[];
   mcpServices: MCPService[];
   mcpRoutes: MCPRoute[];
   agentRoutes: AgentRoute[];
@@ -148,7 +142,6 @@ function validateBundleItem(family: BundleFamily, item: BundleObject, path: stri
     requiredMapping(item, "match_policy", path);
     requiredMapping(item, "auth_policy", path);
   }
-  if (family === "cliAuthAuthenticators" && typeof item.enabled !== "boolean") throw new Error(`${path}.enabled must be a boolean`);
 }
 
 function containsEnvPlaceholder(value: unknown): boolean {
@@ -192,15 +185,6 @@ function virtualKeyConfig(item: VirtualKeyItem | BundleObject): BundleObject {
   return copyWithout(item as BundleObject, [...VIEW_FIELDS, "key"]);
 }
 
-function authenticatorConfig(item: AuthenticatorState | BundleObject): BundleObject {
-  const raw = item as BundleObject;
-  return {
-    name: raw.name,
-    enabled: raw.enabled,
-    ...(raw.config !== undefined && { config: raw.config }),
-  };
-}
-
 function agentConfig(item: Agent | BundleObject): BundleObject {
   if ("created_at" in item) return agentPayload(item as unknown as Agent) as unknown as BundleObject;
   return copyWithout(item as BundleObject, [...VIEW_FIELDS, "runtime_status", "capabilities"]);
@@ -215,7 +199,6 @@ const CONFIG_FOR: Record<BundleFamily, (item: never) => BundleObject> = {
   agents: agentConfig,
   agentRoutes: routeConfig,
   virtualKeys: virtualKeyConfig,
-  cliAuthAuthenticators: authenticatorConfig,
 };
 
 function identity(family: BundleFamily, item: BundleObject): string {
@@ -224,7 +207,6 @@ function identity(family: BundleFamily, item: BundleObject): string {
     const model = String(item.upstream_model ?? "").trim();
     return provider && model ? `${provider}/${model}` : "";
   }
-  if (family === "cliAuthAuthenticators") return String(item.name ?? "").trim();
   return String(item.id ?? "").trim();
 }
 
@@ -236,30 +218,24 @@ function canonical(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function comparableConfig(family: BundleFamily, value: BundleObject): BundleObject {
-  if (family === "cliAuthAuthenticators" && value.enabled === false) return copyWithout(value, ["config"]);
-  return value;
-}
-
 function isReadOnly(item: unknown): boolean {
   return isObject(item) && (item.read_only === true || item.source === "caddyfile");
 }
 
 export async function loadBundleSnapshot(): Promise<BundleSnapshot> {
-  const [providerTypes, providers, managedModels, llmRoutes, virtualKeys, cliAuthAuthenticators, mcpServices, mcpRoutes, agentRoutes, agents] =
+  const [providerTypes, providers, managedModels, llmRoutes, virtualKeys, mcpServices, mcpRoutes, agentRoutes, agents] =
     await Promise.all([
       listProviderTypes(),
       listProviders(),
       listManagedModels(),
       listLLMRoutes(),
       listVirtualKeys(),
-      listCLIAuthAuthenticators(),
       listMCPServices(),
       listMCPRoutes(),
       listAgentRoutes(),
       listAgents(),
     ]);
-  return { providerTypes, providers, managedModels, llmRoutes, virtualKeys, cliAuthAuthenticators, mcpServices, mcpRoutes, agentRoutes, agents };
+  return { providerTypes, providers, managedModels, llmRoutes, virtualKeys, mcpServices, mcpRoutes, agentRoutes, agents };
 }
 
 export function bundleFromSnapshot(snapshot: BundleSnapshot): GatewayBundle {
@@ -296,7 +272,7 @@ export function parseGatewayBundle(text: string): GatewayBundle {
     items.forEach((item, index) => {
       if (!isObject(item)) throw new Error(`${family}[${index}] must be a mapping`);
       const id = identity(family, item);
-      if (!id) throw new Error(`${family}[${index}] requires ${family === "managedModels" ? "provider_id and upstream_model" : family === "cliAuthAuthenticators" ? "name" : "id"}`);
+      if (!id) throw new Error(`${family}[${index}] requires ${family === "managedModels" ? "provider_id and upstream_model" : "id"}`);
       if (seen.has(id)) throw new Error(`${family} contains duplicate id ${id}`);
       seen.add(id);
       validateBundleItem(family, item, `${family}[${index}]`);
@@ -320,14 +296,8 @@ export function planGatewayBundle(bundle: GatewayBundle, snapshot: BundleSnapsho
       if (isReadOnly(raw)) {
         plan.push({ family, id, action: "skip", reason: "Bundle object is marked read-only or Caddyfile-owned", desired });
       } else if (!existing) {
-        plan.push({
-          family,
-          id,
-          action: family === "cliAuthAuthenticators" ? "conflict" : "create",
-          reason: family === "cliAuthAuthenticators" ? "Authenticator is not registered by this gateway runtime" : undefined,
-          desired,
-        });
-      } else if (canonical(comparableConfig(family, CONFIG_FOR[family](existing as never))) === canonical(comparableConfig(family, desired))) {
+        plan.push({ family, id, action: "create", desired });
+      } else if (canonical(CONFIG_FOR[family](existing as never)) === canonical(desired)) {
         plan.push({ family, id, action: "skip", reason: "Unchanged", desired });
       } else if (isReadOnly(existing)) {
         plan.push({ family, id, action: "skip", reason: "Existing object is read-only or Caddyfile-owned", desired });
@@ -462,10 +432,5 @@ export async function applyBundlePlanItem(item: BundlePlanItem): Promise<void> {
       if (item.action === "create") await createVirtualKey(desired as unknown as VirtualKeyPayload);
       else await updateVirtualKey(item.id, desired as unknown as VirtualKeyPayload);
       return;
-    case "cliAuthAuthenticators":
-      await updateCLIAuthAuthenticator(item.id, {
-        enabled: desired.enabled as boolean,
-        ...(desired.enabled === true && { config: desired.config as AuthenticatorState["config"] }),
-      });
   }
 }

@@ -16,7 +16,6 @@ import {
   listAgents,
   listAgentRoutes,
   getACPRuntime,
-  getCLIAuthRefresherStatus,
   getLLMTimeseries,
 } from "@/lib/api";
 
@@ -121,7 +120,6 @@ export default function OverviewPage() {
 
   // ── Live health data (24h window) ────────────────────────────────────────
   const runtime = useAdminSWR("ov-acp-runtime", getACPRuntime, { live: true });
-  const refresher = useAdminSWR("ov-refresher", getCLIAuthRefresherStatus);
   const series24h = useAdminSWR(
     "ov-llm-24h",
     // Compute the window inside the fetcher (runs at fetch time, not during render).
@@ -149,9 +147,8 @@ export default function OverviewPage() {
       pending: runtime.data?.pending_permissions?.length ?? 0,
       instances: runtime.data?.instances?.length ?? 0,
       inflight: runtime.data?.in_flight?.length ?? 0,
-      refresherOn: refresher.data?.enabled ?? null,
     };
-  }, [series24h.data, runtime.data, refresher.data]);
+  }, [series24h.data, runtime.data]);
 
   // ── Setup checklist ──────────────────────────────────────────────────────
   const steps = [
@@ -200,7 +197,7 @@ export default function OverviewPage() {
       title: "LLM", items: [
         { label: "Providers", href: "/dashboard/llm/providers", desc: "Upstream LLM backends" },
         { label: "Models", href: "/dashboard/llm/models", desc: "Managed model catalog" },
-        { label: "Credentials", href: "/dashboard/llm/credentials", desc: "API keys & CLI auth" },
+        { label: "Credentials", href: "/dashboard/llm/credentials", desc: "API keys & OAuth tokens" },
         { label: "Routes", href: "/dashboard/llm/routes", desc: "Request routing rules" },
       ],
     },
@@ -221,7 +218,6 @@ export default function OverviewPage() {
       title: "General & Config", items: [
         { label: "Virtual Keys", href: "/dashboard/general/virtual-keys", desc: "Caller auth tokens" },
         { label: "Usage", href: "/dashboard/agents/usage", desc: "Traffic statistics" },
-        { label: "CLI Authenticators", href: "/dashboard/configuration/cliauth", desc: "CLI authenticators & refresh" },
         { label: "Servers", href: "/dashboard/configuration/servers", desc: "HTTP listeners & TLS" },
       ],
     },
@@ -284,7 +280,7 @@ export default function OverviewPage() {
           <h2 className="text-sm font-semibold text-slate-100">System Health</h2>
           <span className="text-[11px] text-slate-500">last 24h</span>
         </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <div className="rounded-md border border-slate-700/60 bg-slate-900/40 px-3 py-2">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Requests</p>
             <p className="mt-0.5 text-lg font-semibold tabular-nums text-slate-100">{health.requests.toLocaleString()}</p>
@@ -305,13 +301,6 @@ export default function OverviewPage() {
             <p className="mt-0.5 text-lg font-semibold tabular-nums text-slate-100">{health.instances}</p>
             <p className="mt-1 text-[11px] text-slate-500">{health.inflight} in-flight · pooled</p>
           </Link>
-          <div className="rounded-md border border-slate-700/60 bg-slate-900/40 px-3 py-2">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">CLI Refresher</p>
-            <p className={`mt-0.5 text-lg font-semibold ${health.refresherOn == null ? "text-slate-400" : health.refresherOn ? "text-emerald-300" : "text-slate-400"}`}>
-              {health.refresherOn == null ? "—" : health.refresherOn ? "Running" : "Stopped"}
-            </p>
-            <p className="mt-1 text-[11px] text-slate-500">token auto-refresh</p>
-          </div>
         </div>
         <p className="mt-2 text-[11px] text-slate-600">
           Deep health (upstream reachability, circuit-break, credential expiry) is not yet exposed by the gateway.

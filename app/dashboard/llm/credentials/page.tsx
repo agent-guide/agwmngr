@@ -222,7 +222,7 @@ export default function CredentialsPage() {
   };
 
   const apiKeyCount = credentials.filter((c) => !c.read_only).length;
-  const cliauthCount = credentials.filter((c) => c.read_only).length;
+  const readOnlyCount = credentials.filter((c) => c.read_only).length;
 
   return (
     <div className="space-y-6">
@@ -232,7 +232,7 @@ export default function CredentialsPage() {
             <h1 className="text-xl font-semibold tracking-tight text-slate-100">Credentials</h1>
             <p className="mt-1 text-sm text-slate-400">
               Manage upstream credentials. API key credentials can be created and edited directly.
-              Authenticator-sourced credentials are read-only here.
+              Externally managed credentials may be read-only here.
             </p>
           </div>
           <div className="flex gap-2">
@@ -254,7 +254,7 @@ export default function CredentialsPage() {
         {[
           { label: "Total", value: credentials.length },
           { label: "Editable", value: apiKeyCount },
-          { label: "Read-only", value: cliauthCount },
+          { label: "Read-only", value: readOnlyCount },
         ].map((stat) => (
           <div
             key={stat.label}

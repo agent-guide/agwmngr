@@ -179,8 +179,8 @@ export interface CredentialItem {
 }
 
 export interface CredentialCreatePayload {
-  // Credential type is required by the gateway: "api_key" or "cliauth_token".
-  type: "api_key" | "cliauth_token";
+  // Credential type is required by the gateway: "api_key" or "oauth_token".
+  type: "api_key" | "oauth_token";
   provider_id: string;
   label?: string;
   attributes?: Record<string, string>;
@@ -219,118 +219,6 @@ export async function updateCredential(id: string, payload: CredentialUpdatePayl
 
 export async function deleteCredential(id: string): Promise<void> {
   await adminFetch(`/admin/credentials/${encodeURIComponent(id)}`, { method: "DELETE" });
-}
-
-// ---- CLI Auth Authenticator types ----
-
-export type AuthenticatorSource = "caddyfile" | "runtime";
-
-export interface NetworkConfig {
-  request_timeout_seconds?: number;
-  max_retries?: number;
-  retry_delay_seconds?: number;
-  max_idle_connections?: number;
-  max_idle_connections_per_host?: number;
-  idle_keep_alive_timeout_seconds?: number;
-  proxy_url?: string;
-  extra_headers?: Record<string, string>;
-}
-
-export interface AuthenticatorConfig {
-  callback_port?: number;
-  no_browser?: boolean;
-  device_flow?: boolean;
-  network?: NetworkConfig;
-}
-
-export interface AuthenticatorState {
-  name: string;
-  provider_type?: string;
-  source?: AuthenticatorSource;
-  read_only: boolean;
-  enabled: boolean;
-  config: AuthenticatorConfig;
-}
-
-// ---- CLI Auth Authenticator API functions ----
-
-export async function listCLIAuthAuthenticators(): Promise<AuthenticatorState[]> {
-  const res = await adminFetch<{ items: AuthenticatorState[] }>("/admin/cliauth/authenticators");
-  return res.items ?? [];
-}
-
-export interface UpdateCLIAuthAuthenticatorRequest {
-  enabled?: boolean;
-  config?: AuthenticatorConfig;
-}
-
-export async function updateCLIAuthAuthenticator(
-  name: string,
-  req: UpdateCLIAuthAuthenticatorRequest,
-): Promise<{ status: string; authenticator: AuthenticatorState }> {
-  return adminFetch(`/admin/cliauth/authenticators/${encodeURIComponent(name)}`, {
-    method: "PUT",
-    body: JSON.stringify(req),
-  });
-}
-
-// ---- CLI Auth Refresher types ----
-
-export interface CLIAuthRefresherStatus {
-  enabled: boolean;
-}
-
-// ---- CLI Auth Refresher API functions ----
-
-export async function getCLIAuthRefresherStatus(): Promise<CLIAuthRefresherStatus> {
-  return adminFetch<CLIAuthRefresherStatus>("/admin/cliauth/refresher");
-}
-
-export async function enableCLIAuthRefresher(): Promise<{ status: string; enabled: boolean }> {
-  return adminFetch("/admin/cliauth/refresher/enable", { method: "POST" });
-}
-
-export async function disableCLIAuthRefresher(): Promise<{ status: string; enabled: boolean }> {
-  return adminFetch("/admin/cliauth/refresher/disable", { method: "POST" });
-}
-
-// ---- CLI Auth Login types ----
-
-export interface CLIAuthLoginStartResponse {
-  login_id: string;
-  status: string;
-  authenticator_name: string;
-  message: string;
-}
-
-export interface CLIAuthLoginStatus {
-  login_id: string;
-  authenticator_name: string;
-  status: string; // "running" | "succeeded" | "failed"
-  started_at: string;
-  finished_at?: string;
-  phase?: string;
-  message?: string;
-  verification_url?: string;
-  user_code?: string;
-  error?: string;
-  credential_id?: string;
-}
-
-// ---- CLI Auth Login API functions ----
-
-export async function startCLIAuthLogin(
-  authenticatorName: string,
-  payload?: { provider_id?: string },
-): Promise<CLIAuthLoginStartResponse> {
-  return adminFetch<CLIAuthLoginStartResponse>(
-    `/admin/cliauth/authenticators/${encodeURIComponent(authenticatorName)}/login`,
-    { method: "POST", body: payload ? JSON.stringify(payload) : undefined },
-  );
-}
-
-export async function getCLIAuthLoginStatus(loginId: string): Promise<CLIAuthLoginStatus> {
-  return adminFetch<CLIAuthLoginStatus>(`/admin/cliauth/logins/${encodeURIComponent(loginId)}`);
 }
 
 // ---- Model types ----
