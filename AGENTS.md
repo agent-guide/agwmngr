@@ -14,6 +14,8 @@ The upstream agent-gateway Admin API reference is in `~/github/agent-guide/agent
 
 The multi-user / multi-gateway design (data model, permission model, request flow, audit) is documented in `docs/multi-tenant-design.md` — read it before changing auth, the access guards, gateway resolution, or credential encryption.
 
+`docs/resource-rbac-design.md` is the **proposed** evolution of that model into hierarchical, resource-scoped RBAC (Gateway Admin + per-domain/per-resource Members). None of it is implemented yet. Read it before touching `lib/access.ts`, `lib/proxy-action.ts`, the membership schema, or the Caddy/Virtual Key/Chat handlers, because it documents two exposures that exist in the current code and specifies how they are fixed (§18.1): gateway `viewer`s can read plaintext Virtual Key bearer values, and gateway `operator`s can reach Caddy configuration.
+
 ## Build and Run
 
 ```bash
