@@ -237,7 +237,7 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
       if (streaming || !agentId || !canReadTranscript) return;
       try {
         // runtimeapi.Session no longer carries a flat cwd, so reuse the cwd the
-        // operator has selected for this conversation.
+        // administrator has selected for this conversation.
         const transcript = await getAgentTranscript(agentId, session.session_id, cwd.trim() || undefined);
         const mapped: ChatMessage[] = (transcript.messages ?? []).map((m) => ({
           id: newId(),

@@ -11,6 +11,7 @@ import {
 } from "./db";
 import { resolveGateway, type ResolvedGateway } from "./gateway-resolve";
 import { actionForProxyPath, type GatewayAction } from "./proxy-action";
+import { canPerformGatewayAction } from "./gateway-role";
 
 // Re-export so existing importers (the catch-all proxy) keep using `@/lib/access`
 // as the single entry point; the implementation lives in the dependency-free
@@ -126,26 +127,13 @@ export function requirePlatformAccess(req: Request): GuardResult<PlatformContext
 
 // ---- Gateway-scoped guard (§2.1, §5) ----
 
-type EffectiveRole = GatewayRole | "admin";
-
-// §2.1 role → action grant table.
-const GRANTS: Record<GatewayAction, EffectiveRole[]> = {
-  "gateway:read": ["viewer", "operator", "admin"],
-  "secrets:read-redacted": ["viewer", "operator", "admin"],
-  "gateway:write": ["operator", "admin"],
-  "gateway:platform_config": ["admin"],
-  "gateway:virtual_keys_raw_compat": ["operator", "admin"],
-  "runtime:chat": ["operator", "admin"],
-  "runtime:permission_resolve": ["operator", "admin"],
-  "gateway:secrets_raw": ["admin"],
-};
+type EffectiveRole = GatewayRole;
 
 // Allow decisions are audited only for mutating/sensitive actions; plain reads
 // would flood the log (auto-refresh polling) with little security value.
 const AUDIT_ALLOW_ACTIONS = new Set<GatewayAction>([
   "gateway:write",
   "gateway:platform_config",
-  "gateway:virtual_keys_raw_compat",
   "runtime:chat",
   "runtime:permission_resolve",
   "gateway:secrets_raw",
@@ -231,17 +219,17 @@ export function requireGatewayAccess(
     return denyAudit(403, "gateway is disabled", "gateway_disabled", session.userId, gatewayId);
   }
 
-  // Platform-owned gateway surfaces are actor checks, not role inheritance.
-  // This stays correct when a distinct stored Gateway Admin role is added.
-  if (
-    (action === "gateway:secrets_raw" || action === "gateway:platform_config") &&
-    !session.isPlatformAdmin
-  ) {
-    return denyAudit(403, "platform administrator access required", "not_platform_admin", session.userId, gatewayId);
-  }
-
-  if (!GRANTS[action].includes(role)) {
-    return denyAudit(403, `role '${role}' is not permitted to perform ${action}`, "role_denied", session.userId, gatewayId);
+  if (!canPerformGatewayAction(role, session.isPlatformAdmin, action)) {
+    const platformOnly = action === "gateway:secrets_raw" || action === "gateway:platform_config";
+    return denyAudit(
+      403,
+      platformOnly
+        ? "platform administrator access required"
+        : `role '${role}' is not permitted to perform ${action}`,
+      platformOnly ? "not_platform_admin" : "gateway_role_denied",
+      session.userId,
+      gatewayId,
+    );
   }
 
   let gateway: ResolvedGateway;

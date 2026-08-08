@@ -9,6 +9,12 @@ function healthDot(health: string): string {
   return "bg-amber-500";
 }
 
+function roleLabel(role: "platform_admin" | "admin" | "member"): string {
+  if (role === "platform_admin") return "Platform Admin";
+  if (role === "admin") return "Gateway Admin";
+  return "Member";
+}
+
 // Header dropdown to choose the active gateway. Lists the gateways the current
 // user can reach; selecting one repoints the session and reloads (§6.1).
 export function GatewaySwitcher() {
@@ -81,7 +87,7 @@ export function GatewaySwitcher() {
             >
               <span className={`h-2 w-2 shrink-0 rounded-full ${healthDot(g.health_status)}`} />
               <span className="min-w-0 flex-1 truncate">{g.name}</span>
-              <span className="text-[10px] uppercase text-slate-500">{g.role}</span>
+              <span className="text-[10px] uppercase text-slate-500">{roleLabel(g.role)}</span>
               {switching === g.id && (
                 <span className="h-3 w-3 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
               )}

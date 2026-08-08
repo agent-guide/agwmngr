@@ -20,7 +20,7 @@ export interface SqlConnection {
   run(sql: string, params?: unknown[]): { changes: number; lastInsertRowid: number | bigint };
   get<T = unknown>(sql: string, params?: unknown[]): T | undefined;
   all<T = unknown>(sql: string, params?: unknown[]): T[];
-  transaction(fn: () => void): void;
+  transaction(fn: () => void, mode?: "deferred" | "immediate"): void;
 }
 
 // Computed module name keeps the bundler from trying to resolve `bun:sqlite`
@@ -74,8 +74,8 @@ function openNode(path: string): SqlConnection {
     run: (sql, params = []) => wrapStmt(sql).run(...params),
     get: <T,>(sql: string, params: unknown[] = []) => wrapStmt(sql).get<T>(...params),
     all: <T,>(sql: string, params: unknown[] = []) => wrapStmt(sql).all<T>(...params),
-    transaction: (fn) => {
-      db.exec("BEGIN");
+    transaction: (fn, mode = "deferred") => {
+      db.exec(mode === "immediate" ? "BEGIN IMMEDIATE" : "BEGIN");
       try {
         fn();
         db.exec("COMMIT");
@@ -110,6 +110,18 @@ function openBun(path: string): SqlConnection {
     run: (sql, params = []) => wrapStmt(sql).run(...params),
     get: <T,>(sql: string, params: unknown[] = []) => wrapStmt(sql).get<T>(...params),
     all: <T,>(sql: string, params: unknown[] = []) => wrapStmt(sql).all<T>(...params),
-    transaction: (fn) => db.transaction(fn)(),
+    transaction: (fn, mode = "deferred") => {
+      // bun:sqlite's transaction helper always chooses its own BEGIN mode, so
+      // use explicit statements when a migration needs a write reservation.
+      if (mode === "deferred") return db.transaction(fn)();
+      db.run("BEGIN IMMEDIATE");
+      try {
+        fn();
+        db.run("COMMIT");
+      } catch (e) {
+        db.run("ROLLBACK");
+        throw e;
+      }
+    },
   };
 }

@@ -1662,7 +1662,7 @@ export async function deleteManagerUser(id: number): Promise<void> {
 export interface SessionGateway {
   id: string;
   name: string;
-  role: "admin" | "operator" | "viewer";
+  role: "platform_admin" | "admin" | "member";
   status: "active" | "disabled";
   health_status: "ok" | "credential_error" | "encryption_unconfigured";
 }
@@ -1753,7 +1753,7 @@ export async function testGatewayStored(id: string): Promise<ConnectivityResult>
 export interface GatewayMember {
   user_id: number;
   username: string;
-  role: "operator" | "viewer";
+  role: "admin" | "member";
 }
 
 export async function listGatewayMembers(gatewayId: string): Promise<GatewayMember[]> {
@@ -1764,7 +1764,7 @@ export async function listGatewayMembers(gatewayId: string): Promise<GatewayMemb
 export async function setGatewayMember(
   gatewayId: string,
   userId: number,
-  role: "operator" | "viewer",
+  role: "admin" | "member",
 ): Promise<GatewayMember[]> {
   const res = await adminFetch<{ items: GatewayMember[] }>(
     `/admin/gateways/${encodeURIComponent(gatewayId)}/members`,

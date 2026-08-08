@@ -7,7 +7,6 @@ export type GatewayAction =
   | "gateway:read"
   | "gateway:write"
   | "gateway:platform_config"
-  | "gateway:virtual_keys_raw_compat"
   | "runtime:chat"
   | "runtime:permission_resolve"
   | "secrets:read-redacted"
@@ -53,7 +52,7 @@ export function actionForProxyPath(method: string, proxyPath: string): GatewayAc
   const segments = canonicalSegments(proxyPath);
 
   // Read-like POSTs that actually execute (spend tokens / run tools) — must not
-  // be treated as a plain read, so a viewer cannot trigger them.
+  // be treated as a plain read, because they trigger side effects and spend.
   if (
     m === "POST" &&
     (endsWith(segments, ["tools", "call"]) || endsWith(segments, ["resources", "read"]))
@@ -89,11 +88,11 @@ export function actionForProxyPath(method: string, proxyPath: string): GatewayAc
     return "secrets:read-redacted";
   }
 
-  // The current upstream Virtual Key list/get responses contain the bearer
-  // value. Until dedicated redacted handlers exist, keep this compatibility
-  // read away from read-only gateway viewers.
-  if (m === "GET" && startsWith(segments, ["admin", "virtual_keys"])) {
-    return "gateway:virtual_keys_raw_compat";
+  // Virtual Key reads and mutation responses can contain bearer values. Until
+  // dedicated redacted/write-only handlers exist, keep the whole family on the
+  // raw-secret path, which is Platform Admin-only.
+  if (startsWith(segments, ["admin", "virtual_keys"])) {
+    return "gateway:secrets_raw";
   }
 
   return m === "GET" || m === "HEAD" ? "gateway:read" : "gateway:write";

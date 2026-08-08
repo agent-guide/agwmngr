@@ -2,9 +2,9 @@
 
 > Project: `agwmngr` (the web management frontend for agent-gateway)
 > Scope: introduce multiple manager users (with per-gateway roles) and management of multiple agent-gateways from one manager
-> Last updated: 2026-06-23
+> Last updated: 2026-08-08
 
-> **Status: implemented (P1–P4).** All phases are built and validated. One deviation from the locked storage decision: `bun:sqlite` is replaced by a runtime-agnostic adapter (`lib/sqlite.ts`) using `node:sqlite` on Node and `bun:sqlite` on Bun — because Next.js (`next dev`/`next start`) executes route handlers under Node.js even when launched via `bun run`, where `bun:sqlite` is unavailable. The schema, envelope format, guards, and request flow below match the implementation.
+> **Status: implemented and upgraded to Gateway-root `admin/member`.** Domain/resource grants remain proposed in `docs/resource-rbac-design.md`. One deviation from the locked storage decision: `bun:sqlite` is replaced by a runtime-agnostic adapter (`lib/sqlite.ts`) using `node:sqlite` on Node and `bun:sqlite` on Bun — because Next.js (`next dev`/`next start`) executes route handlers under Node.js even when launched via `bun run`, where `bun:sqlite` is unavailable.
 
 ## 1. Core Assessment
 
@@ -27,7 +27,7 @@ The manager already orchestrates everything through documented HTTP boundaries (
 Per-gateway roles alone cannot express platform-level operations ("who may register a new gateway?", "who may create users?"). So authorization is **two layers**:
 
 - **Platform level** — `users.is_platform_admin` (bool). Only platform admins can CRUD users, register/edit gateways, and assign gateway memberships. A platform admin implicitly has access to every gateway.
-- **Gateway level** — `user_gateways(user_id, gateway_id, role)`, `role ∈ {operator, viewer}`. Governs what a non-admin user may do **inside** a gateway.
+- **Gateway level** — `user_gateways(user_id, gateway_id, role)`, `role ∈ {admin, member}`. Gateway Admin manages ordinary content inside one gateway; Member has no implicit content access until explicit domain/resource grants are implemented.
 
 ### 2.1 Actions, not HTTP methods
 
@@ -45,13 +45,14 @@ Mapping roles to "GET = read, everything else = write" is both too coarse and un
 
 Role → action grants:
 
-| Action | viewer | operator | platform admin |
+| Action | member | Gateway Admin | Platform Admin |
 |---|:---:|:---:|:---:|
-| `gateway:read` | ✓ | ✓ | ✓ |
-| `secrets:read-redacted` | ✓ | ✓ | ✓ |
+| `gateway:read` | | ✓ | ✓ |
+| `secrets:read-redacted` | | ✓ | ✓ |
 | `gateway:write` | | ✓ | ✓ |
 | `runtime:chat` | | ✓ | ✓ |
 | `runtime:permission_resolve` | | ✓ | ✓ |
+| `gateway:platform_config` | | | ✓ |
 | `gateway:secrets_raw` | | | ✓ |
 | `platform:*` | | | ✓ |
 
@@ -69,7 +70,7 @@ The override table is the security-critical part, because for **proxied** gatewa
 | `/admin/mcp/services/*/tools/call`, `/admin/mcp/services/*/resources/read` | POST | `runtime:chat`-class (read-like but executes) — not `gateway:read` |
 | `/admin/agents/*/sessions/*/transcript` | GET | `gateway:read` (no secret material) |
 
-> Rule of thumb: a viewer/operator is granted `secrets:read-redacted` **only** for paths where the manager (or a known-redacting upstream) guarantees no raw secret leaves the server. Where redaction cannot be guaranteed, the path maps to `gateway:secrets_raw` (platform-admin only, but still gateway-scoped via `requireGatewayAccess`), never silently downgraded to a plain read. The table starts as a deny-by-default allowlist and is widened deliberately as upstream redaction is verified per endpoint.
+> Rule of thumb: Gateway Admin is granted `secrets:read-redacted` **only** for paths where the manager guarantees no raw secret leaves the server. Where redaction cannot be guaranteed, the path maps to `gateway:secrets_raw` (Platform Admin-only, but still gateway-scoped via `requireGatewayAccess`), never silently downgraded to a plain read.
 
 > A user with no `user_gateways` row for gateway X and `is_platform_admin = false` cannot see or reach gateway X at all — the switcher does not list it, and every guard rejects requests carrying its id.
 
@@ -107,7 +108,7 @@ CREATE TABLE gateways (
 CREATE TABLE user_gateways (
   user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   gateway_id TEXT    NOT NULL REFERENCES gateways(id) ON DELETE CASCADE,
-  role       TEXT    NOT NULL CHECK (role IN ('operator','viewer')),
+  role       TEXT    NOT NULL CHECK (role IN ('admin','member')),
   PRIMARY KEY (user_id, gateway_id)
 );
 
@@ -270,11 +271,11 @@ Existing `AGWMNGR_*` / `GATEWAY_*` / `CADDY_ADMIN_ADDR` env stay valid as **boot
 Phase 1 is a prerequisite for everything else; ship it with **no externally visible behaviour change** to de-risk the foundation. Crucially, P1/P2 keep the gateway env-resolved so no new required env var appears until P3.
 
 - **P1 — Persistence foundation.** `lib/db.ts` + migrations + move sessions into sqlite (durable across restart). Tables created and (forward-compat) seeded from env, but auth + gateway resolution still behave exactly as today. No `MANAGER_SECRET_KEY`.
-- **P2 — Multi-user (platform admins only).** `users` CRUD API + login/`require-auth` against the table + "Platform → Users" page. Still single, env-resolved gateway, so gateway access is still plain `requireAuth` with **no membership concept yet** — therefore P2 only provisions **platform-admin** accounts. Non-admin (`operator`/`viewer`) accounts simply **cannot be created** until P3 (the create form rejects/omits the non-admin role), because without membership enforcement any logged-in non-admin user would otherwise get unrestricted access to the single env-resolved gateway. This keeps P2's user-table semantics simple — every row that exists can log in normally; there is no half-disabled login state to reason about.
-- **P3 — Multi-gateway + membership enforcement.** Introduce `MANAGER_SECRET_KEY` + credential encryption; `gateways` registry + seed-from-env; `lib/gateway-resolve.ts`; refactor proxy / caddy-manager / acp-dataplane to take a gateway record; header switcher + gateway-keyed SWR (§6.1); "Platform → Gateways" page **plus `user_gateways` assignment API/UI**. The `requireGatewayAccess` guard is wired into **all** gateway entry points (catch-all, Caddy, ACP chat) and **enforces membership** here — multiple users over multiple gateways is unsafe without it. (Between P3 and P4 every member is treated as an `operator`; role is recorded but not yet differentiated.)
-- **P4 — Action-level RBAC + audit.** Differentiate `operator` vs `viewer` via action-based enforcement (§2.1) including the path-prefix override table; `audit_log` open→finalize writes for allow + deny (§5.1); a read-only audit view.
+- **P2 — Multi-user (platform admins only).** `users` CRUD API + login/`require-auth` against the table + "Platform → Users" page. Still single, env-resolved gateway, so gateway access is still plain `requireAuth` with **no membership concept yet** — therefore P2 only provisions **platform-admin** accounts. Non-admin accounts cannot be created until membership enforcement lands in P3.
+- **P3 — Multi-gateway + membership enforcement.** Introduce `MANAGER_SECRET_KEY` + credential encryption; `gateways` registry + seed-from-env; `lib/gateway-resolve.ts`; refactor proxy / caddy-manager / acp-dataplane to take a gateway record; header switcher + gateway-keyed SWR (§6.1); "Platform → Gateways" page **plus `user_gateways` assignment API/UI**. The `requireGatewayAccess` guard is wired into **all** gateway entry points (catch-all, Caddy, ACP chat) and **enforces membership** here.
+- **P4 — Action-level RBAC + audit.** Add action-based enforcement (§2.1), the path override table, `audit_log` open→finalize writes for allow + deny, and a read-only audit view. The original P4 roles were superseded by Gateway-root `admin/member` on 2026-08-08.
 
-> Membership enforcement lands in **P3** alongside multi-gateway (you cannot safely expose a second gateway to a second user without it). P4 only adds the finer operator/viewer **action** distinction and audit — it does not introduce authorization that was missing in P3.
+> Membership enforcement lands in **P3** alongside multi-gateway. The current Gateway Admin/Member distinction is enforced at the Gateway root; Member has no implicit content actions.
 
 ## 10. Security Notes & Open Questions
 

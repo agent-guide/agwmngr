@@ -87,7 +87,7 @@ export default function GatewaysPage() {
   const [members, setMembers] = useState<GatewayMember[]>([]);
   const [allUsers, setAllUsers] = useState<ManagerUser[]>([]);
   const [addUserId, setAddUserId] = useState<number | "">("");
-  const [addRole, setAddRole] = useState<"operator" | "viewer">("operator");
+  const [addRole, setAddRole] = useState<"admin" | "member">("member");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -222,7 +222,7 @@ export default function GatewaysPage() {
   const openMembers = async (g: ManagerGateway) => {
     setMembersFor(g);
     setAddUserId("");
-    setAddRole("operator");
+    setAddRole("member");
     try {
       const [m, u] = await Promise.all([listGatewayMembers(g.id), listManagerUsers()]);
       setMembers(m);
@@ -243,7 +243,7 @@ export default function GatewaysPage() {
     }
   };
 
-  const handleChangeRole = async (userId: number, role: "operator" | "viewer") => {
+  const handleChangeRole = async (userId: number, role: "admin" | "member") => {
     if (!membersFor) return;
     try {
       setMembers(await setGatewayMember(membersFor.id, userId, role));
@@ -387,11 +387,11 @@ export default function GatewaysPage() {
                   <span className="flex-1 truncate text-sm text-slate-200">{m.username}</span>
                   <select
                     value={m.role}
-                    onChange={(e) => handleChangeRole(m.user_id, e.target.value as "operator" | "viewer")}
+                    onChange={(e) => handleChangeRole(m.user_id, e.target.value as "admin" | "member")}
                     className="rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-xs text-slate-100"
                   >
-                    <option value="operator">operator</option>
-                    <option value="viewer">viewer</option>
+                    <option value="admin">Gateway Admin</option>
+                    <option value="member">Member</option>
                   </select>
                   <Button variant="danger" onClick={() => handleRemoveMember(m.user_id)} className="px-2 py-1 text-xs">Remove</Button>
                 </div>
@@ -415,11 +415,11 @@ export default function GatewaysPage() {
             </div>
             <select
               value={addRole}
-              onChange={(e) => setAddRole(e.target.value as "operator" | "viewer")}
+              onChange={(e) => setAddRole(e.target.value as "admin" | "member")}
               className="rounded-md border border-slate-600 bg-slate-800 px-2 py-1.5 text-sm text-slate-100"
             >
-              <option value="operator">operator</option>
-              <option value="viewer">viewer</option>
+              <option value="member">Member</option>
+              <option value="admin">Gateway Admin</option>
             </select>
             <Button onClick={handleAddMember} disabled={addUserId === ""} className="px-2.5 py-1.5 text-xs">Add</Button>
           </div>

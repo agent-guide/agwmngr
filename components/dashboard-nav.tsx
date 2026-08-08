@@ -166,21 +166,29 @@ export function DashboardNav() {
   const pathname = usePathname();
   const { isOpen, isCollapsed, toggleCollapsed, close } = useMobileSidebar();
   const { user, activeGateway } = useCurrentUser();
+  const hasGatewayContentAccess = Boolean(
+    user?.is_platform_admin || activeGateway?.role === "admin",
+  );
+  const workspacePrimaryItems = hasGatewayContentAccess ? WORKSPACE_PRIMARY_ITEMS : [];
 
-  // Virtual Key reads currently expose raw bearer values upstream. The server
-  // denies them to viewers; keep the unavailable page out of their navigation.
-  const workspaceActivityItems = WORKSPACE_ACTIVITY_ITEMS.filter(
-    (item) => item.href !== "/dashboard/general/virtual-keys" || activeGateway?.role !== "viewer",
+  // Virtual Key reads currently expose raw bearer values upstream. Until the
+  // explicit redacted handlers land, only Platform Admin may open this page.
+  const workspaceActivityItems = (hasGatewayContentAccess ? WORKSPACE_ACTIVITY_ITEMS : []).filter(
+    (item) => item.href !== "/dashboard/general/virtual-keys" || user?.is_platform_admin,
   );
 
-  const groups = NAV_GROUPS.filter((g) => !g.adminOnly || user?.is_platform_admin);
+  const groups = NAV_GROUPS.filter(
+    (g) =>
+      (hasGatewayContentAccess || g.key === "platform") &&
+      (!g.adminOnly || user?.is_platform_admin),
+  );
   const runtimeGroup = groups.find((g) => g.key === "runtimes");
   const lowerGroups = groups.filter((g) => g.key !== "runtimes");
 
   const allHrefs = [
-    ...WORKSPACE_PRIMARY_ITEMS.map((i) => i.href),
+    ...workspacePrimaryItems.map((i) => i.href),
     ...workspaceActivityItems.map((i) => i.href),
-    CREDENTIALS_ITEM.href,
+    ...(hasGatewayContentAccess ? [CREDENTIALS_ITEM.href] : []),
     ...groups.flatMap((g) => groupItems(g).map((i) => i.href)),
   ];
   const activeHref = resolveActiveHref(pathname, allHrefs);
@@ -313,7 +321,7 @@ export function DashboardNav() {
           /* Narrow rail: flatten everything to an icon list; the accordion is
              not usable at this width. */
           <ul className="space-y-1 lg:block">
-            {WORKSPACE_PRIMARY_ITEMS.map(renderLink)}
+            {workspacePrimaryItems.map(renderLink)}
             {runtimeGroup && groupItems(runtimeGroup).map(renderLink)}
             {workspaceActivityItems.map(renderLink)}
             <li className="my-2 border-t border-slate-700/50" aria-hidden="true" />
@@ -325,9 +333,9 @@ export function DashboardNav() {
           </ul>
         ) : (
           <div className="space-y-4">
-            {/* WORKSPACE — Runtimes follows Agent Routes in the operator flow. */}
+            {/* WORKSPACE — Runtimes follows Agent Routes in the administrator flow. */}
             <ul className="space-y-1">
-              {WORKSPACE_PRIMARY_ITEMS.map(renderLink)}
+              {workspacePrimaryItems.map(renderLink)}
               {runtimeGroup && renderGroup(runtimeGroup)}
               {workspaceActivityItems.map(renderLink)}
             </ul>

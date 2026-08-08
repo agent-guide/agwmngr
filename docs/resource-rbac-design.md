@@ -1,9 +1,10 @@
 # Hierarchical Resource RBAC Design
 
 > Project: `agwmngr`
-> Status: proposed; the initial Gateway-boundary Caddy/Virtual-Key hardening and
-> Provider/Credential API-key redaction are implemented
-> Last updated: 2026-08-07
+> Status: Gateway-root `admin/member`, Caddy/Virtual-Key hardening, and
+> Provider/Credential API-key redaction are implemented; domain/resource grants
+> remain proposed
+> Last updated: 2026-08-08
 > Scope: evolve the manager's platform/gateway RBAC into hierarchical,
 > resource-scoped authorization without changing the existing Platform Admin
 > behaviour
@@ -1122,18 +1123,11 @@ Members are denied, Gateway Admins go through an explicit redacted handler, and
 only a Platform Admin may use a raw response path. The same rule applies to any
 future endpoint that starts returning bearer or credential material.
 
-This gap is live today, not hypothetical. `actionForProxyPath` has no entry for
-`/admin/virtual_keys`, so both reads take the method default `gateway:read`,
-which the current `GRANTS` table hands to `viewer` — every gateway member,
-including read-only ones, can already read plaintext bearer `key` values off the
-list endpoint. The full redacted handlers cannot land before PR3 without
-breaking the pages that consume those shapes, so PR1 first maps the two reads to
-the temporary `gateway:virtual_keys_raw_compat` action, granted only to
-`operator` and the implicit Platform Admin (§15 Phase 1a-0). That bounds the exposure to callers who
-can already write gateway configuration during the intervening releases; it is a
-mitigation, not the fix, and does not reduce PR3's scope. The action is audited
-on allow because it returns bearer material and is deleted when PR3 replaces the
-raw compatibility path with explicit redacted/raw handlers.
+The live gap is now closed at the Gateway boundary. `actionForProxyPath` maps
+the entire Virtual Key family, including mutations whose response may contain a
+generated bearer, to `gateway:secrets_raw`. Only Platform Admin can use it.
+Gateway Admin and Member remain denied until explicit redacted/write-only
+handlers replace that temporary family-wide restriction.
 
 ### 10.1 Managed Chat credential path
 
@@ -1545,9 +1539,15 @@ Phase 1a-0.
 
 ### 14.1 Existing roles
 
-The current roles are `operator` and `viewer`, both gateway-wide. Neither has a
-semantically identical automatic target. The schema migration therefore makes
-one deterministic, input-free, least-privilege conversion:
+> **Implemented decision (2026-08-08):** the stored Gateway model now contains
+> only `admin/member`. Both former gateway-wide roles migrate directly to
+> `member`; no compatibility authorization and no `legacy_role` marker is
+> retained. Promotion to Gateway Admin is always explicit. The remainder of
+> this subsection records the earlier migration proposal and is superseded.
+
+The former roles were both gateway-wide. Neither had a semantically identical
+automatic target. The schema migration therefore makes one deterministic,
+input-free, least-privilege conversion:
 
 | Existing role | Migrated role | Transitional marker |
 |---|---|---|
@@ -1578,7 +1578,7 @@ material and is Platform-Admin-readable only. Installations that want an
 offline before/after artifact may run a separately released CLI/export command
 before upgrading, but Phase 1b safety does not depend on that optional step.
 
-#### 14.1.1 This is a planned outage, and must be released as one
+#### 14.1.1 Historical rollout proposal (superseded)
 
 The wording above ("least privilege", "lands on `/dashboard/no-access`")
 understates the operational event. At the instant Phase 1b deploys, **every
@@ -1624,6 +1624,14 @@ through afterwards. Either way `legacy_role` is still set and still requires an
 explicit save to clear.
 
 ### 14.2 SQLite schema migration
+
+> **Implemented delta:** the membership table is rebuilt under
+> `CHECK (role IN ('admin','member'))`; every non-`admin` input becomes
+> `member`, row/FK validation runs before `user_version` advances, migrations
+> reserve the writer with `BEGIN IMMEDIATE`, and environment seeding creates no
+> membership. Existing Platform Admin membership rows are removed because their
+> gateway access is implicit. The `legacy_role`, resource-grant, and pending-reauthorization
+> parts below remain proposal-only.
 
 Changing the role CHECK from `('operator','viewer')` to `('admin','member')`
 cannot use `ALTER COLUMN` in SQLite. The append-only `PRAGMA user_version`

@@ -64,7 +64,7 @@ describe("actionForProxyPath — agent runtime operations (v0.5.0)", () => {
 
   test("the permissions override needs the exact 5-segment shape", () => {
     // Missing request id — this is the list endpoint's path with a POST, which
-    // is not a resolve and must not be granted to a viewer by accident.
+    // is not a resolve and must not be granted as a runtime operation.
     expect(actionForProxyPath("POST", "/admin/agents/my-agent/permissions")).toBe("gateway:write");
     // A deeper path is not a resolve either.
     expect(actionForProxyPath("POST", "/admin/agents/a/permissions/req-1/extra")).toBe(
@@ -108,14 +108,16 @@ describe("actionForProxyPath — secret override (per-segment, not prefix-string
     expect(actionForProxyPath("GET", "/admin/llm/providers/openai")).toBe("secrets:read-redacted");
   });
 
-  test("Virtual Key reads require the temporary raw compatibility action", () => {
-    expect(actionForProxyPath("GET", "/admin/virtual_keys")).toBe(
-      "gateway:virtual_keys_raw_compat",
-    );
-    expect(actionForProxyPath("GET", "/admin/virtual_keys/key-1")).toBe(
-      "gateway:virtual_keys_raw_compat",
-    );
+  test("Virtual Key reads are classified as raw secret reads", () => {
+    expect(actionForProxyPath("GET", "/admin/virtual_keys")).toBe("gateway:secrets_raw");
+    expect(actionForProxyPath("GET", "/admin/virtual_keys/key-1")).toBe("gateway:secrets_raw");
     expect(actionForProxyPath("GET", "/admin/virtual_keys-extra")).toBe("gateway:read");
+  });
+
+  test("Virtual Key mutations are also raw secret operations", () => {
+    expect(actionForProxyPath("POST", "/admin/virtual_keys")).toBe("gateway:secrets_raw");
+    expect(actionForProxyPath("PUT", "/admin/virtual_keys/key-1")).toBe("gateway:secrets_raw");
+    expect(actionForProxyPath("DELETE", "/admin/virtual_keys/key-1")).toBe("gateway:secrets_raw");
   });
 
   test("sibling resources are NOT mis-matched as secret reads", () => {

@@ -49,7 +49,7 @@ const MIGRATIONS: string[] = [
   CREATE TABLE user_gateways (
     user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     gateway_id TEXT    NOT NULL REFERENCES gateways(id) ON DELETE CASCADE,
-    role       TEXT    NOT NULL CHECK (role IN ('operator','viewer')),
+    role       TEXT    NOT NULL CHECK (role IN ('admin','member')),
     PRIMARY KEY (user_id, gateway_id)
   );
 
@@ -85,18 +85,55 @@ const MIGRATIONS: string[] = [
   CREATE INDEX ix_audit_user    ON audit_log (actor_user_id, ts);
   CREATE INDEX ix_audit_gateway ON audit_log (gateway_id, ts);
   `,
+  // 2: replace the legacy gateway-wide operator/viewer roles with the
+  // gateway-root admin/member model. Existing non-platform memberships are
+  // deliberately reduced to member; promoting an operator to Gateway Admin
+  // would silently grant tenant-administration authority.
+  `
+  CREATE TABLE user_gateways_new (
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    gateway_id TEXT    NOT NULL REFERENCES gateways(id) ON DELETE CASCADE,
+    role       TEXT    NOT NULL CHECK (role IN ('admin','member')),
+    PRIMARY KEY (user_id, gateway_id)
+  );
+
+  INSERT INTO user_gateways_new (user_id, gateway_id, role)
+  SELECT ug.user_id, ug.gateway_id,
+         CASE WHEN ug.role = 'admin' THEN 'admin' ELSE 'member' END
+    FROM user_gateways ug
+    JOIN users u ON u.id = ug.user_id
+   WHERE u.is_platform_admin = 0;
+
+  DROP TABLE user_gateways;
+  ALTER TABLE user_gateways_new RENAME TO user_gateways;
+  `,
 ];
 
-function runMigrations(db: SqlConnection): void {
-  const row = db.get<{ user_version: number }>("PRAGMA user_version");
-  const current = row?.user_version ?? 0;
-  for (let v = current; v < MIGRATIONS.length; v++) {
+export function migrateDatabase(db: SqlConnection): void {
+  while (true) {
+    let complete = false;
     db.transaction(() => {
-      db.exec(MIGRATIONS[v]);
-      // PRAGMA user_version does not accept bound parameters; v+1 is an integer
-      // we control, so interpolation is safe here.
-      db.exec(`PRAGMA user_version = ${v + 1}`);
-    });
+      // Re-read only after BEGIN IMMEDIATE has reserved the writer slot. This
+      // makes a concurrent manager replica observe and skip migrations already
+      // committed by the first process instead of racing the table rebuild.
+      const row = db.get<{ user_version: number }>("PRAGMA user_version");
+      const current = row?.user_version ?? 0;
+      if (current >= MIGRATIONS.length) {
+        complete = true;
+        return;
+      }
+
+      db.exec(MIGRATIONS[current]);
+      const violations = db.all("PRAGMA foreign_key_check");
+      if (violations.length > 0) {
+        throw new Error(`migration ${current + 1} failed foreign-key validation`);
+      }
+
+      // PRAGMA user_version does not accept bound parameters; current+1 is an
+      // integer we control, so interpolation is safe here.
+      db.exec(`PRAGMA user_version = ${current + 1}`);
+    }, "immediate");
+    if (complete) return;
   }
 }
 
@@ -147,7 +184,7 @@ function open(): SqlConnection {
     // ignore
   }
 
-  runMigrations(db);
+  migrateDatabase(db);
   seedFromEnv(db);
   seedGatewayFromEnv(db);
   return db;
@@ -156,7 +193,7 @@ function open(): SqlConnection {
 // Seed the single env-configured gateway into the registry on first boot at P3
 // (§7). Only runs when encryption is configured (the admin password must be
 // encrypted), the registry is empty, and the gateway admin address env is set.
-// Also grants the seeded platform admin an operator membership of it.
+// Platform Admin access is implicit, so no membership row is created.
 function seedGatewayFromEnv(db: SqlConnection): void {
   if (!isEncryptionConfigured()) return;
 
@@ -190,18 +227,6 @@ function seedGatewayFromEnv(db: SqlConnection): void {
     ],
   );
 
-  // Grant the seeded platform admin operator membership so the switcher lists it.
-  const seededAdmin = getServerEnvAny("AGWMNGR_ADMIN_USER", "CADDYMGR_ADMIN_USER");
-  if (seededAdmin) {
-    const user = findUserByUsername(seededAdmin);
-    if (user) {
-      db.run(
-        `INSERT OR IGNORE INTO user_gateways (user_id, gateway_id, role)
-         VALUES (?, 'default', 'operator')`,
-        [user.id],
-      );
-    }
-  }
 }
 
 export function getDb(): SqlConnection {
@@ -474,7 +499,7 @@ export function deleteGateway(id: string): void {
 
 // ---- Memberships (user_gateways) ----
 
-export type GatewayRole = "operator" | "viewer";
+export type GatewayRole = "admin" | "member";
 
 export interface MembershipRow {
   user_id: number;
@@ -511,13 +536,13 @@ export function listGatewayMembers(gatewayId: string): MemberSummary[] {
 export interface UserGatewayEntry {
   id: string;
   name: string;
-  role: GatewayRole | "admin";
+  role: GatewayRole | "platform_admin";
   status: "active" | "disabled";
   health_status: GatewayHealth;
 }
 
 // Gateways a user may select in the switcher: all gateways for a platform admin
-// (role 'admin'), else only those they hold a membership for.
+// (effective gateway role 'admin'), else only those they hold a membership for.
 export function listGatewaysForUser(userId: number, isPlatformAdmin: boolean): UserGatewayEntry[] {
   const rows = isPlatformAdmin
     ? getDb().all<GatewayRow>("SELECT * FROM gateways ORDER BY name ASC")
@@ -536,7 +561,7 @@ export function listGatewaysForUser(userId: number, isPlatformAdmin: boolean): U
     return {
       id: gateway.id,
       name: gateway.name,
-      role: isPlatformAdmin ? "admin" : membership!.role,
+      role: isPlatformAdmin ? "platform_admin" : membership!.role,
       status: gateway.status,
       health_status: gatewayHealth(gateway),
     };

@@ -25,11 +25,18 @@ export const PUT = withPlatformAccess(async (req, _access, { params }: Params) =
   if (!Number.isInteger(userId) || userId <= 0) {
     return Response.json({ error: "user_id is required" }, { status: 400 });
   }
-  if (body.role !== "operator" && body.role !== "viewer") {
-    return Response.json({ error: "role must be 'operator' or 'viewer'" }, { status: 400 });
+  if (body.role !== "admin" && body.role !== "member") {
+    return Response.json({ error: "role must be 'admin' or 'member'" }, { status: 400 });
   }
-  if (!findUserById(userId)) {
+  const user = findUserById(userId);
+  if (!user) {
     return Response.json({ error: "user not found" }, { status: 404 });
+  }
+  if (user.is_platform_admin) {
+    return Response.json(
+      { error: "platform administrators have implicit gateway access" },
+      { status: 400 },
+    );
   }
 
   setMembership(userId, id, body.role);

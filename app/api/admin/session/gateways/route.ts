@@ -14,7 +14,7 @@ export function GET(req: Request) {
   // user can no longer reach (membership removed / gateway deleted), drop it and
   // fall back to the first accessible one.
   let active = session.activeGatewayId;
-  if (active && !items.some((g) => g.id === active)) {
+  if (!active || !items.some((g) => g.id === active)) {
     active = items[0]?.id ?? null;
     setActiveGateway(session.token, active);
   }
