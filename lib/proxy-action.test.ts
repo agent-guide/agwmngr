@@ -108,6 +108,16 @@ describe("actionForProxyPath — secret override (per-segment, not prefix-string
     expect(actionForProxyPath("GET", "/admin/llm/providers/openai")).toBe("secrets:read-redacted");
   });
 
+  test("Virtual Key reads require the temporary raw compatibility action", () => {
+    expect(actionForProxyPath("GET", "/admin/virtual_keys")).toBe(
+      "gateway:virtual_keys_raw_compat",
+    );
+    expect(actionForProxyPath("GET", "/admin/virtual_keys/key-1")).toBe(
+      "gateway:virtual_keys_raw_compat",
+    );
+    expect(actionForProxyPath("GET", "/admin/virtual_keys-extra")).toBe("gateway:read");
+  });
+
   test("sibling resources are NOT mis-matched as secret reads", () => {
     // The old regex `^/admin/credentials` matched these; canonical segment
     // matching must not.

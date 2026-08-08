@@ -1,7 +1,8 @@
 # Hierarchical Resource RBAC Design
 
 > Project: `agwmngr`
-> Status: proposed (revised after implementation review)
+> Status: proposed; the initial Gateway-boundary Caddy/Virtual-Key hardening and
+> Provider/Credential API-key redaction are implemented
 > Last updated: 2026-08-07
 > Scope: evolve the manager's platform/gateway RBAC into hierarchical,
 > resource-scoped authorization without changing the existing Platform Admin
@@ -1025,6 +1026,13 @@ pass the reference checks above.
 
 The existing distinction between redacted secret reads and raw secret reads is
 preserved.
+
+Independent of the later resource hierarchy, the management UI treats Provider
+`api_key` and Credential `attributes.api_key` as write-only. Inputs use password
+controls while the user types; list/detail/mutation responses omit the value and
+return only `api_key_set`; edit forms start empty; and an omitted/blank edit
+preserves the stored value through a server-side merge. The UI never renders a
+prefix, suffix, mask derived from the key, or a previously submitted value.
 
 - Platform Admin may perform `gateway:secrets_raw` where explicitly supported.
 - Gateway Admin may manage secret-bearing resources through write-only or

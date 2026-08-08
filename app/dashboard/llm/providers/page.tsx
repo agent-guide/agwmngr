@@ -97,7 +97,9 @@ export default function ProvidersPage() {
   const openEdit = (item: ProviderItem) => {
     setEditItem(item);
     setEditBaseUrl(item.base_url ?? "");
-    setEditApiKey(item.api_key ?? "");
+    // Secret reads are redacted by the manager. The edit field is write-only:
+    // blank preserves the current key, a value replaces it.
+    setEditApiKey("");
   };
 
   const handleEdit = async () => {
@@ -218,6 +220,7 @@ export default function ProvidersPage() {
             <div>
               <label className="mb-1.5 block text-sm font-medium text-slate-300">API Key</label>
               <Input
+                type="password"
                 name="apiKey"
                 value={addApiKey}
                 onChange={setAddApiKey}
@@ -248,10 +251,11 @@ export default function ProvidersPage() {
             <div>
               <label className="mb-1.5 block text-sm font-medium text-slate-300">API Key</label>
               <Input
+                type="password"
                 name="editApiKey"
                 value={editApiKey}
                 onChange={setEditApiKey}
-                placeholder="Leave empty to clear"
+                placeholder={editItem?.api_key_set ? "Configured — leave blank to keep" : "Enter API key"}
                 autoComplete="off"
                 autoCapitalize="none"
                 autoCorrect="off"

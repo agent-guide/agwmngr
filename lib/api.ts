@@ -109,6 +109,7 @@ export interface ProviderItem {
   id: string;
   provider_type: string;
   api_key?: string;
+  api_key_set?: boolean;
   base_url?: string;
   default_model?: string;
   options?: Record<string, unknown>;
@@ -171,6 +172,7 @@ export interface CredentialItem {
   source: string;
   label?: string;
   attributes?: Record<string, string>;
+  api_key_set?: boolean;
   disabled?: boolean;
   unavailable?: boolean;
   read_only: boolean;

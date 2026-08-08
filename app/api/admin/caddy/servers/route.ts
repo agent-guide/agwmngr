@@ -2,7 +2,7 @@ import { withGatewayAccess } from "@/lib/access";
 import { caddyConfigFor, createServer, getServer, listServers } from "@/lib/caddy-manager";
 import { AppError, ErrConflict, ErrReadOnly, type ServerRequest } from "@/lib/types";
 
-export const GET = withGatewayAccess("gateway:read", async (_req, access) => {
+export const GET = withGatewayAccess("gateway:platform_config", async (_req, access) => {
   const cfg = caddyConfigFor(access.gateway);
 
   try {
@@ -13,7 +13,7 @@ export const GET = withGatewayAccess("gateway:read", async (_req, access) => {
   }
 });
 
-export const POST = withGatewayAccess("gateway:write", async (req, access) => {
+export const POST = withGatewayAccess("gateway:platform_config", async (req, access) => {
   const cfg = caddyConfigFor(access.gateway);
 
   let body: ServerRequest;

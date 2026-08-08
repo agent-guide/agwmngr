@@ -64,6 +64,7 @@ function AttributesEditor({
             placeholder="key"
           />
           <Input
+            type={k.trim().toLowerCase() === "api_key" ? "password" : "text"}
             name={`attr-val-${idx}`}
             value={v}
             onChange={(val) => setValue(idx, val)}
@@ -117,6 +118,7 @@ export default function CredentialsPage() {
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editLabel, setEditLabel] = useState("");
   const [editAttributes, setEditAttributes] = useState<Record<string, string>>({});
+  const [editApiKey, setEditApiKey] = useState("");
   const [editDisabled, setEditDisabled] = useState(false);
 
   // Delete confirm
@@ -182,6 +184,7 @@ export default function CredentialsPage() {
     setEditItem(item);
     setEditLabel(item.label ?? "");
     setEditAttributes(item.attributes ? { ...item.attributes } : {});
+    setEditApiKey("");
     setEditDisabled(item.disabled ?? false);
   };
 
@@ -193,9 +196,13 @@ export default function CredentialsPage() {
       Object.entries(editAttributes).forEach(([k, v]) => {
         if (k.trim()) attrs[k.trim()] = v;
       });
+      if (editApiKey) attrs.api_key = editApiKey;
       const updated = await updateCredential(editItem.id, {
         label: editLabel.trim() || undefined,
-        attributes: Object.keys(attrs).length > 0 ? attrs : undefined,
+        // Always send the editable non-secret map. The manager merges the raw
+        // key server-side, so an empty map can intentionally remove all other
+        // attributes without exposing or clearing the key.
+        attributes: attrs,
         disabled: editDisabled,
       });
       setCredentials((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
@@ -286,12 +293,7 @@ export default function CredentialsPage() {
         ) : (
           credentials.map((cred) => {
             const isEditable = !cred.read_only;
-            const rawKey = cred.attributes?.api_key ?? "";
-            const maskedKey = rawKey
-              ? rawKey.length > 8
-                ? rawKey.slice(0, 4) + "••••" + rawKey.slice(-4)
-                : "••••••••"
-              : "—";
+            const keyStatus = cred.api_key_set ? "Configured" : "Not set";
             return (
               <div
                 key={cred.id}
@@ -311,7 +313,7 @@ export default function CredentialsPage() {
                 <span>
                   <SourceBadge source={cred.source} />
                 </span>
-                <span className="truncate text-xs text-slate-400 font-mono">{maskedKey}</span>
+                <span className="truncate text-xs text-slate-400">{keyStatus}</span>
                 <span>
                   {cred.read_only && (
                     <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-slate-700/60 text-slate-400">
@@ -417,7 +419,23 @@ export default function CredentialsPage() {
               />
             </div>
             <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">API Key</label>
+              <Input
+                type="password"
+                name="editApiKey"
+                value={editApiKey}
+                onChange={setEditApiKey}
+                placeholder={editItem?.api_key_set ? "Configured — leave blank to keep" : "Enter API key"}
+                autoComplete="off"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+              />
+              <p className="mt-1 text-[11px] text-slate-500">The existing value is never shown. Enter a value only to replace it.</p>
+            </div>
+            <div>
               <label className="mb-1.5 block text-sm font-medium text-slate-300">Attributes</label>
+              <p className="mb-2 text-[11px] text-slate-500">Non-secret provider attributes only.</p>
               <AttributesEditor value={editAttributes} onChange={setEditAttributes} />
             </div>
             <div className="flex items-center gap-2">

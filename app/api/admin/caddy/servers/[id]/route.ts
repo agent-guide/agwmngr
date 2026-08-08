@@ -4,7 +4,7 @@ import { AppError, ErrNotFound, ErrReadOnly, type ServerRequest } from "@/lib/ty
 
 type Params = { params: Promise<{ id: string }> };
 
-export const GET = withGatewayAccess("gateway:read", async (_req, access, { params }: Params) => {
+export const GET = withGatewayAccess("gateway:platform_config", async (_req, access, { params }: Params) => {
   const cfg = caddyConfigFor(access.gateway);
 
   const { id } = await params;
@@ -16,7 +16,7 @@ export const GET = withGatewayAccess("gateway:read", async (_req, access, { para
   }
 });
 
-export const PUT = withGatewayAccess("gateway:write", async (req, access, { params }: Params) => {
+export const PUT = withGatewayAccess("gateway:platform_config", async (req, access, { params }: Params) => {
   const cfg = caddyConfigFor(access.gateway);
 
   const { id } = await params;
@@ -37,7 +37,7 @@ export const PUT = withGatewayAccess("gateway:write", async (req, access, { para
   }
 });
 
-export const DELETE = withGatewayAccess("gateway:write", async (_req, access, { params }: Params) => {
+export const DELETE = withGatewayAccess("gateway:platform_config", async (_req, access, { params }: Params) => {
   const cfg = caddyConfigFor(access.gateway);
 
   const { id } = await params;

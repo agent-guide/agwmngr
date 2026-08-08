@@ -4,7 +4,7 @@ import { AppError, ErrConflict, ErrNotFound, ErrReadOnly, type RouteRequest } fr
 
 type Params = { params: Promise<{ id: string }> };
 
-export const GET = withGatewayAccess("gateway:read", async (_req, access, { params }: Params) => {
+export const GET = withGatewayAccess("gateway:platform_config", async (_req, access, { params }: Params) => {
   const cfg = caddyConfigFor(access.gateway);
 
   const { id } = await params;
@@ -16,7 +16,7 @@ export const GET = withGatewayAccess("gateway:read", async (_req, access, { para
   }
 });
 
-export const POST = withGatewayAccess("gateway:write", async (req, access, { params }: Params) => {
+export const POST = withGatewayAccess("gateway:platform_config", async (req, access, { params }: Params) => {
   const cfg = caddyConfigFor(access.gateway);
 
   const { id: serverID } = await params;

@@ -528,13 +528,19 @@ export function listGatewaysForUser(userId: number, isPlatformAdmin: boolean): U
           ORDER BY g.name ASC`,
         [userId],
       );
-  return rows.map((g) => ({
-    id: g.id,
-    name: g.name,
-    role: isPlatformAdmin ? "admin" : (getMembership(userId, g.id)?.role ?? "viewer"),
-    status: g.status,
-    health_status: gatewayHealth(g),
-  }));
+  return rows.map((gateway) => {
+    const membership = isPlatformAdmin ? null : getMembership(userId, gateway.id);
+    if (!isPlatformAdmin && !membership) {
+      throw new Error(`membership invariant violated for gateway ${gateway.id}`);
+    }
+    return {
+      id: gateway.id,
+      name: gateway.name,
+      role: isPlatformAdmin ? "admin" : membership!.role,
+      status: gateway.status,
+      health_status: gatewayHealth(gateway),
+    };
+  });
 }
 
 export function setMembership(userId: number, gatewayId: string, role: GatewayRole): void {

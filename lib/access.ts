@@ -133,6 +133,8 @@ const GRANTS: Record<GatewayAction, EffectiveRole[]> = {
   "gateway:read": ["viewer", "operator", "admin"],
   "secrets:read-redacted": ["viewer", "operator", "admin"],
   "gateway:write": ["operator", "admin"],
+  "gateway:platform_config": ["admin"],
+  "gateway:virtual_keys_raw_compat": ["operator", "admin"],
   "runtime:chat": ["operator", "admin"],
   "runtime:permission_resolve": ["operator", "admin"],
   "gateway:secrets_raw": ["admin"],
@@ -142,6 +144,8 @@ const GRANTS: Record<GatewayAction, EffectiveRole[]> = {
 // would flood the log (auto-refresh polling) with little security value.
 const AUDIT_ALLOW_ACTIONS = new Set<GatewayAction>([
   "gateway:write",
+  "gateway:platform_config",
+  "gateway:virtual_keys_raw_compat",
   "runtime:chat",
   "runtime:permission_resolve",
   "gateway:secrets_raw",
@@ -225,6 +229,15 @@ export function requireGatewayAccess(
 
   if (row.status === "disabled") {
     return denyAudit(403, "gateway is disabled", "gateway_disabled", session.userId, gatewayId);
+  }
+
+  // Platform-owned gateway surfaces are actor checks, not role inheritance.
+  // This stays correct when a distinct stored Gateway Admin role is added.
+  if (
+    (action === "gateway:secrets_raw" || action === "gateway:platform_config") &&
+    !session.isPlatformAdmin
+  ) {
+    return denyAudit(403, "platform administrator access required", "not_platform_admin", session.userId, gatewayId);
   }
 
   if (!GRANTS[action].includes(role)) {

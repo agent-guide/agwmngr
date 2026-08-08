@@ -6,6 +6,8 @@
 export type GatewayAction =
   | "gateway:read"
   | "gateway:write"
+  | "gateway:platform_config"
+  | "gateway:virtual_keys_raw_compat"
   | "runtime:chat"
   | "runtime:permission_resolve"
   | "secrets:read-redacted"
@@ -85,6 +87,13 @@ export function actionForProxyPath(method: string, proxyPath: string): GatewayAc
       startsWith(segments, ["admin", "llm", "providers"]))
   ) {
     return "secrets:read-redacted";
+  }
+
+  // The current upstream Virtual Key list/get responses contain the bearer
+  // value. Until dedicated redacted handlers exist, keep this compatibility
+  // read away from read-only gateway viewers.
+  if (m === "GET" && startsWith(segments, ["admin", "virtual_keys"])) {
+    return "gateway:virtual_keys_raw_compat";
   }
 
   return m === "GET" || m === "HEAD" ? "gateway:read" : "gateway:write";

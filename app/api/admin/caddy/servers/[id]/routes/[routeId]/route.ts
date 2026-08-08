@@ -4,7 +4,7 @@ import { AppError, ErrNotFound, ErrReadOnly, type RouteRequest } from "@/lib/typ
 
 type Params = { params: Promise<{ id: string; routeId: string }> };
 
-export const PUT = withGatewayAccess("gateway:write", async (req, access, { params }: Params) => {
+export const PUT = withGatewayAccess("gateway:platform_config", async (req, access, { params }: Params) => {
   const cfg = caddyConfigFor(access.gateway);
 
   const { id: serverID, routeId } = await params;
@@ -26,7 +26,7 @@ export const PUT = withGatewayAccess("gateway:write", async (req, access, { para
   }
 });
 
-export const DELETE = withGatewayAccess("gateway:write", async (_req, access, { params }: Params) => {
+export const DELETE = withGatewayAccess("gateway:platform_config", async (_req, access, { params }: Params) => {
   const cfg = caddyConfigFor(access.gateway);
 
   const { id: serverID, routeId } = await params;

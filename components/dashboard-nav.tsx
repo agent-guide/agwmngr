@@ -79,8 +79,6 @@ const WORKSPACE_ACTIVITY_ITEMS: NavItem[] = [
   { href: "/dashboard/general/virtual-keys", label: "Virtual Keys", icon: IconKey },
 ];
 
-const WORKSPACE_ITEMS = [...WORKSPACE_PRIMARY_ITEMS, ...WORKSPACE_ACTIVITY_ITEMS];
-
 // Credentials are shared by LLM, MCP, and other gateway capabilities, so they
 // live alongside the protocol groups instead of belonging to the LLM group.
 const CREDENTIALS_ITEM: NavItem = {
@@ -124,6 +122,7 @@ const NAV_GROUPS: NavGroup[] = [
     key: "configuration",
     label: "Configuration",
     icon: IconServer,
+    adminOnly: true,
     items: [
       { href: "/dashboard/configuration/bundle", label: "Bundle", icon: IconLayers },
       { href: "/dashboard/configuration/servers", label: "Servers", icon: IconServer },
@@ -166,14 +165,21 @@ function resolveActiveHref(pathname: string, allHrefs: string[]): string | null 
 export function DashboardNav() {
   const pathname = usePathname();
   const { isOpen, isCollapsed, toggleCollapsed, close } = useMobileSidebar();
-  const { user } = useCurrentUser();
+  const { user, activeGateway } = useCurrentUser();
+
+  // Virtual Key reads currently expose raw bearer values upstream. The server
+  // denies them to viewers; keep the unavailable page out of their navigation.
+  const workspaceActivityItems = WORKSPACE_ACTIVITY_ITEMS.filter(
+    (item) => item.href !== "/dashboard/general/virtual-keys" || activeGateway?.role !== "viewer",
+  );
 
   const groups = NAV_GROUPS.filter((g) => !g.adminOnly || user?.is_platform_admin);
   const runtimeGroup = groups.find((g) => g.key === "runtimes");
   const lowerGroups = groups.filter((g) => g.key !== "runtimes");
 
   const allHrefs = [
-    ...WORKSPACE_ITEMS.map((i) => i.href),
+    ...WORKSPACE_PRIMARY_ITEMS.map((i) => i.href),
+    ...workspaceActivityItems.map((i) => i.href),
     CREDENTIALS_ITEM.href,
     ...groups.flatMap((g) => groupItems(g).map((i) => i.href)),
   ];
@@ -309,7 +315,7 @@ export function DashboardNav() {
           <ul className="space-y-1 lg:block">
             {WORKSPACE_PRIMARY_ITEMS.map(renderLink)}
             {runtimeGroup && groupItems(runtimeGroup).map(renderLink)}
-            {WORKSPACE_ACTIVITY_ITEMS.map(renderLink)}
+            {workspaceActivityItems.map(renderLink)}
             <li className="my-2 border-t border-slate-700/50" aria-hidden="true" />
             {lowerGroups.flatMap((group) =>
               group.key === "mcp"
@@ -323,7 +329,7 @@ export function DashboardNav() {
             <ul className="space-y-1">
               {WORKSPACE_PRIMARY_ITEMS.map(renderLink)}
               {runtimeGroup && renderGroup(runtimeGroup)}
-              {WORKSPACE_ACTIVITY_ITEMS.map(renderLink)}
+              {workspaceActivityItems.map(renderLink)}
             </ul>
 
             {/* Collapsible infrastructure groups */}
