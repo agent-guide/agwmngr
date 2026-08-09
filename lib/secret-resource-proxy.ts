@@ -5,9 +5,16 @@ import {
   mergeProviderUpdate,
   redactCredentialResponse,
   redactProviderResponse,
+  redactVirtualKeyResponse,
 } from "./secret-resource";
 
-type SecretKind = "provider" | "credential";
+type SecretKind = "provider" | "credential" | "virtualKey";
+
+const REDACT_FOR: Record<SecretKind, (value: unknown) => unknown> = {
+  provider: redactProviderResponse,
+  credential: redactCredentialResponse,
+  virtualKey: redactVirtualKeyResponse,
+};
 
 function responseBody(body: unknown, status: number): Response {
   if (typeof body === "string") {
@@ -31,7 +38,7 @@ export async function proxySecretResource(
   kind: SecretKind,
   id?: string,
 ): Promise<Response> {
-  const redact = kind === "provider" ? redactProviderResponse : redactCredentialResponse;
+  const redact = REDACT_FOR[kind];
   let body: unknown;
 
   if (req.method !== "GET" && req.method !== "HEAD" && req.method !== "DELETE") {
@@ -41,7 +48,9 @@ export async function proxySecretResource(
   }
 
   try {
-    if (req.method === "PUT" && id) {
+    // Virtual Keys need no read-modify-write: the bearer is generated upstream
+    // and is not a writable field, so an omitted secret cannot erase anything.
+    if (req.method === "PUT" && id && kind !== "virtualKey") {
       const current = await gatewayRequestJSON("GET", path, gateway);
       if (current.status >= 400) return responseBody(redact(current.body), current.status);
       body =

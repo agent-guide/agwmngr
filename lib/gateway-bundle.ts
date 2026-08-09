@@ -181,8 +181,11 @@ function mcpServiceConfig(item: MCPService | BundleObject): BundleObject {
   return copyWithout(item as BundleObject, VIEW_FIELDS);
 }
 
+// "key" is kept in the strip list even though the manager now redacts it out of
+// every list response: a bundle may also be assembled from a raw upstream object,
+// and a config bundle must never carry bearer material either way.
 function virtualKeyConfig(item: VirtualKeyItem | BundleObject): BundleObject {
-  return copyWithout(item as BundleObject, [...VIEW_FIELDS, "key"]);
+  return copyWithout(item as BundleObject, [...VIEW_FIELDS, "key", "key_set", "key_preview"]);
 }
 
 function agentConfig(item: Agent | BundleObject): BundleObject {

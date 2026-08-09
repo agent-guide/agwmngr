@@ -349,7 +349,7 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
       const stream = new ACPTurnStream(
         {
           route_id: selectedRouteId,
-          virtual_key: selectedVk?.key,
+          virtual_key_id: selectedVk?.id,
           // thread_id/cwd are ACP runtime options. The builtin runtime decodes
           // options.runtime into an empty struct and rejects any key it finds,
           // so sending them there fails the turn outright.
@@ -456,7 +456,7 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
       try {
         await resolveACPChatPermission({
           route_id: selectedRouteId,
-          virtual_key: selectedVk?.key,
+          virtual_key_id: selectedVk?.id,
           request_id: requestId,
           outcome,
           option_id: optionId,

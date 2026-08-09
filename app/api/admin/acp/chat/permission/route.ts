@@ -1,13 +1,15 @@
 import { requireGatewayAccess, finalizeAccess } from "@/lib/access";
 import { AgentRouteError, dataplaneCandidates, resolveAgentRouteTarget } from "@/lib/acp-dataplane";
+import { VirtualKeyError, resolveVirtualKeySecret } from "@/lib/virtual-key-secret";
 
 // Resolves an interactive permission request on the ACP data plane. The agent's
 // turn (held open on /turn) resumes once this lands. Explicit route — takes
-// precedence over the gateway-admin catch-all.
+// precedence over the gateway-admin catch-all. Like /turn, the caller names a
+// virtual key by ID and the bearer is resolved server-side.
 
 interface PermissionBody {
   route_id?: string;
-  virtual_key?: string;
+  virtual_key_id?: string;
   request_id?: string;
   outcome?: "selected" | "cancelled";
   option_id?: string;
@@ -47,7 +49,27 @@ export async function POST(req: Request): Promise<Response> {
     return done(Response.json({ error: `gateway unreachable: ${String(e)}` }, { status: 502 }), 502, "gateway_unreachable");
   }
 
-  const virtualKey = payload.virtual_key?.trim();
+  const virtualKeyId = payload.virtual_key_id?.trim();
+  if (target.requireVirtualKey && !virtualKeyId) {
+    return done(
+      Response.json({ error: "this route requires a virtual key" }, { status: 400 }),
+      400,
+      "virtual_key_required",
+    );
+  }
+
+  let virtualKey = "";
+  if (virtualKeyId) {
+    try {
+      virtualKey = await resolveVirtualKeySecret(virtualKeyId, routeId, gateway);
+    } catch (e) {
+      if (e instanceof VirtualKeyError) {
+        return done(Response.json({ error: e.message }, { status: e.status }), e.status, "virtual_key_error");
+      }
+      return done(Response.json({ error: `gateway unreachable: ${String(e)}` }, { status: 502 }), 502, "gateway_unreachable");
+    }
+  }
+
   const decision: Record<string, unknown> = {
     request_id: payload.request_id.trim(),
     outcome: payload.outcome ?? "cancelled",

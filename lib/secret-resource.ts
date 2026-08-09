@@ -25,6 +25,24 @@ function redactCredentialItem(value: unknown): unknown {
   };
 }
 
+/**
+ * A masked label that lets an administrator tell two keys apart without being
+ * able to reconstruct either. Short keys get no preview at all: revealing four
+ * of, say, ten characters is a meaningful fraction of the secret.
+ */
+export function virtualKeyPreview(key: string): string {
+  if (key.length < 16) return "";
+  return `${key.slice(0, 4)}…${key.slice(-4)}`;
+}
+
+function redactVirtualKeyItem(value: unknown): unknown {
+  if (!isObject(value)) return value;
+  if (!("id" in value) && !("key" in value)) return value;
+  const { key, ...safe } = value;
+  const raw = typeof key === "string" ? key : "";
+  return { ...safe, key_set: raw.length > 0, key_preview: virtualKeyPreview(raw) };
+}
+
 function redactCollection(value: unknown, redactItem: (item: unknown) => unknown): unknown {
   if (!isObject(value) || !Array.isArray(value.items)) return redactItem(value);
   return { ...value, items: value.items.map(redactItem) };
@@ -38,6 +56,21 @@ export function redactProviderResponse(value: unknown): unknown {
 /** Remove Credential api_key attributes from list, detail, and mutation responses. */
 export function redactCredentialResponse(value: unknown): unknown {
   return redactCollection(value, redactCredentialItem);
+}
+
+/**
+ * Remove the bearer from Virtual Key list, detail, and mutation responses,
+ * leaving `key_set` + a masked `key_preview` in its place.
+ *
+ * Unlike Provider/Credential, the bearer is *generated upstream* and never
+ * supplied by the browser, so there is no matching merge helper: a Virtual Key
+ * write simply never carries key material in either direction. The one place a
+ * raw value still leaves the manager is the create response (delivered once,
+ * see app/api/admin/virtual_keys/route.ts) and the Platform-Admin-only reveal
+ * action.
+ */
+export function redactVirtualKeyResponse(value: unknown): unknown {
+  return redactCollection(value, redactVirtualKeyItem);
 }
 
 /**

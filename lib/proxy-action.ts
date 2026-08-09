@@ -88,9 +88,12 @@ export function actionForProxyPath(method: string, proxyPath: string): GatewayAc
     return "secrets:read-redacted";
   }
 
-  // Virtual Key reads and mutation responses can contain bearer values. Until
-  // dedicated redacted/write-only handlers exist, keep the whole family on the
-  // raw-secret path, which is Platform Admin-only.
+  // Virtual Key reads and mutation responses contain bearer values upstream.
+  // The collection, the per-key detail path, and the reveal action now have
+  // explicit redacting handlers under app/api/admin/virtual_keys/, so they never
+  // reach this classifier. Anything else in the family — a subpath the manager
+  // has not audited for key material — stays on the Platform-Admin-only
+  // raw-secret path as the deny-by-default backstop.
   if (startsWith(segments, ["admin", "virtual_keys"])) {
     return "gateway:secrets_raw";
   }

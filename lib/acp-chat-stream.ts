@@ -31,7 +31,9 @@ export interface ACPTurnEventData {
 
 export interface ACPTurnRequest {
   route_id: string;
-  virtual_key?: string;
+  // Virtual keys are named, not carried. The manager resolves the ID to a bearer
+  // server-side (lib/virtual-key-secret.ts) — the browser never sees key material.
+  virtual_key_id?: string;
   // ACP-only runtime options. The manager's turn proxy resolves the target
   // agent's runtime and rejects these for runtimes that cannot accept them
   // (a builtin agent has no thread or cwd), so send them only for ACP.

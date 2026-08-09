@@ -171,11 +171,11 @@ export function DashboardNav() {
   );
   const workspacePrimaryItems = hasGatewayContentAccess ? WORKSPACE_PRIMARY_ITEMS : [];
 
-  // Virtual Key reads currently expose raw bearer values upstream. Until the
-  // explicit redacted handlers land, only Platform Admin may open this page.
-  const workspaceActivityItems = (hasGatewayContentAccess ? WORKSPACE_ACTIVITY_ITEMS : []).filter(
-    (item) => item.href !== "/dashboard/general/virtual-keys" || user?.is_platform_admin,
-  );
+  // Virtual Keys is no longer Platform-Admin-only: the manager's own handlers
+  // redact the bearer out of every list/get, so Gateway Admin may manage keys
+  // like any other gateway content. Recovering a key's value stays platform-only
+  // (app/api/admin/virtual_keys/[id]/reveal).
+  const workspaceActivityItems = hasGatewayContentAccess ? WORKSPACE_ACTIVITY_ITEMS : [];
 
   const groups = NAV_GROUPS.filter(
     (g) =>

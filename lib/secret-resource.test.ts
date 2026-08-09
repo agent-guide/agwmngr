@@ -4,6 +4,8 @@ import {
   mergeProviderUpdate,
   redactCredentialResponse,
   redactProviderResponse,
+  redactVirtualKeyResponse,
+  virtualKeyPreview,
 } from "./secret-resource";
 
 describe("secret response projection", () => {
@@ -28,6 +30,35 @@ describe("secret response projection", () => {
       attributes: { base_url: "https://example.test" },
       api_key_set: true,
     });
+  });
+
+  test("virtual key list and detail never expose the bearer", () => {
+    expect(redactVirtualKeyResponse({ id: "vk", key: "sk-abcdefgh12345678", disabled: false })).toEqual({
+      id: "vk",
+      disabled: false,
+      key_set: true,
+      key_preview: "sk-a…5678",
+    });
+    expect(redactVirtualKeyResponse({ items: [{ id: "vk", key: "sk-abcdefgh12345678" }] })).toEqual({
+      items: [{ id: "vk", key_set: true, key_preview: "sk-a…5678" }],
+    });
+  });
+
+  test("virtual key with no stored bearer reports key_set false", () => {
+    expect(redactVirtualKeyResponse({ id: "vk" })).toEqual({
+      id: "vk",
+      key_set: false,
+      key_preview: "",
+    });
+  });
+
+  test("virtual key redaction leaves an error body untouched", () => {
+    expect(redactVirtualKeyResponse({ error: "not found" })).toEqual({ error: "not found" });
+  });
+
+  test("preview reveals nothing for a key short enough to be guessable from it", () => {
+    expect(virtualKeyPreview("short-key")).toBe("");
+    expect(virtualKeyPreview("0123456789abcdef")).toBe("0123…cdef");
   });
 });
 

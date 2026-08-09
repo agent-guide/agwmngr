@@ -1062,7 +1062,7 @@ export async function getBuiltinInFlight(): Promise<BuiltinInFlightTurn[]> {
 
 export async function resolveACPChatPermission(payload: {
   route_id: string;
-  virtual_key?: string;
+  virtual_key_id?: string;
   request_id: string;
   outcome: "selected" | "cancelled";
   option_id?: string;
@@ -1090,9 +1090,16 @@ export interface VirtualKeyRateLimits {
   agent?: VirtualKeyRateLimit;
 }
 
+/**
+ * A Virtual Key as the manager exposes it. The upstream `key` field is stripped
+ * by the manager's own handlers (app/api/admin/virtual_keys/), so no list or get
+ * ever carries bearer material — `key_set` says whether one exists and
+ * `key_preview` is a masked label for telling two keys apart.
+ */
 export interface VirtualKeyItem {
   id: string;
-  key: string;
+  key_set: boolean;
+  key_preview?: string;
   tag?: string;
   description?: string;
   disabled: boolean;
@@ -1104,18 +1111,40 @@ export interface VirtualKeyItem {
   read_only?: boolean;
 }
 
-export type VirtualKeyPayload = Omit<VirtualKeyItem, "key" | "source" | "read_only">;
+/**
+ * The create response, and only the create response, additionally carries the
+ * generated bearer — delivered once, never returned again by a read.
+ */
+export interface CreatedVirtualKey extends VirtualKeyItem {
+  key?: string;
+}
+
+export type VirtualKeyPayload = Omit<
+  VirtualKeyItem,
+  "key_set" | "key_preview" | "source" | "read_only"
+>;
 
 export async function listVirtualKeys(): Promise<VirtualKeyItem[]> {
   const res = await adminFetch<{ items: VirtualKeyItem[] }>("/admin/virtual_keys");
   return res.items ?? [];
 }
 
-export async function createVirtualKey(payload: VirtualKeyPayload): Promise<VirtualKeyItem> {
-  return adminFetch<VirtualKeyItem>("/admin/virtual_keys", {
+export async function createVirtualKey(payload: VirtualKeyPayload): Promise<CreatedVirtualKey> {
+  return adminFetch<CreatedVirtualKey>("/admin/virtual_keys", {
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+/**
+ * Recover an existing key's bearer. Platform Admin only (`gateway:secrets_raw`)
+ * and audited on every call — a Gateway Admin gets 403.
+ */
+export async function revealVirtualKey(id: string): Promise<{ id: string; key: string }> {
+  return adminFetch<{ id: string; key: string }>(
+    `/admin/virtual_keys/${encodeURIComponent(id)}/reveal`,
+    { method: "POST" },
+  );
 }
 
 export async function updateVirtualKey(id: string, payload: VirtualKeyPayload): Promise<VirtualKeyItem> {

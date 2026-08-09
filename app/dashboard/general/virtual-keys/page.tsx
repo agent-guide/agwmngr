@@ -9,7 +9,8 @@ import { useAgentAttribution } from "@/hooks/use-agent-attribution";
 import { UsedByAgents } from "@/components/used-by-agents";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { HelpTooltip } from "@/components/ui/tooltip";
-import { adminFetch, type VirtualKeyRateLimits } from "@/lib/api";
+import { adminFetch, revealVirtualKey, type VirtualKeyRateLimits } from "@/lib/api";
+import { useCurrentUser } from "@/components/current-user-context";
 import {
   RATE_LIMIT_PROTOCOLS,
   emptyRateLimitsForm,
@@ -19,9 +20,14 @@ import {
   type RateLimitsFormValue,
 } from "@/lib/virtual-key-rate-limits";
 
+// The bearer never reaches the browser: the manager's Virtual Key handlers strip
+// it from every list/get and leave key_set + a masked key_preview behind. The
+// raw value appears exactly twice — in the create response, and in an explicit
+// Platform-Admin-only reveal.
 interface VirtualKey {
   id: string;
-  key: string;
+  key_set: boolean;
+  key_preview?: string;
   user_id?: string;
   tag?: string;
   description?: string;
@@ -182,9 +188,9 @@ function rateLimitSummary(rateLimits?: VirtualKeyRateLimits): string | null {
   return parts.length > 0 ? parts.join("  ·  ") : null;
 }
 
-function keyPreview(key: string): string {
-  if (key.length <= 8) return key;
-  return `${key.substring(0, 8)}...${key.substring(key.length - 4)}`;
+function keyLabel(apiKey: VirtualKey): string {
+  if (!apiKey.key_set) return "no key stored";
+  return apiKey.key_preview || "key hidden";
 }
 
 function dateInputValue(value?: string): string {
@@ -312,6 +318,10 @@ export default function ApiKeysPage() {
   const [editingKey, setEditingKey] = useState<VirtualKey | null>(null);
   const [showNewKey, setShowNewKey] = useState(false);
   const [newKeyValue, setNewKeyValue] = useState<string | null>(null);
+  // The same one-time disclosure surface serves creation and the platform-admin
+  // reveal; only the wording differs.
+  const [newKeySource, setNewKeySource] = useState<"created" | "revealed">("created");
+  const [revealingId, setRevealingId] = useState<string | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -320,6 +330,8 @@ export default function ApiKeysPage() {
   const [routes, setRoutes] = useState<Route[]>([]);
   const [routesLoading, setRoutesLoading] = useState(false);
   const { showToast } = useToast();
+  const { user } = useCurrentUser();
+  const canReveal = Boolean(user?.is_platform_admin);
 
   async function fetchKeys() {
     setLoading(true);
@@ -388,14 +400,20 @@ export default function ApiKeysPage() {
       if (form.expires_at) body.expires_at = new Date(form.expires_at).toISOString();
       if (rateLimits) body.rate_limits = rateLimits;
 
-      const created = await adminFetch<VirtualKey>("/admin/virtual_keys", {
+      const created = await adminFetch<VirtualKey & { key?: string }>("/admin/virtual_keys", {
         method: "POST",
         body: JSON.stringify(body),
       });
-      setApiKeys((prev) => [...prev, created]);
-      setNewKeyValue(created.key);
+      // Keep the one-time bearer out of the list state — the row only ever needs
+      // the redacted projection.
+      const { key, ...listed } = created;
+      setApiKeys((prev) => [...prev, listed]);
       setIsCreateModalOpen(false);
-      setShowNewKey(true);
+      if (key) {
+        setNewKeyValue(key);
+        setNewKeySource("created");
+        setShowNewKey(true);
+      }
       showToast("Virtual key created", "success");
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to create virtual key", "error");
@@ -441,6 +459,20 @@ export default function ApiKeysPage() {
     }
   };
 
+  const handleReveal = async (id: string) => {
+    setRevealingId(id);
+    try {
+      const { key } = await revealVirtualKey(id);
+      setNewKeyValue(key);
+      setNewKeySource("revealed");
+      setShowNewKey(true);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to reveal virtual key", "error");
+    } finally {
+      setRevealingId(null);
+    }
+  };
+
   const handleDelete = async () => {
     if (!pendingDeleteId) return;
     const pendingVK = apiKeys.find((apiKey) => apiKey.id === pendingDeleteId);
@@ -476,6 +508,12 @@ export default function ApiKeysPage() {
               Manage gateway access keys for clients and integrations.
               <HelpTooltip content="Virtual keys authenticate requests to the agent gateway" />
             </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Key values are shown once on creation and never returned by a list.
+              {canReveal
+                ? " Use Reveal to recover an existing value — the disclosure is audited."
+                : " Recovering an existing value requires a platform administrator."}
+            </p>
           </div>
           <Button onClick={openCreateModal} className="px-2.5 py-1 text-xs">
             Create Virtual Key
@@ -505,7 +543,7 @@ export default function ApiKeysPage() {
                     <p className="truncate font-mono text-xs font-medium text-slate-100">{apiKey.id}</p>
                     <UsedByAgents agentIds={attribution?.virtualKey[apiKey.id]} />
                   </div>
-                  <p className="mt-0.5 truncate font-mono text-xs text-slate-400">{keyPreview(apiKey.key)}</p>
+                  <p className="mt-0.5 truncate font-mono text-xs text-slate-400">{keyLabel(apiKey)}</p>
                   {rateLimitSummary(apiKey.rate_limits) && (
                     <p className="mt-1 truncate text-[11px] text-blue-300/80">
                       {rateLimitSummary(apiKey.rate_limits)}
@@ -519,18 +557,17 @@ export default function ApiKeysPage() {
                     : "Never"}
                 </span>
                 <div className="flex justify-end gap-1.5">
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      void navigator.clipboard.writeText(apiKey.key).then(() => {
-                        showToast("Key copied to clipboard", "success");
-                      });
-                    }}
-                    className="px-2.5 py-1 text-xs"
-                    title="Copy key"
-                  >
-                    Copy
-                  </Button>
+                  {canReveal && (
+                    <Button
+                      variant="ghost"
+                      onClick={() => void handleReveal(apiKey.id)}
+                      disabled={!apiKey.key_set || revealingId !== null}
+                      className="px-2.5 py-1 text-xs"
+                      title="Show the key value (platform admin only, audited)"
+                    >
+                      {revealingId === apiKey.id ? "Revealing..." : "Reveal"}
+                    </Button>
+                  )}
                   <span title={apiKey.read_only ? "Read-only virtual key is not editable" : undefined}>
                     <Button
                       variant="ghost"
@@ -744,14 +781,34 @@ export default function ApiKeysPage() {
       </Modal>
 
       <Modal isOpen={showNewKey && newKeyValue !== null} onClose={() => { setShowNewKey(false); setNewKeyValue(null); }}>
-        <ModalHeader><ModalTitle>New Virtual Key</ModalTitle></ModalHeader>
+        <ModalHeader>
+          <ModalTitle>{newKeySource === "created" ? "New Virtual Key" : "Virtual Key Value"}</ModalTitle>
+        </ModalHeader>
         <ModalContent>
           <div className="rounded-sm border border-slate-700/70 bg-slate-900/40 p-4 text-sm">
-            <div className="mb-2 font-medium text-slate-100">Copy this key now</div>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <span className="font-medium text-slate-100">Copy this key now</span>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  if (!newKeyValue) return;
+                  void navigator.clipboard.writeText(newKeyValue).then(() => {
+                    showToast("Key copied to clipboard", "success");
+                  });
+                }}
+                className="px-2.5 py-1 text-xs"
+              >
+                Copy
+              </Button>
+            </div>
             <div className="break-all rounded-sm border border-slate-700/70 bg-slate-900/40 p-3 font-mono text-xs text-slate-200">{newKeyValue}</div>
           </div>
           <div className="mt-3 rounded-sm border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-            <span className="text-amber-200">This key will only be shown once. Store it securely.</span>
+            <span className="text-amber-200">
+              {newKeySource === "created"
+                ? "This key will only be shown once. Store it securely."
+                : "This value is not shown again after you close this dialog. The disclosure has been recorded in the audit log."}
+            </span>
           </div>
         </ModalContent>
         <ModalFooter>

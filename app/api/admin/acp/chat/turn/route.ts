@@ -6,12 +6,14 @@ import {
   resolveAgentRuntimeType,
 } from "@/lib/acp-dataplane";
 import { extractApiError, extractRuntimeErrorType } from "@/lib/utils";
+import { VirtualKeyError, resolveVirtualKeySecret } from "@/lib/virtual-key-secret";
 
 // Streaming proxy: forwards a chat turn to the agent data plane and pipes the
 // SSE response straight back to the browser. The manager session is required
-// here; the data-plane virtual key is injected server-side so it never has to
-// live in the browser. This is an explicit route, so it takes precedence over
-// the /api/admin/[[...path]] gateway-admin catch-all.
+// here; the caller names a virtual key by ID and the bearer is resolved and
+// injected server-side, so it never lives in the browser. This is an explicit
+// route, so it takes precedence over the /api/admin/[[...path]] gateway-admin
+// catch-all.
 
 interface PermissionDecision {
   request_id?: string;
@@ -22,7 +24,9 @@ interface PermissionDecision {
 
 interface TurnBody {
   route_id?: string;
-  virtual_key?: string;
+  // The key is named, never carried: the browser has no access to bearer values
+  // now that the Virtual Key read path is redacted.
+  virtual_key_id?: string;
   thread_id?: string;
   session_id?: string;
   input?: string;
@@ -100,9 +104,21 @@ export async function POST(req: Request): Promise<Response> {
     return fail(Response.json({ error: `gateway unreachable: ${String(e)}` }, { status: 502 }), 502, "gateway_unreachable");
   }
 
-  const virtualKey = payload.virtual_key?.trim();
-  if (target.requireVirtualKey && !virtualKey) {
+  const virtualKeyId = payload.virtual_key_id?.trim();
+  if (target.requireVirtualKey && !virtualKeyId) {
     return fail(Response.json({ error: "this route requires a virtual key" }, { status: 400 }), 400, "virtual_key_required");
+  }
+
+  let virtualKey = "";
+  if (virtualKeyId) {
+    try {
+      virtualKey = await resolveVirtualKeySecret(virtualKeyId, routeId, gateway);
+    } catch (e) {
+      if (e instanceof VirtualKeyError) {
+        return fail(Response.json({ error: e.message }, { status: e.status }), e.status, "virtual_key_error");
+      }
+      return fail(Response.json({ error: `gateway unreachable: ${String(e)}` }, { status: 502 }), 502, "gateway_unreachable");
+    }
   }
 
   // thread_id/cwd/model/fresh_session/config_overrides are ACP-runtime options,

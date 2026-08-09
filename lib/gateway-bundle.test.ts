@@ -31,13 +31,13 @@ describe("GatewayBundle serialization", () => {
   test("exports supported families without view metadata or Virtual Key secrets", () => {
     const yaml = serializeGatewayBundle(bundleFromSnapshot(snapshot({
       providers: [{ id: "openai", provider_type: "openai", default_model: "gpt-4.1", source: "store", read_only: false }],
-      virtualKeys: [{ id: "vk-one", key: "secret-value", disabled: false, allowed_route_ids: ["chat"], source: "store" }],
+      virtualKeys: [{ id: "vk-one", key_set: true, key_preview: "secr…alue", disabled: false, allowed_route_ids: ["chat"], source: "store" }],
     })));
     const value = parse(yaml);
     expect(value.apiVersion).toBe("gateway.agw/v1alpha1");
     expect(value.providers).toEqual([{ id: "openai", provider_type: "openai", default_model: "gpt-4.1" }]);
     expect(value.virtualKeys).toEqual([{ id: "vk-one", disabled: false, allowed_route_ids: ["chat"] }]);
-    expect(yaml).not.toContain("secret-value");
+    expect(yaml).not.toContain("secr…alue");
     expect(yaml).not.toContain("read_only");
   });
 

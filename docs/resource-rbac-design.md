@@ -1123,11 +1123,40 @@ Members are denied, Gateway Admins go through an explicit redacted handler, and
 only a Platform Admin may use a raw response path. The same rule applies to any
 future endpoint that starts returning bearer or credential material.
 
-The live gap is now closed at the Gateway boundary. `actionForProxyPath` maps
-the entire Virtual Key family, including mutations whose response may contain a
-generated bearer, to `gateway:secrets_raw`. Only Platform Admin can use it.
-Gateway Admin and Member remain denied until explicit redacted/write-only
-handlers replace that temporary family-wide restriction.
+**Implemented.** The explicit redacted handlers now exist under
+`app/api/admin/virtual_keys/`, replacing the temporary family-wide restriction:
+
+- `GET` on the collection and on `{id}` take `secrets:read-redacted`;
+  `redactVirtualKeyResponse()` strips the upstream `key` and substitutes
+  `key_set` plus a masked `key_preview` (empty for keys short enough that four
+  leading and four trailing characters would be a meaningful fraction of the
+  secret). `PUT`/`DELETE` take `gateway:write`. Gateway Admin therefore manages
+  Virtual Keys like any other gateway content; Member remains denied.
+- `POST` on the collection is the single ordinary write whose response still
+  carries key material. The bearer is generated upstream and is the only way the
+  creator can hand the key to a client, so it is delivered exactly once, in that
+  response, to Gateway Admin and Platform Admin alike. This is a deliberate
+  relaxation of the "Gateway Admin create responses never include a generated
+  bearer" rule above: the alternative leaves a Gateway Admin able to create keys
+  it can never deliver, which pushes every provisioning task back to a Platform
+  Admin ticket. The strict variant remains available by redacting `key` from the
+  create response for non-platform actors.
+- `POST /admin/virtual_keys/{id}/reveal` is the audited raw path for recovering
+  an existing value. It takes `gateway:secrets_raw`, which `gateway-role.ts`
+  grants on the *actor* flag, so it is Platform Admin only, and it returns
+  `{id, key}` alone rather than the object — it must not become a second
+  unredacted read path.
+- `actionForProxyPath` still maps the family to `gateway:secrets_raw`. That is
+  now the deny-by-default backstop for any Virtual Key subpath without an
+  explicit handler, not the policy for the whole family.
+
+Chat was the coupled dependency: it held the bearer in the browser and posted it
+back on every turn, so redacting the read path would have broken it. It now
+follows §10.2 — the browser sends `virtual_key_id` and
+`lib/virtual-key-secret.ts` resolves it server-to-server, rejecting a key that is
+disabled, expired, or not allowlisted for the resolved route. §10.1's managed
+Chat key (reserved namespace, `manager_chat_keys`, rotation workflow, allowlist
+reconciliation) is **not** built.
 
 ### 10.1 Managed Chat credential path
 
