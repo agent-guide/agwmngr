@@ -99,4 +99,41 @@ runtime: { type: http, http: { endpoint: https://example.test } }
 routes: { future_route_ids: [future] }
 `)).toThrow("Unsupported routes field");
   });
+
+  test("rejects circular YAML aliases before they reach the JSON API payload", () => {
+    expect(() => parseAgentPayloadYaml(`
+id: loop
+name: Loop
+runtime:
+  type: builtin
+  builtin: &builtin
+    model: { llm_route_id: chat-main }
+    topology:
+      kind: sequential
+      sub_agents: [*builtin]
+routes: {}
+resources: {}
+policy: {}
+`)).toThrow("circular alias");
+  });
+
+  test("accepts a shared alias when it does not form a cycle", () => {
+    const parsed = parseAgentPayloadYaml(`
+id: shared
+name: Shared
+runtime:
+  type: builtin
+  builtin:
+    model: &model { llm_route_id: chat-main }
+    topology:
+      kind: sequential
+      sub_agents:
+        - { name: one, model: *model }
+        - { name: two, model: *model }
+routes: { llm_route_ids: [chat-main] }
+resources: {}
+policy: {}
+`);
+    expect(parsed.runtime.builtin?.topology?.sub_agents).toHaveLength(2);
+  });
 });

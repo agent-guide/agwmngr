@@ -16,6 +16,18 @@ function isMapping(value: unknown): value is Mapping {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
+function rejectCircularAliases(value: unknown, ancestors = new WeakSet<object>()): void {
+  if (!value || typeof value !== "object") return;
+  if (ancestors.has(value)) {
+    throw new Error("Agent YAML contains a circular alias, which cannot be represented by the Admin API JSON payload");
+  }
+  ancestors.add(value);
+  for (const item of Array.isArray(value) ? value : Object.values(value)) {
+    rejectCircularAliases(item, ancestors);
+  }
+  ancestors.delete(value);
+}
+
 function nonEmptyString(value: unknown, path: string): string {
   if (typeof value !== "string" || !value.trim()) throw new Error(`${path} must be a non-empty string`);
   return value;
@@ -64,6 +76,7 @@ export function parseAgentPayloadYaml(text: string): AgentPayload {
   const doc = parseDocument(text, { uniqueKeys: true });
   if (doc.errors.length) throw new Error(doc.errors.map((error) => error.message).join("; "));
   let value = doc.toJS({ maxAliasCount: 100 }) as unknown;
+  rejectCircularAliases(value);
   if (!isMapping(value)) throw new Error("Agent YAML must be a mapping");
 
   if ("agents" in value) {

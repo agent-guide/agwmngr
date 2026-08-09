@@ -5,6 +5,8 @@ export interface MultiOption {
   label: string;
   hint?: string;
   disabled?: boolean;
+  disabledStyle?: "muted" | "normal";
+  invalid?: boolean;
 }
 
 /**
@@ -41,17 +43,25 @@ export function MultiSelect({
             key={o.value}
             type="button"
             disabled={o.disabled}
+            aria-pressed={on}
             onClick={() => toggle(o.value)}
             title={o.hint}
             className={cn(
-              "rounded-md border px-2 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-              on
+              "rounded-md border px-2 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed",
+              o.disabled && o.disabledStyle !== "normal" && "opacity-40",
+              o.disabled && o.disabledStyle === "normal" && "border-dashed disabled:cursor-default",
+              o.invalid
+                ? "border-rose-500/60 bg-rose-500/10 text-rose-200"
+                : on
                 ? "border-blue-500/50 bg-blue-500/15 text-blue-200"
-                : "border-slate-700/70 bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:text-slate-100",
+                : cn(
+                    "border-slate-700/70 bg-slate-900/40 text-slate-300",
+                    !o.disabled && "hover:border-slate-600 hover:text-slate-100",
+                  ),
             )}
           >
             <span className="font-mono">{o.label}</span>
-            {o.hint && <span className="ml-1 text-[10px] text-slate-500">{o.hint}</span>}
+            {o.hint && <span className={cn("ml-1 text-[10px]", o.invalid ? "text-rose-300" : "text-slate-500")}>{o.hint}</span>}
           </button>
         );
       })}

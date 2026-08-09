@@ -10,6 +10,13 @@ import { Select } from "@/components/ui/select";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { useToast } from "@/components/ui/toast";
 import { agentPayload, agentPayloadYaml, parseAgentPayloadYaml } from "@/lib/agent-yaml";
+import {
+  bindBuiltinDependencies,
+  collectBuiltinReferences,
+  diagnoseBuiltinDependencies,
+  findStaleBuiltinLlmBindings,
+  stripBuiltinDependencies,
+} from "@/lib/agent-bindings";
 import { cn } from "@/lib/utils";
 import {
   ApiError,
@@ -37,6 +44,8 @@ interface RefData {
   providers: { id: string }[];
   virtualKeys: { id: string }[];
 }
+
+type RefStatus = "loading" | "ok" | "error";
 
 const EMPTY_REF: RefData = {
   llmRoutes: [], mcpRoutes: [], mcpServices: [], providers: [], virtualKeys: [],
@@ -124,8 +133,21 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
   const isEdit = !!initial;
   const router = useRouter();
   const { showToast } = useToast();
+  const initialPayload = useMemo(() => initial ? agentPayload(initial) : undefined, [initial]);
+  const initialFormPayload = useMemo(
+    () => initialPayload ? stripBuiltinDependencies(initialPayload) : undefined,
+    [initialPayload],
+  );
+  const initialBuiltinReferences = useMemo(
+    () => collectBuiltinReferences(initialPayload?.runtime.builtin),
+    [initialPayload],
+  );
 
   const [ref, setRef] = useState<RefData>(EMPTY_REF);
+  const [refStatus, setRefStatus] = useState<{ llmRoutes: RefStatus; mcpServices: RefStatus }>({
+    llmRoutes: "loading",
+    mcpServices: "loading",
+  });
   const [refreshing, setRefreshing] = useState(false);
   const [step, setStep] = useState(0);
   const [id, setId] = useState(initial?.id ?? "");
@@ -160,10 +182,10 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
     initial?.runtime.builtin ? JSON.stringify(initial.runtime.builtin, null, 2) : BUILTIN_TEMPLATE,
   );
 
-  const [llmRouteIds, setLlmRouteIds] = useState<string[]>(initial?.routes.llm_route_ids ?? []);
+  const [llmRouteIds, setLlmRouteIds] = useState<string[]>(initialFormPayload?.routes.llm_route_ids ?? []);
   const [mcpRouteIds, setMcpRouteIds] = useState<string[]>(initial?.routes.mcp_route_ids ?? []);
   const [providerIds, setProviderIds] = useState<string[]>(initial?.resources.provider_ids ?? []);
-  const [mcpServiceIds, setMcpServiceIds] = useState<string[]>(initial?.resources.mcp_service_ids ?? []);
+  const [mcpServiceIds, setMcpServiceIds] = useState<string[]>(initialFormPayload?.resources.mcp_service_ids ?? []);
   const [virtualKeyIds, setVirtualKeyIds] = useState<string[]>(initial?.resources.virtual_key_ids ?? []);
   const [maxAgentDepth, setMaxAgentDepth] = useState(initial?.policy.max_agent_depth ? String(initial.policy.max_agent_depth) : "");
   const [maxTurns, setMaxTurns] = useState(initial?.policy.budget?.max_turns_per_day ? String(initial.policy.budget.max_turns_per_day) : "");
@@ -171,9 +193,17 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
   const [disabled, setDisabled] = useState(initial?.disabled ?? false);
   const [saving, setSaving] = useState(false);
   const [editorMode, setEditorMode] = useState<EditorMode>(initial?.runtime.type === "builtin" ? "yaml" : "form");
-  const [yamlText, setYamlText] = useState(initial ? agentPayloadYaml(agentPayload(initial)) : "");
+  const [yamlText, setYamlText] = useState(() => initialPayload ? agentPayloadYaml(initialPayload) : "");
+  const [yamlDerivedLlmRouteIds, setYamlDerivedLlmRouteIds] = useState<string[]>(
+    () => initialBuiltinReferences.llmRouteIDs,
+  );
+  const [detachedBuiltinReferences, setDetachedBuiltinReferences] = useState({
+    llmRouteIDs: [] as string[],
+    mcpServiceIDs: [] as string[],
+  });
 
   const loadRef = useCallback(async () => {
+    setRefStatus({ llmRoutes: "loading", mcpServices: "loading" });
     const [llmRoutes, mcpRoutes, mcpServices, providers, vkeys] = await Promise.allSettled([
       listLLMRoutes(), listMCPRoutes(), listMCPServices(), listProviders(), listVirtualKeys(),
     ]);
@@ -184,6 +214,12 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
       providers: providers.status === "fulfilled" ? providers.value.map((p) => ({ id: p.id })) : [],
       virtualKeys: vkeys.status === "fulfilled" ? vkeys.value.map((k) => ({ id: k.id })) : [],
     });
+    const nextStatus = {
+      llmRoutes: llmRoutes.status === "fulfilled" ? "ok" : "error",
+      mcpServices: mcpServices.status === "fulfilled" ? "ok" : "error",
+    } satisfies { llmRoutes: RefStatus; mcpServices: RefStatus };
+    setRefStatus(nextStatus);
+    return nextStatus;
   }, []);
 
   useEffect(() => {
@@ -198,12 +234,27 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
   const refresh = async () => {
     setRefreshing(true);
     try {
-      await loadRef();
-      showToast("Options refreshed", "success");
+      const status = await loadRef();
+      if (status.llmRoutes === "error" || status.mcpServices === "error") {
+        showToast("Some resource options still could not be loaded", "error");
+      } else {
+        showToast("Options refreshed", "success");
+      }
     } finally {
       setRefreshing(false);
     }
   };
+
+  const retryDependencyCheck = (
+    <Button
+      variant="ghost"
+      className="shrink-0 border-amber-400/30 px-2 py-0.5 text-[11px] text-amber-100"
+      onClick={() => void refresh()}
+      disabled={refreshing}
+    >
+      {refreshing ? "Retrying…" : "Retry"}
+    </Button>
+  );
 
   // Parse the builtin JSON once per keystroke so both validation and the review
   // step read the same result.
@@ -286,6 +337,11 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
     disabled,
   });
 
+  // The editor is intentionally friendlier than GatewayBundle import: bundle
+  // apply treats its input as a complete artifact, while this form derives the
+  // bindings required by an inline builtin definition.
+  const buildBoundPayload = (): AgentPayload => bindBuiltinDependencies(buildPayload());
+
   const yamlParse = useMemo((): { value?: AgentPayload; error?: string } => {
     if (!yamlText.trim()) return { error: "Agent YAML is empty" };
     try {
@@ -297,13 +353,58 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
     }
   }, [initial, isEdit, yamlText]);
 
-  const applyPayloadToForm = (payload: AgentPayload) => {
-    setId(payload.id);
-    setName(payload.name);
-    setDescription(payload.description ?? "");
-    setRuntimeType(payload.runtime.type);
+  const formBuiltinReferences = useMemo(
+    () => collectBuiltinReferences(builtinParse.value),
+    [builtinParse.value],
+  );
+  const yamlBuiltinReferences = useMemo(
+    () => collectBuiltinReferences(
+      yamlParse.value?.runtime.type === "builtin" ? yamlParse.value.runtime.builtin : undefined,
+    ),
+    [yamlParse.value],
+  );
+  const builtinReferences = editorMode === "yaml" ? yamlBuiltinReferences : formBuiltinReferences;
+  const unretainedDetachedLlmRouteIds = detachedBuiltinReferences.llmRouteIDs.filter(
+    (routeID) => !llmRouteIds.includes(routeID),
+  );
+  const unretainedDetachedMcpServiceIds = detachedBuiltinReferences.mcpServiceIDs.filter(
+    (serviceID) => !mcpServiceIds.includes(serviceID),
+  );
+  const effectiveLlmRouteIds = useMemo(
+    () => [...new Set([...llmRouteIds, ...formBuiltinReferences.llmRouteIDs])],
+    [llmRouteIds, formBuiltinReferences.llmRouteIDs],
+  );
+  const effectiveMcpServiceIds = useMemo(
+    () => [...new Set([...mcpServiceIds, ...formBuiltinReferences.mcpServiceIDs])],
+    [mcpServiceIds, formBuiltinReferences.mcpServiceIDs],
+  );
+  const missingBuiltinLlmRoutes = useMemo(
+    () => refStatus.llmRoutes === "ok"
+      ? builtinReferences.llmRouteIDs.filter((id) => !ref.llmRoutes.some((route) => route.id === id))
+      : [],
+    [builtinReferences.llmRouteIDs, ref.llmRoutes, refStatus.llmRoutes],
+  );
+  const missingBuiltinMcpServices = useMemo(
+    () => refStatus.mcpServices === "ok"
+      ? builtinReferences.mcpServiceIDs.filter((id) => !ref.mcpServices.some((service) => service.id === id))
+      : [],
+    [builtinReferences.mcpServiceIDs, ref.mcpServices, refStatus.mcpServices],
+  );
+  const staleYamlLlmRouteIds = useMemo(
+    () => editorMode === "yaml" && yamlParse.value
+      ? findStaleBuiltinLlmBindings(yamlParse.value, yamlDerivedLlmRouteIds)
+      : [],
+    [editorMode, yamlDerivedLlmRouteIds, yamlParse.value],
+  );
 
-    const acp = payload.runtime.acp;
+  const applyPayloadToForm = (payload: AgentPayload) => {
+    const formPayload = stripBuiltinDependencies(payload);
+    setId(formPayload.id);
+    setName(formPayload.name);
+    setDescription(formPayload.description ?? "");
+    setRuntimeType(formPayload.runtime.type);
+
+    const acp = formPayload.runtime.acp;
     if (acp) {
       setAcpAgentType(acp.agent_type);
       setAcpCwd(acp.cwd);
@@ -318,21 +419,21 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
       setAcpCodexCommand(acp.codex?.adapter_command ?? "");
       setAcpCodexArgs((acp.codex?.adapter_args ?? []).join("\n"));
     }
-    if (payload.runtime.builtin) setBuiltinJson(JSON.stringify(payload.runtime.builtin, null, 2));
-    if (payload.runtime.http) {
-      setHttpEndpoint(payload.runtime.http.endpoint);
-      setHttpAuthRef(payload.runtime.http.auth_ref ?? "");
+    if (formPayload.runtime.builtin) setBuiltinJson(JSON.stringify(formPayload.runtime.builtin, null, 2));
+    if (formPayload.runtime.http) {
+      setHttpEndpoint(formPayload.runtime.http.endpoint);
+      setHttpAuthRef(formPayload.runtime.http.auth_ref ?? "");
     }
 
-    setLlmRouteIds(payload.routes.llm_route_ids ?? []);
-    setMcpRouteIds(payload.routes.mcp_route_ids ?? []);
-    setProviderIds(payload.resources.provider_ids ?? []);
-    setMcpServiceIds(payload.resources.mcp_service_ids ?? []);
-    setVirtualKeyIds(payload.resources.virtual_key_ids ?? []);
-    setMaxAgentDepth(payload.policy.max_agent_depth ? String(payload.policy.max_agent_depth) : "");
-    setMaxTurns(payload.policy.budget?.max_turns_per_day ? String(payload.policy.budget.max_turns_per_day) : "");
-    setMaxTokens(payload.policy.budget?.max_tokens_per_day ? String(payload.policy.budget.max_tokens_per_day) : "");
-    setDisabled(payload.disabled);
+    setLlmRouteIds(formPayload.routes.llm_route_ids ?? []);
+    setMcpRouteIds(formPayload.routes.mcp_route_ids ?? []);
+    setProviderIds(formPayload.resources.provider_ids ?? []);
+    setMcpServiceIds(formPayload.resources.mcp_service_ids ?? []);
+    setVirtualKeyIds(formPayload.resources.virtual_key_ids ?? []);
+    setMaxAgentDepth(formPayload.policy.max_agent_depth ? String(formPayload.policy.max_agent_depth) : "");
+    setMaxTurns(formPayload.policy.budget?.max_turns_per_day ? String(formPayload.policy.budget.max_turns_per_day) : "");
+    setMaxTokens(formPayload.policy.budget?.max_tokens_per_day ? String(formPayload.policy.budget.max_tokens_per_day) : "");
+    setDisabled(formPayload.disabled);
   };
 
   const switchToYaml = () => {
@@ -340,7 +441,9 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
       showToast(`Builtin definition: ${builtinParse.error}`, "error");
       return;
     }
-    setYamlText(agentPayloadYaml(buildPayload()));
+    const payload = buildBoundPayload();
+    setYamlDerivedLlmRouteIds(collectBuiltinReferences(payload.runtime.builtin).llmRouteIDs);
+    setYamlText(agentPayloadYaml(payload));
     setEditorMode("yaml");
   };
 
@@ -351,6 +454,32 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
     }
     applyPayloadToForm(yamlParse.value);
     setEditorMode("form");
+  };
+
+  const validateBuiltinDependencies = (payload: AgentPayload): string | null => {
+    if (payload.runtime.type !== "builtin") return null;
+    const references = collectBuiltinReferences(payload.runtime.builtin);
+
+    if ((references.llmRouteIDs.length > 0 && refStatus.llmRoutes === "loading")
+      || (references.mcpServiceIDs.length > 0 && refStatus.mcpServices === "loading")) {
+      return "Wait for builtin dependency checks to finish before saving";
+    }
+    if ((references.llmRouteIDs.length > 0 && refStatus.llmRoutes === "error")
+      || (references.mcpServiceIDs.length > 0 && refStatus.mcpServices === "error")) {
+      return "Builtin dependencies could not be verified. Refresh the resource options before saving";
+    }
+
+    const diagnostics = diagnoseBuiltinDependencies(payload, {
+      llmRouteIDs: ref.llmRoutes.map((route) => route.id),
+      mcpServiceIDs: ref.mcpServices.map((service) => service.id),
+    });
+    const missing = [
+      ...diagnostics.missingLlmRouteIDs.map((id) => `LLM route "${id}"`),
+      ...diagnostics.missingMcpServiceIDs.map((id) => `MCP service "${id}"`),
+    ];
+    return missing.length > 0
+      ? `Create or correct the missing builtin ${missing.length === 1 ? "dependency" : "dependencies"} before saving: ${missing.join(", ")}`
+      : null;
   };
 
   // Returns an error message if the given wizard step is incomplete, else null.
@@ -381,6 +510,7 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
       }
       if (runtimeType === "http" && !httpEndpoint.trim()) return "HTTP runtime requires an endpoint";
     }
+    if (s === 2) return validateBuiltinDependencies(buildPayload());
     return null;
   };
 
@@ -390,20 +520,36 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
         showToast(yamlParse.error ?? "Invalid Agent YAML", "error");
         return;
       }
+      const dependencyError = validateBuiltinDependencies(yamlParse.value);
+      if (dependencyError) {
+        showToast(dependencyError, "error");
+        return;
+      }
     } else {
-      for (let s = 0; s <= 1; s++) {
+      for (let s = 0; s <= 2; s++) {
         const err = validateStep(s);
         if (err) { showToast(err, "error"); if (wizard) setStep(s); return; }
       }
     }
+    const payload = editorMode === "yaml" ? bindBuiltinDependencies(yamlParse.value!) : buildBoundPayload();
+    const submittedBuiltinReferences = collectBuiltinReferences(
+      payload.runtime.type === "builtin" ? payload.runtime.builtin : undefined,
+    );
     setSaving(true);
     try {
-      const payload = editorMode === "yaml" ? yamlParse.value! : buildPayload();
       const saved = isEdit ? await updateAgent(initial!.id, payload) : await createAgent(payload);
       showToast(isEdit ? "Agent updated" : "Agent created", "success");
       router.push(`/dashboard/agents/${encodeURIComponent(saved.id)}`);
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Failed to save agent", "error");
+      let message = err instanceof ApiError ? err.message : "Failed to save agent";
+      const conflict = err instanceof ApiError
+        // Upstream source: agent-gateway/pkg/agent/manager.go:219.
+        ? /^route "([^"]+)" is already bound by agent "([^"]+)"$/.exec(err.message)
+        : null;
+      if (conflict && submittedBuiltinReferences.llmRouteIDs.includes(conflict[1])) {
+        message = `Builtin definition references LLM route "${conflict[1]}", but agent "${conflict[2]}" already owns its exclusive binding`;
+      }
+      showToast(message, "error");
     } finally {
       setSaving(false);
     }
@@ -530,7 +676,8 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
       ) : (
         <p className="text-xs text-slate-500">
           Valid JSON. This is the same structure a gateway bundle&apos;s <span className="font-mono">agents[].runtime.builtin</span> carries,
-          so an <span className="font-mono">agwctl gateway export</span> fragment can be pasted here directly.
+          so an <span className="font-mono">agwctl gateway export</span> fragment can be pasted here directly. Referenced LLM routes and MCP
+          services are added to the Agent&apos;s bindings when it is saved.
         </p>
       )}
       <p className="text-xs text-slate-500">
@@ -575,9 +722,16 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
             value={runtimeType}
             onChange={(v) => {
               const nextType = v as AgentRuntimeType;
+              if (runtimeType === "builtin" && nextType !== "builtin") {
+                setDetachedBuiltinReferences(formBuiltinReferences);
+              } else if (nextType === "builtin") {
+                setDetachedBuiltinReferences({ llmRouteIDs: [], mcpServiceIDs: [] });
+              }
               if (nextType === "builtin" && runtimeType !== "builtin") {
                 const builtin = JSON.parse(BUILTIN_TEMPLATE) as AgentRuntimeBuiltin;
-                setYamlText(agentPayloadYaml({ ...buildPayload(), runtime: { type: "builtin", builtin } }));
+                const payload = bindBuiltinDependencies({ ...buildPayload(), runtime: { type: "builtin", builtin } });
+                setYamlDerivedLlmRouteIds(collectBuiltinReferences(builtin).llmRouteIDs);
+                setYamlText(agentPayloadYaml(payload));
                 setEditorMode("yaml");
               }
               setRuntimeType(nextType);
@@ -596,6 +750,18 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
             optional capabilities — sessions, transcript, and permission support can differ.
           </p>
         )}
+        {runtimeType !== "builtin"
+          && (unretainedDetachedLlmRouteIds.length > 0 || unretainedDetachedMcpServiceIds.length > 0) && (
+          <p className="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-300" role="alert">
+            Switching away from builtin removes bindings derived from its model and tool references.
+            {unretainedDetachedLlmRouteIds.length > 0 && (
+              <> Re-select LLM {unretainedDetachedLlmRouteIds.length === 1 ? "route" : "routes"} <span className="font-mono">{unretainedDetachedLlmRouteIds.join(", ")}</span> to retain {unretainedDetachedLlmRouteIds.length === 1 ? "it" : "them"} explicitly.</>
+            )}
+            {unretainedDetachedMcpServiceIds.length > 0 && (
+              <> Re-select MCP {unretainedDetachedMcpServiceIds.length === 1 ? "service" : "services"} <span className="font-mono">{unretainedDetachedMcpServiceIds.join(", ")}</span> to retain {unretainedDetachedMcpServiceIds.length === 1 ? "it" : "them"} explicitly.</>
+            )}
+          </p>
+        )}
 
         {runtimeType === "acp" && acpRuntimeFields}
         {runtimeType === "builtin" && builtinRuntimeFields}
@@ -606,14 +772,56 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
 
   const routesCard = (
     <Card>
-      <CardHeader><CardTitle>Routes <span className="text-xs font-normal text-slate-500">(display / attribution only)</span></CardTitle></CardHeader>
+      <CardHeader><CardTitle>Routes <span className="text-xs font-normal text-slate-500">(Agent bindings)</span></CardTitle></CardHeader>
       <div className="space-y-4">
         <p className="text-xs text-slate-500">
           Ingress is not configured here. An agent route names its own <span className="font-mono">agent_id</span>, so
           create it on the <Link href="/dashboard/agents/routes" className="text-blue-400 hover:underline">Agent Routes</Link> page.
+          Builtin model routes are included automatically and each route can be bound to only one Agent.
         </p>
+        {runtimeType === "builtin" && (
+          <p className="rounded-md border border-slate-700/60 bg-slate-950/30 px-2.5 py-1.5 text-[11px] text-slate-400">
+            A binding that overlaps a builtin reference is treated as derived. If the builtin stops referencing it,
+            select it again to retain it as an explicit binding.
+          </p>
+        )}
         <Field label="LLM routes" action={<NewLink href="/dashboard/llm/routes" />}>
-          <MultiSelect options={ref.llmRoutes.map((r) => ({ value: r.id, label: r.id }))} selected={llmRouteIds} onChange={setLlmRouteIds} emptyText="No LLM routes." />
+          <MultiSelect
+            options={[
+              ...ref.llmRoutes.map((r) => ({
+                value: r.id,
+                label: r.id,
+                disabled: formBuiltinReferences.llmRouteIDs.includes(r.id),
+                disabledStyle: "normal" as const,
+                hint: formBuiltinReferences.llmRouteIDs.includes(r.id) ? "required by builtin" : undefined,
+              })),
+              ...missingBuiltinLlmRoutes.map((id) => ({ value: id, label: id, disabled: true, disabledStyle: "normal" as const, invalid: true, hint: "dangling" })),
+            ]}
+            selected={effectiveLlmRouteIds}
+            onChange={(next) => setLlmRouteIds(next.filter((id) => !formBuiltinReferences.llmRouteIDs.includes(id)))}
+            emptyText="No LLM routes."
+          />
+          {formBuiltinReferences.llmRouteIDs.length > 0 && (
+            <p className="mt-1 text-xs text-slate-500">
+              Automatically bound from builtin: <span className="font-mono">{formBuiltinReferences.llmRouteIDs.join(", ")}</span>. These exclusive bindings cannot be removed here.
+            </p>
+          )}
+          {missingBuiltinLlmRoutes.length > 0 && (
+            <p className="mt-2 rounded-md border border-rose-500/50 bg-rose-500/10 px-2.5 py-1.5 text-[11px] text-rose-200" role="alert">
+              The builtin references {missingBuiltinLlmRoutes.length === 1 ? "an LLM route that does" : "LLM routes that do"} not exist. Create or correct {missingBuiltinLlmRoutes.length === 1 ? "it" : "them"} before saving.
+            </p>
+          )}
+          {formBuiltinReferences.llmRouteIDs.length > 0 && refStatus.llmRoutes === "loading" && (
+            <p className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-200" role="status">
+              Checking referenced LLM routes…
+            </p>
+          )}
+          {formBuiltinReferences.llmRouteIDs.length > 0 && refStatus.llmRoutes === "error" && (
+            <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-200" role="alert">
+              <span>Referenced LLM routes could not be verified. Retry before saving.</span>
+              {retryDependencyCheck}
+            </div>
+          )}
         </Field>
         <Field label="MCP routes" action={<NewLink href="/dashboard/mcp/routes" />}>
           <MultiSelect options={ref.mcpRoutes.map((r) => ({ value: r.id, label: r.id }))} selected={mcpRouteIds} onChange={setMcpRouteIds} emptyText="No MCP routes." />
@@ -630,7 +838,42 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
           <MultiSelect options={ref.providers.map((p) => ({ value: p.id, label: p.id }))} selected={providerIds} onChange={setProviderIds} emptyText="No providers." />
         </Field>
         <Field label="MCP services" action={<NewLink href="/dashboard/mcp/services" />}>
-          <MultiSelect options={ref.mcpServices.map((s) => ({ value: s.id, label: s.id }))} selected={mcpServiceIds} onChange={setMcpServiceIds} emptyText="No MCP services." />
+          <MultiSelect
+            options={[
+              ...ref.mcpServices.map((s) => ({
+                value: s.id,
+                label: s.id,
+                disabled: formBuiltinReferences.mcpServiceIDs.includes(s.id),
+                disabledStyle: "normal" as const,
+                hint: formBuiltinReferences.mcpServiceIDs.includes(s.id) ? "required by builtin" : undefined,
+              })),
+              ...missingBuiltinMcpServices.map((id) => ({ value: id, label: id, disabled: true, disabledStyle: "normal" as const, invalid: true, hint: "dangling" })),
+            ]}
+            selected={effectiveMcpServiceIds}
+            onChange={(next) => setMcpServiceIds(next.filter((id) => !formBuiltinReferences.mcpServiceIDs.includes(id)))}
+            emptyText="No MCP services."
+          />
+          {formBuiltinReferences.mcpServiceIDs.length > 0 && (
+            <p className="mt-1 text-xs text-slate-500">
+              Automatically declared from builtin: <span className="font-mono">{formBuiltinReferences.mcpServiceIDs.join(", ")}</span>.
+            </p>
+          )}
+          {missingBuiltinMcpServices.length > 0 && (
+            <p className="mt-2 rounded-md border border-rose-500/50 bg-rose-500/10 px-2.5 py-1.5 text-[11px] text-rose-200" role="alert">
+              The builtin references {missingBuiltinMcpServices.length === 1 ? "an MCP service that does" : "MCP services that do"} not exist. Create or correct {missingBuiltinMcpServices.length === 1 ? "it" : "them"} before saving.
+            </p>
+          )}
+          {formBuiltinReferences.mcpServiceIDs.length > 0 && refStatus.mcpServices === "loading" && (
+            <p className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-200" role="status">
+              Checking referenced MCP services…
+            </p>
+          )}
+          {formBuiltinReferences.mcpServiceIDs.length > 0 && refStatus.mcpServices === "error" && (
+            <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-200" role="alert">
+              <span>Referenced MCP services could not be verified. Retry before saving.</span>
+              {retryDependencyCheck}
+            </div>
+          )}
         </Field>
         <Field label="Virtual keys" action={<NewLink href="/dashboard/general/virtual-keys" />}>
           <MultiSelect options={ref.virtualKeys.map((k) => ({ value: k.id, label: k.id }))} selected={virtualKeyIds} onChange={setVirtualKeyIds} emptyText="No virtual keys." />
@@ -693,10 +936,10 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
         {reviewRow("Name", name || "—")}
         {description && reviewRow("Description", description)}
         {reviewRow("Runtime", runtimeReview())}
-        {reviewRow("LLM routes", reviewList(llmRouteIds))}
+        {reviewRow("LLM routes", reviewList(effectiveLlmRouteIds))}
         {reviewRow("MCP routes", reviewList(mcpRouteIds))}
         {reviewRow("Providers", reviewList(providerIds))}
-        {reviewRow("MCP services", reviewList(mcpServiceIds))}
+        {reviewRow("MCP services", reviewList(effectiveMcpServiceIds))}
         {reviewRow("Virtual keys", reviewList(virtualKeyIds))}
         {reviewRow("Disabled", disabled ? "Yes" : "No")}
       </div>
@@ -725,6 +968,53 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
     </div>
   );
 
+  const yamlDependencyPanel = yamlParse.value?.runtime.type === "builtin" ? (
+    <div className="mt-3 space-y-2 rounded-md border border-slate-700/70 bg-slate-950/35 px-3 py-2.5 text-xs">
+      <p className="font-medium text-slate-200">Builtin dependency check</p>
+      <p className="text-slate-400">
+        Required LLM routes: <span className="font-mono text-slate-200">{builtinReferences.llmRouteIDs.join(", ") || "—"}</span>
+      </p>
+      <p className="text-slate-400">
+        Required MCP services: <span className="font-mono text-slate-200">{builtinReferences.mcpServiceIDs.join(", ") || "—"}</span>
+      </p>
+      <p className="text-slate-500">These references are added to the Agent bindings automatically when it is saved.</p>
+      {((builtinReferences.llmRouteIDs.length > 0 && refStatus.llmRoutes === "loading")
+        || (builtinReferences.mcpServiceIDs.length > 0 && refStatus.mcpServices === "loading")) && (
+        <p className="rounded-md border border-amber-500/40 bg-amber-500/5 px-2.5 py-1.5 text-amber-200" role="status">
+          Checking referenced resources… Saving is blocked until the check finishes.
+        </p>
+      )}
+      {((builtinReferences.llmRouteIDs.length > 0 && refStatus.llmRoutes === "error")
+        || (builtinReferences.mcpServiceIDs.length > 0 && refStatus.mcpServices === "error")) && (
+        <div className="flex items-center justify-between gap-2 rounded-md border border-rose-500/50 bg-rose-500/10 px-2.5 py-1.5 text-rose-200" role="alert">
+          <span>Referenced resources could not be verified. Retry before saving.</span>
+          {retryDependencyCheck}
+        </div>
+      )}
+      {missingBuiltinLlmRoutes.length > 0 && (
+        <p className="rounded-md border border-rose-500/50 bg-rose-500/10 px-2.5 py-1.5 text-rose-200" role="alert">
+          Missing LLM {missingBuiltinLlmRoutes.length === 1 ? "route" : "routes"}: <span className="font-mono">{missingBuiltinLlmRoutes.join(", ")}</span>. Create or correct {missingBuiltinLlmRoutes.length === 1 ? "it" : "them"} before saving.
+        </p>
+      )}
+      {missingBuiltinMcpServices.length > 0 && (
+        <p className="rounded-md border border-rose-500/50 bg-rose-500/10 px-2.5 py-1.5 text-rose-200" role="alert">
+          Missing MCP {missingBuiltinMcpServices.length === 1 ? "service" : "services"}: <span className="font-mono">{missingBuiltinMcpServices.join(", ")}</span>. Create or correct {missingBuiltinMcpServices.length === 1 ? "it" : "them"} before saving.
+        </p>
+      )}
+      {staleYamlLlmRouteIds.length > 0 && (
+        <p className="rounded-md border border-amber-500/40 bg-amber-500/5 px-2.5 py-1.5 text-amber-200" role="alert">
+          No longer required by the builtin but still exclusively bound: <span className="font-mono">{staleYamlLlmRouteIds.join(", ")}</span>. Remove {staleYamlLlmRouteIds.length === 1 ? "it" : "them"} from <span className="font-mono">routes.llm_route_ids</span> unless the binding is intentional.
+        </p>
+      )}
+      {(builtinReferences.llmRouteIDs.length === 0 || refStatus.llmRoutes === "ok")
+        && (builtinReferences.mcpServiceIDs.length === 0 || refStatus.mcpServices === "ok")
+        && missingBuiltinLlmRoutes.length === 0
+        && missingBuiltinMcpServices.length === 0 && (
+        <p className="text-emerald-400">All referenced builtin dependencies exist.</p>
+      )}
+    </div>
+  ) : null;
+
   const yamlEditor = (
     <div className="space-y-4">
       {modeToggle}
@@ -732,7 +1022,8 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
         <CardHeader><CardTitle>Agent YAML</CardTitle></CardHeader>
         <p className="mb-3 text-xs leading-5 text-slate-500">
           Edit one Agent Admin API payload. You can also paste an <span className="font-mono">agents:</span> fragment or a
-          one-agent GatewayBundle; switching back to Form applies every field below.
+          one-agent GatewayBundle; switching back to Form applies every field below. For builtin agents, referenced LLM routes and MCP
+          services are added to the Agent&apos;s bindings when it is saved.
         </p>
         <textarea
           value={yamlText}
@@ -751,6 +1042,7 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
             Valid Agent YAML · runtime: <span className="font-mono">{yamlParse.value?.runtime.type}</span>
           </p>
         )}
+        {yamlDependencyPanel}
       </Card>
       <div className="flex justify-end gap-1.5">
         <Button variant="ghost" onClick={() => router.back()} disabled={saving}>Cancel</Button>
