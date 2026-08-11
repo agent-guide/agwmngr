@@ -1198,8 +1198,8 @@ function metricsQuery(q?: MetricsQuery): string {
   return s ? `?${s}` : "";
 }
 
-/** Per-group aggregate row. Numeric fields are optional per protocol; the
- *  group-key column (e.g. `upstream_model`, `route_id`) is read via bracket. */
+/** Per-group aggregate measures. Numeric fields are optional per protocol;
+ *  grouped dimensions are represented separately by `GroupedRow`. */
 export interface UsageStat {
   request_count?: number;
   success_count?: number;
@@ -1211,8 +1211,16 @@ export interface UsageStat {
   turn_count?: number;
   avg_latency_ms?: number;
 }
-export type BreakdownItem = UsageStat & Record<string, unknown>;
-export type TimeseriesPoint = UsageStat & { timestamp: string } & Record<string, unknown>;
+/**
+ * A breakdown/timeseries row carries the grouped dimension as `group_value`,
+ * **not** under a column named after `group_by`: the gateway's SQL projects
+ * `SELECT <col> AS group_value` (`pkg/configstore/sqlite/usage_query.go`), and
+ * only the response envelope echoes which dimension that was. Read the value
+ * through `group_value` — indexing a row by the group_by key yields undefined.
+ */
+export type GroupedRow = { group_value?: string | null };
+export type BreakdownItem = UsageStat & GroupedRow & Record<string, unknown>;
+export type TimeseriesPoint = UsageStat & GroupedRow & { timestamp: string } & Record<string, unknown>;
 
 export interface BreakdownResponse {
   group_by: string;

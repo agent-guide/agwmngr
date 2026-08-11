@@ -34,13 +34,27 @@ function fmt(n: number): string {
   return n.toLocaleString();
 }
 
+/**
+ * The grouped dimension of a breakdown row. The gateway aliases the group-by
+ * column as `group_value` in the SQL projection (`usage_query.go` breakdown /
+ * InteractionsSummary), so a row never carries a column named after the
+ * group_by key itself — only the response envelope echoes `group_by`. Reading
+ * `it[groupBy]` therefore always yielded undefined, which rendered every table
+ * cell as "—" and folded the whole donut into one `(none)` slice. The named
+ * column is kept as a fallback so a future gateway that projects it still works.
+ * Returns null for a genuinely absent value (e.g. a NULL virtual_key_id).
+ */
+function groupName(it: BreakdownItem, groupBy: string): string | null {
+  const raw = it.group_value ?? it[groupBy];
+  return raw === undefined || raw === null || raw === "" ? null : String(raw);
+}
+
 /** Donut slices from a breakdown: empty group values fold into a single
  *  `(none)` bucket with summed requests, then ranked desc and capped at 8. */
 function shareData(items: BreakdownItem[], groupBy: string): { name: string; value: number }[] {
   const byName = new Map<string, number>();
   for (const it of items) {
-    const raw = it[groupBy];
-    const name = raw === undefined || raw === null || raw === "" ? "(none)" : String(raw);
+    const name = groupName(it, groupBy) ?? "(none)";
     byName.set(name, (byName.get(name) ?? 0) + num(it.request_count));
   }
   return [...byName.entries()]
@@ -238,7 +252,7 @@ function LLMTab({ range, setRange, agentId }: TabProps) {
         <ShareCard groupLabel={groupLabel} data={donutData} />
       </div>
 
-      <BreakdownCard title={`Breakdown by ${groupLabel}`} items={items} groupBy={groupBy} tokens emptyText="No usage recorded in this range." />
+      <BreakdownCard title={`Breakdown by ${groupLabel}`} items={items} groupBy={groupBy} groupLabel={groupLabel} tokens emptyText="No usage recorded in this range." />
       <EventsCard events={events.data?.items ?? []} />
     </div>
   );
@@ -311,7 +325,7 @@ function MCPTab({ range, setRange, agentId }: TabProps) {
         <ShareCard groupLabel={groupLabel} data={donutData} />
       </div>
 
-      <BreakdownCard title={`Breakdown by ${groupLabel}`} items={items} groupBy={effectiveGroupBy} emptyText="No MCP usage recorded in this range." />
+      <BreakdownCard title={`Breakdown by ${groupLabel}`} items={items} groupBy={effectiveGroupBy} groupLabel={groupLabel} emptyText="No MCP usage recorded in this range." />
       <EventsCard events={events.data?.items ?? []} />
     </div>
   );
@@ -409,7 +423,7 @@ function AgentTab({ range, setRange, agentId }: TabProps) {
         <ShareCard groupLabel={groupLabel} data={donutData} />
       </div>
 
-      <BreakdownCard title={`Breakdown by ${groupLabel}`} items={items} groupBy={effectiveGroupBy} emptyText="No ACP usage recorded in this range." />
+      <BreakdownCard title={`Breakdown by ${groupLabel}`} items={items} groupBy={effectiveGroupBy} groupLabel={groupLabel} emptyText="No ACP usage recorded in this range." />
       <EventsCard events={events.data?.items ?? []} />
     </div>
   );
@@ -466,7 +480,7 @@ function ShareCard({ groupLabel, data }: { groupLabel: string; data: { name: str
   );
 }
 
-function BreakdownCard({ title, items, groupBy, tokens, emptyText }: { title: string; items: BreakdownItem[]; groupBy: string; tokens?: boolean; emptyText: string }) {
+function BreakdownCard({ title, items, groupBy, groupLabel, tokens, emptyText }: { title: string; items: BreakdownItem[]; groupBy: string; groupLabel: string; tokens?: boolean; emptyText: string }) {
   return (
     <Card className="overflow-hidden p-0">
       <div className="border-b border-slate-700/70 px-4 py-2.5">
@@ -476,7 +490,7 @@ function BreakdownCard({ title, items, groupBy, tokens, emptyText }: { title: st
         <table className="min-w-[640px] w-full text-sm">
           <thead>
             <tr className="border-b border-slate-700/70 bg-slate-900/50 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">
-              <th className="px-4 py-2">{groupBy}</th>
+              <th className="px-4 py-2">{groupLabel}</th>
               <th className="px-4 py-2 text-right">Requests</th>
               <th className="px-4 py-2 text-right">Success</th>
               <th className="px-4 py-2 text-right">Failed</th>
@@ -490,7 +504,7 @@ function BreakdownCard({ title, items, groupBy, tokens, emptyText }: { title: st
             ) : (
               items.map((it, i) => (
                 <tr key={i} className="border-b border-slate-700/50 last:border-0 hover:bg-slate-800/30">
-                  <td className="px-4 py-2 font-mono text-xs text-slate-200">{String(it[groupBy] ?? "—")}</td>
+                  <td className="px-4 py-2 font-mono text-xs text-slate-200">{groupName(it, groupBy) ?? "—"}</td>
                   <td className="px-4 py-2 text-right tabular-nums text-slate-300">{fmt(num(it.request_count))}</td>
                   <td className="px-4 py-2 text-right tabular-nums text-emerald-300">{fmt(num(it.success_count))}</td>
                   <td className="px-4 py-2 text-right tabular-nums text-rose-300">{fmt(num(it.failure_count))}</td>
