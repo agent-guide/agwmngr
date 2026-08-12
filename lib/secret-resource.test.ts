@@ -19,6 +19,24 @@ describe("secret response projection", () => {
     });
   });
 
+  test("provider responses expose extra header names but never values", () => {
+    expect(redactProviderResponse({
+      id: "p",
+      api_key: "secret",
+      network: {
+        request_timeout_seconds: 30,
+        extra_headers: { Authorization: "Bearer secret", "X-Tenant": "tenant-secret" },
+      },
+    })).toEqual({
+      id: "p",
+      api_key_set: true,
+      network: {
+        request_timeout_seconds: 30,
+        extra_headers_set: ["Authorization", "X-Tenant"],
+      },
+    });
+  });
+
   test("credential attributes retain non-secret values only", () => {
     expect(
       redactCredentialResponse({
@@ -75,6 +93,26 @@ describe("write-only secret updates", () => {
       provider_type: "openai",
       api_key: "secret",
       base_url: "https://example.test",
+    });
+  });
+
+  test("provider update merges network fields and preserves omitted write-only headers", () => {
+    expect(mergeProviderUpdate(
+      {
+        id: "p",
+        provider_type: "openai",
+        network: { request_timeout_seconds: 120, extra_headers: { Authorization: "secret" } },
+      },
+      { provider_type: "openai", network: { max_retries: 5 } },
+      "p",
+    )).toEqual({
+      id: "p",
+      provider_type: "openai",
+      network: {
+        request_timeout_seconds: 120,
+        max_retries: 5,
+        extra_headers: { Authorization: "secret" },
+      },
     });
   });
 

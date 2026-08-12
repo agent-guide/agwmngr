@@ -159,7 +159,11 @@ function copyWithout(value: BundleObject, keys: string[]): BundleObject {
 const VIEW_FIELDS = ["created_at", "updated_at", "source", "read_only"];
 
 function providerConfig(item: ProviderItem | BundleObject): BundleObject {
-  return copyWithout(item as BundleObject, VIEW_FIELDS);
+  const config = copyWithout(item as BundleObject, [...VIEW_FIELDS, "api_key_set"]);
+  if (isObject(config.network)) {
+    config.network = copyWithout(config.network, ["extra_headers_set"]);
+  }
+  return config;
 }
 
 function managedModelConfig(item: ManagedConcreteModel | BundleObject): BundleObject {

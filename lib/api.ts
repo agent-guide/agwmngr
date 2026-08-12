@@ -105,21 +105,37 @@ export interface ProviderTypeItem {
   enabled: boolean;
 }
 
+export interface ProviderNetworkConfig {
+  request_timeout_seconds?: number;
+  max_retries?: number;
+  retry_delay_seconds?: number;
+  max_idle_connections?: number;
+  max_idle_connections_per_host?: number;
+  idle_keep_alive_timeout_seconds?: number;
+  proxy_url?: string;
+  /** Write-only values. Reads expose only extra_headers_set. */
+  extra_headers?: Record<string, string>;
+  extra_headers_set?: string[];
+}
+
 export interface ProviderItem {
   id: string;
   provider_type: string;
   api_key?: string;
   api_key_set?: boolean;
+  disabled?: boolean;
   base_url?: string;
   default_model?: string;
+  network?: ProviderNetworkConfig;
   options?: Record<string, unknown>;
   source?: string;
   read_only?: boolean;
+  created_at?: string;
+  updated_at?: string;
 }
 
-export type ProviderPayload = Pick<
-  ProviderItem,
-  "id" | "provider_type" | "api_key" | "base_url" | "default_model" | "options"
+export type ProviderPayload = Pick<ProviderItem,
+  "id" | "provider_type" | "disabled" | "api_key" | "base_url" | "default_model" | "network" | "options"
 >;
 export type ProviderUpdatePayload = Omit<ProviderPayload, "id">;
 

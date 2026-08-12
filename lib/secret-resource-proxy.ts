@@ -25,7 +25,8 @@ function responseBody(body: unknown, status: number): Response {
 
 async function parseBody(req: Request): Promise<{ ok: true; body: unknown } | { ok: false; res: Response }> {
   try {
-    return { ok: true, body: await req.json() };
+    const text = await req.text();
+    return { ok: true, body: text.trim() ? JSON.parse(text) : undefined };
   } catch {
     return { ok: false, res: Response.json({ error: "invalid request body" }, { status: 400 }) };
   }

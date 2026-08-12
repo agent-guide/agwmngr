@@ -16,6 +16,14 @@ import {
 } from "@/lib/api";
 import { useAgentAttribution } from "@/hooks/use-agent-attribution";
 import { UsedByAgents } from "@/components/used-by-agents";
+import {
+  ProviderAdvancedFields,
+  buildNetworkConfig,
+  emptyNetworkDraft,
+  networkDraftFromConfig,
+  parseProviderOptions,
+  type NetworkDraft,
+} from "@/components/provider-advanced-fields";
 
 function getBaseUrl(item: ProviderItem): string {
   return item.base_url ?? "";
@@ -38,12 +46,20 @@ export default function ProvidersPage() {
   const [addType, setAddType] = useState("");
   const [addBaseUrl, setAddBaseUrl] = useState("");
   const [addApiKey, setAddApiKey] = useState("");
+  const [addDefaultModel, setAddDefaultModel] = useState("");
+  const [addDisabled, setAddDisabled] = useState(false);
+  const [addNetwork, setAddNetwork] = useState<NetworkDraft>(emptyNetworkDraft);
+  const [addOptionsRaw, setAddOptionsRaw] = useState("{}");
 
   // Edit modal state
   const [editItem, setEditItem] = useState<ProviderItem | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editBaseUrl, setEditBaseUrl] = useState("");
   const [editApiKey, setEditApiKey] = useState("");
+  const [editDefaultModel, setEditDefaultModel] = useState("");
+  const [editDisabled, setEditDisabled] = useState(false);
+  const [editNetwork, setEditNetwork] = useState<NetworkDraft>(emptyNetworkDraft);
+  const [editOptionsRaw, setEditOptionsRaw] = useState("{}");
 
   // Delete confirm state
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -82,11 +98,18 @@ export default function ProvidersPage() {
       const payload: Parameters<typeof createProvider>[0] = { id, provider_type: addType };
       if (addBaseUrl.trim()) payload.base_url = addBaseUrl.trim();
       if (addApiKey.trim()) payload.api_key = addApiKey.trim();
+      if (addDefaultModel.trim()) payload.default_model = addDefaultModel.trim();
+      if (addDisabled) payload.disabled = true;
+      const network = buildNetworkConfig(addNetwork);
+      if (network) payload.network = network;
+      const options = parseProviderOptions(addOptionsRaw);
+      if (options) payload.options = options;
       const item = await createProvider(payload);
       setProviders((prev) => [...prev, item]);
       showToast("Provider added", "success");
       setIsAddOpen(false);
       setAddId(""); setAddType(enabledProviderTypes[0] ?? ""); setAddBaseUrl(""); setAddApiKey("");
+      setAddDefaultModel(""); setAddDisabled(false); setAddNetwork(emptyNetworkDraft()); setAddOptionsRaw("{}");
     } catch (err) {
       showToast(err instanceof Error ? err.message : "Failed to add provider", "error");
     } finally {
@@ -97,6 +120,10 @@ export default function ProvidersPage() {
   const openEdit = (item: ProviderItem) => {
     setEditItem(item);
     setEditBaseUrl(item.base_url ?? "");
+    setEditDefaultModel(item.default_model ?? "");
+    setEditDisabled(item.disabled ?? false);
+    setEditNetwork(networkDraftFromConfig(item.network));
+    setEditOptionsRaw(JSON.stringify(item.options ?? {}, null, 2));
     // Secret reads are redacted by the manager. The edit field is write-only:
     // blank preserves the current key, a value replaces it.
     setEditApiKey("");
@@ -105,12 +132,20 @@ export default function ProvidersPage() {
   const handleEdit = async () => {
     if (!editItem) return;
 
-    const payload: Parameters<typeof updateProvider>[1] = { provider_type: editItem.provider_type };
-    if (editBaseUrl.trim()) payload.base_url = editBaseUrl.trim();
+    const payload: Parameters<typeof updateProvider>[1] = {
+      provider_type: editItem.provider_type,
+      disabled: editDisabled,
+      base_url: editBaseUrl.trim(),
+      default_model: editDefaultModel.trim(),
+    };
     if (editApiKey.trim()) payload.api_key = editApiKey.trim();
 
     setEditSubmitting(true);
     try {
+      const network = buildNetworkConfig(editNetwork);
+      if (network) payload.network = network;
+      const options = parseProviderOptions(editOptionsRaw);
+      if (options !== undefined) payload.options = options;
       const updated = await updateProvider(editItem.id, payload);
       setProviders((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
       showToast("Provider updated", "success");
@@ -160,8 +195,8 @@ export default function ProvidersPage() {
       </section>
 
       <section className="overflow-x-auto rounded-lg border border-slate-700/70 bg-slate-900/40">
-        <div className="sticky top-0 z-10 grid grid-cols-[minmax(0,1fr)_120px_minmax(0,1.5fr)_120px] border-b border-slate-700/70 bg-slate-900/95 backdrop-blur-sm px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
-          <span>ID</span><span>Type</span><span>Base URL</span><span>Actions</span>
+        <div className="sticky top-0 z-10 grid grid-cols-[minmax(0,1fr)_120px_minmax(0,1.5fr)_80px_120px] border-b border-slate-700/70 bg-slate-900/95 backdrop-blur-sm px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+          <span>ID</span><span>Type</span><span>Base URL</span><span>Status</span><span>Actions</span>
         </div>
 
         {loading ? (
@@ -172,7 +207,7 @@ export default function ProvidersPage() {
           providers.map((provider) => (
             <div
               key={provider.id}
-              className="grid grid-cols-[minmax(0,1fr)_120px_minmax(0,1.5fr)_120px] items-center border-b border-slate-700/60 px-3 py-2 last:border-b-0"
+              className="grid grid-cols-[minmax(0,1fr)_120px_minmax(0,1.5fr)_80px_120px] items-center border-b border-slate-700/60 px-3 py-2 last:border-b-0"
             >
               <div className="min-w-0">
                 <p className="truncate text-xs font-medium text-slate-100">{provider.id}</p>
@@ -180,6 +215,7 @@ export default function ProvidersPage() {
               </div>
               <span className="text-xs text-slate-400 font-mono">{provider.provider_type}</span>
               <span className="truncate text-xs text-slate-400 font-mono">{getBaseUrl(provider)}</span>
+              <span className={provider.disabled ? "text-xs text-amber-400" : "text-xs text-emerald-400"}>{provider.disabled ? "Disabled" : "Enabled"}</span>
               <div className="flex gap-1">
                 <Button variant="ghost" onClick={() => openEdit(provider)} disabled={provider.read_only} className="px-2 py-1 text-xs">Edit</Button>
                 <Button variant="danger" onClick={() => setPendingDeleteId(provider.id)} disabled={provider.read_only} className="px-2 py-1 text-xs">Delete</Button>
@@ -205,7 +241,7 @@ export default function ProvidersPage() {
               <label className="mb-1.5 block text-sm font-medium text-slate-300">Type</label>
               <select
                 value={addType}
-                onChange={(e) => setAddType(e.target.value)}
+                onChange={(e) => { setAddType(e.target.value); setAddOptionsRaw("{}"); }}
                 className="w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:border-blue-500 focus:outline-none"
               >
                 {enabledProviderTypes.map((t) => (
@@ -231,6 +267,18 @@ export default function ProvidersPage() {
                 spellCheck={false}
               />
             </div>
+            <ProviderAdvancedFields
+              idPrefix="addProvider"
+              providerType={addType}
+              defaultModel={addDefaultModel}
+              onDefaultModelChange={setAddDefaultModel}
+              disabled={addDisabled}
+              onDisabledChange={setAddDisabled}
+              network={addNetwork}
+              onNetworkChange={setAddNetwork}
+              optionsRaw={addOptionsRaw}
+              onOptionsRawChange={setAddOptionsRaw}
+            />
           </div>
         </ModalContent>
         <ModalFooter>
@@ -262,6 +310,19 @@ export default function ProvidersPage() {
                 spellCheck={false}
               />
             </div>
+            <ProviderAdvancedFields
+              idPrefix="editProvider"
+              providerType={editItem?.provider_type ?? ""}
+              defaultModel={editDefaultModel}
+              onDefaultModelChange={setEditDefaultModel}
+              disabled={editDisabled}
+              onDisabledChange={setEditDisabled}
+              network={editNetwork}
+              onNetworkChange={setEditNetwork}
+              configuredHeaderNames={editItem?.network?.extra_headers_set}
+              optionsRaw={editOptionsRaw}
+              onOptionsRawChange={setEditOptionsRaw}
+            />
           </div>
         </ModalContent>
         <ModalFooter>

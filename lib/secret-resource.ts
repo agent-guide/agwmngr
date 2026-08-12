@@ -8,7 +8,20 @@ function redactProviderItem(value: unknown): unknown {
   if (!isObject(value)) return value;
   if (!("id" in value) && !("api_key" in value)) return value;
   const { api_key: apiKey, ...safe } = value;
-  return { ...safe, api_key_set: typeof apiKey === "string" && apiKey.length > 0 };
+  const network = isObject(safe.network) ? safe.network : undefined;
+  if (!network) return { ...safe, api_key_set: typeof apiKey === "string" && apiKey.length > 0 };
+
+  const extraHeaders = isObject(network.extra_headers) ? network.extra_headers : undefined;
+  const safeNetwork = { ...network };
+  delete safeNetwork.extra_headers;
+  return {
+    ...safe,
+    network: {
+      ...safeNetwork,
+      extra_headers_set: extraHeaders ? Object.keys(extraHeaders).sort() : [],
+    },
+    api_key_set: typeof apiKey === "string" && apiKey.length > 0,
+  };
 }
 
 function redactCredentialItem(value: unknown): unknown {
@@ -82,6 +95,9 @@ export function mergeProviderUpdate(current: unknown, patch: unknown, id: string
   const existing = isObject(current) ? current : {};
   const requested = isObject(patch) ? patch : {};
   const merged: JsonObject = { ...existing, ...requested, id };
+  if (isObject(existing.network) && isObject(requested.network)) {
+    merged.network = { ...existing.network, ...requested.network };
+  }
   const allowed = [
     "id",
     "provider_type",
