@@ -107,8 +107,6 @@ export function mergeProviderUpdate(current: unknown, patch: unknown, id: string
     "default_model",
     "network",
     "options",
-    "created_at",
-    "updated_at",
   ];
   const out: JsonObject = {};
   for (const key of allowed) {

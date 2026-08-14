@@ -4,6 +4,7 @@ import {
   emptyNetworkDraft,
   networkDraftFromConfig,
   parseProviderOptions,
+  updateProviderOption,
 } from "./provider-advanced-fields";
 
 describe("provider advanced fields", () => {
@@ -31,6 +32,24 @@ describe("provider advanced fields", () => {
       request_timeout_seconds: "120",
       extra_headers: "",
     });
+  });
+
+  test("serializes cleared edit fields as gateway defaults without clearing write-only headers", () => {
+    expect(buildNetworkConfig(emptyNetworkDraft(), { includeEmpty: true })).toEqual({
+      request_timeout_seconds: 0,
+      max_retries: 0,
+      retry_delay_seconds: 0,
+      max_idle_connections: 0,
+      max_idle_connections_per_host: 0,
+      idle_keep_alive_timeout_seconds: 0,
+      proxy_url: "",
+    });
+  });
+
+  test("never serializes an invalid numeric option as null", () => {
+    const field = { key: "temperature", label: "Temperature", kind: "number" } as const;
+    expect(updateProviderOption('{"temperature":0.7}', field, "not-a-number")).toBe('{"temperature":0.7}');
+    expect(updateProviderOption("{}", field, "0.25")).toBe('{\n  "temperature": 0.25\n}');
   });
 
   test("validates network and options JSON", () => {

@@ -179,6 +179,18 @@ export async function deleteProvider(id: string): Promise<void> {
   });
 }
 
+export async function enableProvider(id: string): Promise<ProviderItem> {
+  return adminFetch<ProviderItem>(`/admin/llm/providers/${encodeURIComponent(id)}/enable`, {
+    method: "POST",
+  });
+}
+
+export async function disableProvider(id: string): Promise<ProviderItem> {
+  return adminFetch<ProviderItem>(`/admin/llm/providers/${encodeURIComponent(id)}/disable`, {
+    method: "POST",
+  });
+}
+
 // ---- Credential types ----
 
 export interface CredentialItem {

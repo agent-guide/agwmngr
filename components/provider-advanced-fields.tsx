@@ -63,18 +63,24 @@ function parseStringMap(raw: string, label: string): Record<string, string> | un
   return Object.fromEntries(entries) as Record<string, string>;
 }
 
-export function buildNetworkConfig(draft: NetworkDraft): ProviderNetworkConfig | undefined {
+export function buildNetworkConfig(
+  draft: NetworkDraft,
+  { includeEmpty = false }: { includeEmpty?: boolean } = {},
+): ProviderNetworkConfig | undefined {
   const config: ProviderNetworkConfig = {};
   for (const field of NETWORK_NUMBER_FIELDS) {
     const raw = draft[field].trim();
-    if (!raw) continue;
+    if (!raw) {
+      if (includeEmpty) config[field] = 0;
+      continue;
+    }
     const value = Number(raw);
     if (!Number.isInteger(value) || value < 0) {
       throw new Error(`${field} must be a non-negative integer`);
     }
     config[field] = value;
   }
-  if (draft.proxy_url.trim()) config.proxy_url = draft.proxy_url.trim();
+  if (draft.proxy_url.trim() || includeEmpty) config.proxy_url = draft.proxy_url.trim();
   const headers = parseStringMap(draft.extra_headers, "Extra headers");
   if (headers !== undefined) config.extra_headers = headers;
   return Object.keys(config).length ? config : undefined;
@@ -156,11 +162,17 @@ function parsedOptions(raw: string): Record<string, unknown> {
   }
 }
 
-function updateOption(raw: string, field: OptionField, next: string): string {
+export function updateProviderOption(raw: string, field: OptionField, next: string): string {
   const options = parsedOptions(raw);
   if (!next) delete options[field.key];
   else if (field.kind === "boolean") options[field.key] = next === "true";
-  else if (field.kind === "number") options[field.key] = Number(next);
+  else if (field.kind === "number") {
+    const value = Number(next);
+    // Number inputs can briefly produce values such as "-" or "1e" while the
+    // user is typing. Never let JSON.stringify turn their NaN into null.
+    if (!Number.isFinite(value)) return raw;
+    options[field.key] = value;
+  }
   else options[field.key] = next;
   return JSON.stringify(options, null, 2);
 }
@@ -206,6 +218,9 @@ export function ProviderAdvancedFields({
       <div>
         <label className="mb-1.5 block text-sm font-medium text-slate-300">Default model</label>
         <Input name={`${idPrefix}DefaultModel`} value={defaultModel} onChange={onDefaultModelChange} placeholder="Optional provider default" />
+        {idPrefix.startsWith("edit") && (
+          <p className="mt-1 text-[11px] text-slate-500">Clear to restore the provider default.</p>
+        )}
       </div>
       <label className="flex items-center gap-2 text-sm text-slate-300">
         <input type="checkbox" checked={disabled} onChange={(event) => onDisabledChange(event.target.checked)} />
@@ -224,7 +239,7 @@ export function ProviderAdvancedFields({
                   {field.kind === "select" || field.kind === "boolean" ? (
                     <select
                       value={value}
-                      onChange={(event) => onOptionsRawChange(updateOption(optionsRaw, field, event.target.value))}
+                      onChange={(event) => onOptionsRawChange(updateProviderOption(optionsRaw, field, event.target.value))}
                       className="w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100"
                     >
                       <option value="">Provider default</option>
@@ -237,7 +252,7 @@ export function ProviderAdvancedFields({
                       type={field.kind === "number" ? "number" : "text"}
                       name={`${idPrefix}Option${field.key}`}
                       value={value}
-                      onChange={(next) => onOptionsRawChange(updateOption(optionsRaw, field, next))}
+                      onChange={(next) => onOptionsRawChange(updateProviderOption(optionsRaw, field, next))}
                       placeholder={field.placeholder}
                     />
                   )}

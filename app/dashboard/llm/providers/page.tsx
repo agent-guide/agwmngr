@@ -12,6 +12,8 @@ import {
   createProvider,
   updateProvider,
   deleteProvider,
+  enableProvider,
+  disableProvider,
   type ProviderItem,
 } from "@/lib/api";
 import { useAgentAttribution } from "@/hooks/use-agent-attribution";
@@ -63,6 +65,7 @@ export default function ProvidersPage() {
 
   // Delete confirm state
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [togglingProviderId, setTogglingProviderId] = useState<string | null>(null);
 
   const { showToast } = useToast();
 
@@ -142,8 +145,10 @@ export default function ProvidersPage() {
 
     setEditSubmitting(true);
     try {
-      const network = buildNetworkConfig(editNetwork);
-      if (network) payload.network = network;
+      // Visible network fields are a complete edit snapshot: blank values clear
+      // overrides and restore gateway defaults. Write-only headers remain
+      // omitted when blank, so the server-side merge preserves them.
+      payload.network = buildNetworkConfig(editNetwork, { includeEmpty: true });
       const options = parseProviderOptions(editOptionsRaw);
       if (options !== undefined) payload.options = options;
       const updated = await updateProvider(editItem.id, payload);
@@ -167,6 +172,22 @@ export default function ProvidersPage() {
       showToast(err instanceof Error ? err.message : "Failed to delete provider", "error");
     } finally {
       setPendingDeleteId(null);
+    }
+  };
+
+  const handleToggleDisabled = async (provider: ProviderItem) => {
+    if (provider.read_only || togglingProviderId) return;
+    setTogglingProviderId(provider.id);
+    try {
+      const updated = provider.disabled
+        ? await enableProvider(provider.id)
+        : await disableProvider(provider.id);
+      setProviders((prev) => prev.map((item) => (item.id === provider.id ? updated : item)));
+      showToast(provider.disabled ? "Provider enabled" : "Provider disabled", "success");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to update provider", "error");
+    } finally {
+      setTogglingProviderId(null);
     }
   };
 
@@ -215,7 +236,19 @@ export default function ProvidersPage() {
               </div>
               <span className="text-xs text-slate-400 font-mono">{provider.provider_type}</span>
               <span className="truncate text-xs text-slate-400 font-mono">{getBaseUrl(provider)}</span>
-              <span className={provider.disabled ? "text-xs text-amber-400" : "text-xs text-emerald-400"}>{provider.disabled ? "Disabled" : "Enabled"}</span>
+              <button
+                type="button"
+                disabled={!!provider.read_only || togglingProviderId !== null}
+                onClick={() => void handleToggleDisabled(provider)}
+                className={`w-fit rounded-full border px-2 py-0.5 text-[10px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                  provider.disabled
+                    ? "border-slate-600/60 bg-slate-800/40 text-slate-400 hover:border-emerald-500/40 hover:text-emerald-300"
+                    : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:border-slate-600/60 hover:bg-slate-800/40 hover:text-slate-400"
+                }`}
+                title={provider.read_only ? "Read-only provider" : provider.disabled ? "Enable provider" : "Disable provider"}
+              >
+                {togglingProviderId === provider.id ? "Saving..." : provider.disabled ? "Enable" : "Active"}
+              </button>
               <div className="flex gap-1">
                 <Button variant="ghost" onClick={() => openEdit(provider)} disabled={provider.read_only} className="px-2 py-1 text-xs">Edit</Button>
                 <Button variant="danger" onClick={() => setPendingDeleteId(provider.id)} disabled={provider.read_only} className="px-2 py-1 text-xs">Delete</Button>
@@ -295,6 +328,7 @@ export default function ProvidersPage() {
             <div>
               <label className="mb-1.5 block text-sm font-medium text-slate-300">Base URL</label>
               <Input name="editBaseUrl" value={editBaseUrl} onChange={setEditBaseUrl} placeholder="https://api.openai.com/v1" />
+              <p className="mt-1 text-[11px] text-slate-500">Clear to restore the provider default.</p>
             </div>
             <div>
               <label className="mb-1.5 block text-sm font-medium text-slate-300">API Key</label>

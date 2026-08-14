@@ -84,7 +84,14 @@ describe("write-only secret updates", () => {
   test("provider update preserves an omitted key and strips view-only fields", () => {
     expect(
       mergeProviderUpdate(
-        { id: "p", provider_type: "openai", api_key: "secret", source: "store" },
+        {
+          id: "p",
+          provider_type: "openai",
+          api_key: "secret",
+          source: "store",
+          created_at: "2026-08-01T00:00:00Z",
+          updated_at: "2026-08-02T00:00:00Z",
+        },
         { provider_type: "openai", base_url: "https://example.test" },
         "p",
       ),
@@ -111,6 +118,35 @@ describe("write-only secret updates", () => {
       network: {
         request_timeout_seconds: 120,
         max_retries: 5,
+        extra_headers: { Authorization: "secret" },
+      },
+    });
+  });
+
+  test("provider update accepts explicit network zero values to restore gateway defaults", () => {
+    expect(mergeProviderUpdate(
+      {
+        id: "p",
+        provider_type: "openai",
+        network: {
+          request_timeout_seconds: 120,
+          max_retries: 5,
+          proxy_url: "http://proxy.example",
+          extra_headers: { Authorization: "secret" },
+        },
+      },
+      {
+        provider_type: "openai",
+        network: { request_timeout_seconds: 0, max_retries: 0, proxy_url: "" },
+      },
+      "p",
+    )).toEqual({
+      id: "p",
+      provider_type: "openai",
+      network: {
+        request_timeout_seconds: 0,
+        max_retries: 0,
+        proxy_url: "",
         extra_headers: { Authorization: "secret" },
       },
     });
