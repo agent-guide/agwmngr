@@ -25,7 +25,7 @@ import {
   type BreakdownItem,
   type InteractionEvent,
 } from "@/lib/api";
-import { TIME_RANGES, type TimeRange, rangeToQuery, num, pivotTimeseries, errorRate, pct } from "@/lib/metrics-util";
+import { TIME_RANGES, type TimeRange, rangeToQuery, num, pivotTimeseries, rollupUsage, errorRate, pct } from "@/lib/metrics-util";
 
 const PROTOCOLS = ["LLM", "MCP", "Agent"] as const;
 type Protocol = (typeof PROTOCOLS)[number];
@@ -62,24 +62,6 @@ function shareData(items: BreakdownItem[], groupBy: string): { name: string; val
     .filter((d) => d.value > 0)
     .sort((a, b) => b.value - a.value)
     .slice(0, 8);
-}
-
-/** Roll a breakdown into top-line totals shared by every protocol tab. */
-function rollup(items: BreakdownItem[]) {
-  let requests = 0, success = 0, failure = 0, tokens = 0, input = 0, output = 0, tools = 0, turns = 0, latWeighted = 0;
-  for (const it of items) {
-    const r = num(it.request_count);
-    requests += r;
-    success += num(it.success_count);
-    failure += num(it.failure_count);
-    tokens += num(it.total_tokens);
-    input += num(it.input_tokens);
-    output += num(it.output_tokens);
-    tools += num(it.tools_call_count);
-    turns += num(it.turn_count);
-    latWeighted += num(it.avg_latency_ms) * r;
-  }
-  return { requests, success, failure, tokens, input, output, tools, turns, avgLatency: requests > 0 ? Math.round(latWeighted / requests) : 0 };
 }
 
 // useSearchParams must be under a Suspense boundary (Next static-render rule).
@@ -213,7 +195,7 @@ function LLMTab({ range, setRange, agentId }: TabProps) {
   );
 
   const items: BreakdownItem[] = useMemo(() => breakdown.data?.items ?? [], [breakdown.data]);
-  const totals = useMemo(() => rollup(items), [items]);
+  const totals = useMemo(() => rollupUsage(items), [items]);
   const lineData = useMemo(() => pivotTimeseries(timeseries.data?.items ?? []), [timeseries.data]);
   const donutData = useMemo(() => shareData(items, groupBy), [items, groupBy]);
 
@@ -291,7 +273,7 @@ function MCPTab({ range, setRange, agentId }: TabProps) {
   );
 
   const items: BreakdownItem[] = useMemo(() => breakdown.data?.items ?? [], [breakdown.data]);
-  const totals = useMemo(() => rollup(items), [items]);
+  const totals = useMemo(() => rollupUsage(items), [items]);
   const lineData = useMemo(() => pivotTimeseries(timeseries.data?.items ?? []), [timeseries.data]);
   const effectiveGroupBy = breakdown.data?.group_by ?? groupBy;
   const groupLabel = MCP_GROUP_OPTIONS.find((g) => g.value === effectiveGroupBy)?.label ?? effectiveGroupBy;
@@ -387,7 +369,7 @@ function AgentTab({ range, setRange, agentId }: TabProps) {
   );
 
   const items: BreakdownItem[] = useMemo(() => breakdown.data?.items ?? [], [breakdown.data]);
-  const totals = useMemo(() => rollup(items), [items]);
+  const totals = useMemo(() => rollupUsage(items), [items]);
   const lineData = useMemo(() => pivotTimeseries(timeseries.data?.items ?? []), [timeseries.data]);
   const effectiveGroupBy = breakdown.data?.group_by ?? groupBy;
   const groupLabel = ACP_GROUP_OPTIONS.find((g) => g.value === effectiveGroupBy)?.label ?? effectiveGroupBy;

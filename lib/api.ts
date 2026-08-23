@@ -1522,13 +1522,6 @@ export interface BuiltinWorkspaceView {
   definition: BuiltinDefinitionSummary;
   host_state: BuiltinRuntimeEntryState;
 }
-export interface AgentWorkspaceUsage {
-  request_count?: number;
-  turn_count?: number;
-  success_count?: number;
-  failure_count?: number;
-  avg_latency_ms?: number;
-}
 export interface AgentWorkspaceRuntimeView {
   pooled_instances?: ACPPooledInstanceInfo[];
   in_flight_turns?: number;
@@ -1552,6 +1545,14 @@ export interface AgentCapabilities {
   cancellation?: { force?: boolean; graceful?: boolean };
   events?: string[];
 }
+/**
+ * Summary/index read model for the agent workspace. It deliberately carries no
+ * usage rollup — the gateway's `AgentWorkspace` (pkg/admin/agents.go) has no
+ * such field, so a declared `usage` here silently read as undefined and every
+ * derived stat rendered as a confident zero. Traffic comes from
+ * `/metrics/interactions/summary` (runtime-neutral, filterable by route kind and
+ * protocol) or `/admin/agents/{id}/usage` (per-protocol rollups, unfiltered).
+ */
 export interface AgentWorkspace {
   agent: Agent;
   runtime_type: string;
@@ -1561,7 +1562,6 @@ export interface AgentWorkspace {
   agent_routes?: AgentWorkspaceRoute[];
   builtin?: BuiltinWorkspaceView;
   runtime_view?: AgentWorkspaceRuntimeView;
-  usage?: AgentWorkspaceUsage;
   links?: Record<string, string>;
 }
 

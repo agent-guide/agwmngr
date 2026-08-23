@@ -1,4 +1,4 @@
-import type { TimeseriesPoint } from "./api";
+import type { BreakdownItem, TimeseriesPoint } from "./api";
 
 export type TimeRange = "today" | "7d" | "30d" | "all";
 
@@ -13,6 +13,30 @@ export const TIME_RANGES: { key: TimeRange; label: string }[] = [
 export function num(v: unknown): number {
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Roll a breakdown into top-line totals. Latency is a per-group average, so it
+ * is re-weighted by request count rather than averaged again — averaging the
+ * averages would let a single-request group outweigh a thousand-request one.
+ * Fields absent for a protocol simply stay 0 (`turn_count` is ACP-only, tokens
+ * are LLM-only), so every tab can read the same shape.
+ */
+export function rollupUsage(items: BreakdownItem[]) {
+  let requests = 0, success = 0, failure = 0, tokens = 0, input = 0, output = 0, tools = 0, turns = 0, latWeighted = 0;
+  for (const it of items) {
+    const r = num(it.request_count);
+    requests += r;
+    success += num(it.success_count);
+    failure += num(it.failure_count);
+    tokens += num(it.total_tokens);
+    input += num(it.input_tokens);
+    output += num(it.output_tokens);
+    tools += num(it.tools_call_count);
+    turns += num(it.turn_count);
+    latWeighted += num(it.avg_latency_ms) * r;
+  }
+  return { requests, success, failure, tokens, input, output, tools, turns, avgLatency: requests > 0 ? Math.round(latWeighted / requests) : 0 };
 }
 
 /** Map a UI time range to { from, to, bucket } query params. */

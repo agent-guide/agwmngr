@@ -12,7 +12,7 @@ import { AutoRefreshControl } from "@/components/ui/auto-refresh-control";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { useAdminSWR } from "@/hooks/use-admin-swr";
-import { num, errorRate, pct } from "@/lib/metrics-util";
+import { num, errorRate, pct, rollupUsage } from "@/lib/metrics-util";
 import { agentYamlFragment } from "@/lib/agent-yaml";
 import {
   ApiError,
@@ -21,6 +21,7 @@ import {
   getAgentWorkspace,
   getAgentResources,
   getAgentHealth,
+  getInteractionsSummary,
   listAgentRoutes,
   listLLMRoutes,
   listMCPRoutes,
@@ -203,10 +204,40 @@ function pendingCount(
 }
 
 function OverviewTab({ id, workspace, loading, refresh }: { id: string; workspace: AgentWorkspace | undefined; loading: boolean; refresh: () => void }) {
+  // The workspace payload is a summary/index and carries no usage rollup, so the
+  // top-line traffic is read from the interactions store instead. Three pins
+  // matter here:
+  //  - route_kind=agent keeps this to *ingress* (turns against the agent's own
+  //    routes), not the LLM/MCP calls the agent makes downstream, which are
+  //    attributed to the same agent and would double-count it.
+  //  - route_protocol=agent excludes admin control-plane spans (run cancel,
+  //    permission resolve, thread close) — those are recorded against the agent
+  //    id too, so without the pin the counter climbs from managing the agent.
+  //  - the interactions store unions every runtime table, so this is correct for
+  //    builtin agents as well; /metrics/acp/* alone would read empty for them.
+  const traffic = useAdminSWR(
+    ["agent-ingress-24h", id],
+    () =>
+      getInteractionsSummary({
+        from: new Date(Date.now() - 86400_000).toISOString(),
+        group_by: "runtime_type",
+        route_kind: "agent",
+        route_protocol: "agent",
+        agent_id: id,
+        limit: 50,
+      }),
+    { live: true },
+  );
+  const totals = useMemo(() => rollupUsage(traffic.data?.items ?? []), [traffic.data]);
+  // A failed metrics read must not render as zero traffic: "0 requests" and "we
+  // could not ask" are opposite diagnoses on an agent that looks idle.
+  const trafficUnknown = !!traffic.error;
+  const trafficLoading = traffic.isLoading && !traffic.data;
+  const stat = (n: number) => (trafficUnknown ? "—" : n.toLocaleString());
+
   if (loading || !workspace) return <Card className="p-8 text-center text-sm text-slate-400">Loading workspace…</Card>;
 
   const rv = workspace.runtime_view;
-  const usage = workspace.usage;
   const runtimeType = workspace.runtime_type;
   const summary = workspace.runtime;
   const acp = workspace.agent.runtime.acp;
@@ -218,12 +249,27 @@ function OverviewTab({ id, workspace, loading, refresh }: { id: string; workspac
   return (
     <div className="space-y-4">
       <StatGrid>
-        <StatCard label="Requests" value={num(usage?.request_count).toLocaleString()} />
-        <StatCard label="Turns" value={num(usage?.turn_count).toLocaleString()} />
-        <StatCard label="Success" value={num(usage?.success_count).toLocaleString()} tone="text-emerald-300" />
-        <StatCard label="Failures" value={num(usage?.failure_count).toLocaleString()} tone={num(usage?.failure_count) > 0 ? "text-rose-300" : "text-slate-100"} />
-        <StatCard label="Avg Latency" value={`${num(usage?.avg_latency_ms).toLocaleString()} ms`} />
+        <StatCard label="Requests" value={stat(totals.requests)} sub="ingress, 24h" loading={trafficLoading} />
+        <StatCard label="Success" value={stat(totals.success)} tone="text-emerald-300" loading={trafficLoading} />
+        <StatCard label="Failures" value={stat(totals.failure)} tone={totals.failure > 0 && !trafficUnknown ? "text-rose-300" : "text-slate-100"} loading={trafficLoading} />
+        <StatCard
+          label="Error Rate"
+          value={trafficUnknown ? "—" : pct(errorRate(totals.success, totals.failure))}
+          tone={totals.failure > 0 && !trafficUnknown ? "text-amber-300" : "text-slate-100"}
+          loading={trafficLoading}
+        />
+        <StatCard label="Avg Latency" value={trafficUnknown ? "—" : `${totals.avgLatency.toLocaleString()} ms`} loading={trafficLoading} />
       </StatGrid>
+      {trafficUnknown ? (
+        <p className="text-[11px] text-amber-400/90">
+          Usage metrics unavailable — {traffic.error instanceof Error ? traffic.error.message : "the gateway did not answer"}.
+        </p>
+      ) : (
+        <p className="text-[11px] text-slate-600">
+          Ingress turns over the last 24h. Downstream LLM/MCP calls and admin actions are excluded — see{" "}
+          <Link href={`/dashboard/agents/usage?agent=${encodeURIComponent(id)}`} className="text-blue-400 hover:underline">Usage</Link> for the full breakdown.
+        </p>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
