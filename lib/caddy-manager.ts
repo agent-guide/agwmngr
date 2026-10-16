@@ -14,7 +14,7 @@ import {
   type ServerRequest,
   type ServerResponse,
 } from "./types";
-import type { ResolvedGateway } from "./gateway-resolve";
+import type { ResolvedGateway } from "@/packages/contracts/gateway/connection";
 
 const ALLOWED_PREFIXES = ["/apps/http/servers"];
 

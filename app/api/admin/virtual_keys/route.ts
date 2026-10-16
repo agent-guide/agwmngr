@@ -1,5 +1,5 @@
 import { withGatewayAccess } from "@/lib/access";
-import { gatewayRequestJSON } from "@/lib/gateway-proxy";
+import { gatewayRequestJSON } from "@/packages/gateway-client/admin";
 import { proxySecretResource } from "@/lib/secret-resource-proxy";
 import { redactVirtualKeyResponse } from "@/lib/secret-resource";
 

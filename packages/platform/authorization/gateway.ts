@@ -1,6 +1,7 @@
-import type { GatewayAction } from "./proxy-action";
-
-export type GatewayPrincipalRole = "admin" | "member";
+import type {
+  GatewayAction,
+  GatewayPrincipalRole,
+} from "../../contracts/gateway/authorization";
 
 const PLATFORM_ONLY_ACTIONS = new Set<GatewayAction>([
   "gateway:platform_config",
@@ -8,11 +9,11 @@ const PLATFORM_ONLY_ACTIONS = new Set<GatewayAction>([
 ]);
 
 /**
- * Evaluate Gateway-root authority without consulting storage.
+ * Evaluate current Gateway-root authority without consulting storage.
  *
  * Platform Admin is an actor property, not a stored Gateway role. Gateway Admin
- * receives ordinary gateway content/runtime actions; Member receives no
- * implicit content authority until domain/resource grants are implemented.
+ * receives ordinary Gateway content/runtime actions; Member receives no
+ * implicit content authority until the corresponding migration replaces it.
  */
 export function canPerformGatewayAction(
   role: GatewayPrincipalRole,

@@ -1,5 +1,5 @@
-import { gatewayRequestJSON } from "./gateway-proxy";
-import type { ResolvedGateway } from "./gateway-resolve";
+import type { ResolvedGateway } from "@/packages/contracts/gateway/connection";
+import { gatewayRequestJSON } from "@/packages/gateway-client/admin";
 
 // Server-side Virtual Key resolution for the Chat data plane
 // (docs/architecture/resource-rbac-design.md §10.2).

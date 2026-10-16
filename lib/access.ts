@@ -9,9 +9,10 @@ import {
   type GatewayRole,
   type AuditFinalizePatch,
 } from "./db";
-import { resolveGateway, type ResolvedGateway } from "./gateway-resolve";
+import { resolveGateway } from "./gateway-resolve";
 import { actionForProxyPath, type GatewayAction } from "./proxy-action";
-import { canPerformGatewayAction } from "./gateway-role";
+import type { ResolvedGateway } from "@/packages/contracts/gateway/connection";
+import { canPerformGatewayAction } from "@/packages/platform/authorization/gateway";
 
 // Re-export so existing importers (the catch-all proxy) keep using `@/lib/access`
 // as the single entry point; the implementation lives in the dependency-free

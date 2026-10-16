@@ -10,7 +10,9 @@
     "test": "bun test",
     "typecheck": "bun --bun tsc --noEmit",
     "smoke:runtime": "bun scripts/smoke-runtime.ts",
-    "smoke:http-agent": "bun scripts/smoke-http-agent.ts"
+    "smoke:http-agent": "bun scripts/smoke-http-agent.ts",
+    "typecheck:contracts": "bun --bun tsc -p packages/contracts/tsconfig.json",
+    "check:boundaries": "bun scripts/check-package-boundaries.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

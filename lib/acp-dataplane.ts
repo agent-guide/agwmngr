@@ -1,6 +1,6 @@
-import { gatewayRequestJSON } from "./gateway-proxy";
 import { isCommonAgentRoute } from "./agent-http";
-import type { ResolvedGateway } from "./gateway-resolve";
+import type { ResolvedGateway } from "@/packages/contracts/gateway/connection";
+import { gatewayRequestJSON } from "@/packages/gateway-client/admin";
 
 // The agent data plane (turn/permission/sessions) is served on the runtime's
 // public listener, NOT the gateway Admin API. It is reached through a configured

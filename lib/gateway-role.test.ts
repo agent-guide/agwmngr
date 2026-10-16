@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { canPerformGatewayAction, type GatewayPrincipalRole } from "./gateway-role";
+import type { GatewayPrincipalRole } from "@/packages/contracts/gateway/authorization";
+import { canPerformGatewayAction } from "@/packages/platform/authorization/gateway";
 import type { GatewayAction } from "./proxy-action";
 
 const ORDINARY_ACTIONS: GatewayAction[] = [

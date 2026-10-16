@@ -1,40 +1,9 @@
-import type { ResolvedGateway } from "./gateway-resolve";
-
-// The gateway Admin API delegates auth to the HTTP layer (Caddy basic_auth or
-// the standalone daemon's basic-auth wrapper). Every admin request carries
-// static HTTP Basic Auth built from the gateway record's credentials. We cache
-// the base URL that successfully connects, keyed by gateway id, across requests.
-const g = globalThis as typeof globalThis & {
-  __gatewayBaseURL?: Record<string, string>;
-};
-
-function baseURLCache(): Record<string, string> {
-  if (!g.__gatewayBaseURL) g.__gatewayBaseURL = {};
-  return g.__gatewayBaseURL;
-}
-
-function gatewayAddrCandidates(gateway: ResolvedGateway): string[] {
-  const cached = baseURLCache()[gateway.id];
-  const configured = (cached ?? gateway.adminAddr).replace(/\/$/, "");
-  const out = [configured];
-  try {
-    const url = new URL(configured);
-    if (url.hostname === "localhost") {
-      url.hostname = "127.0.0.1";
-      out.push(url.toString().replace(/\/$/, ""));
-    } else if (url.hostname === "127.0.0.1") {
-      url.hostname = "localhost";
-      out.push(url.toString().replace(/\/$/, ""));
-    }
-  } catch {
-    // Ignore invalid fallback generation and let fetch report the real error.
-  }
-  return [...new Set(out)];
-}
-
-function basicAuthHeader(gateway: ResolvedGateway): string {
-  return `Basic ${Buffer.from(`${gateway.adminUser}:${gateway.adminPassword}`).toString("base64")}`;
-}
+import type { ResolvedGateway } from "@/packages/contracts/gateway/connection";
+import {
+  baseURLCache,
+  basicAuthHeader,
+  gatewayAddrCandidates,
+} from "@/packages/gateway-client/admin";
 
 const SKIP_HEADERS = new Set([
   // Use the selected upstream URL's authority. Bun 1.3.13 uses a supplied
@@ -64,52 +33,6 @@ const SKIP_RESPONSE_HEADERS = new Set([
   "connection",
   "keep-alive",
 ]);
-
-/**
- * Issue an authenticated JSON request to a gateway's Admin API and return the
- * parsed body. For server-side internal calls (e.g. resolving an ACP route
- * before forwarding a data-plane turn). Tries the localhost/127.0.0.1 candidates
- * on connection failure and caches the one that connects (keyed by gateway id).
- */
-export async function gatewayRequestJSON(
-  method: string,
-  path: string,
-  gateway: ResolvedGateway,
-  body?: unknown,
-): Promise<{ status: number; body: unknown }> {
-  const headers: Record<string, string> = { Authorization: basicAuthHeader(gateway) };
-  if (body !== undefined) headers["Content-Type"] = "application/json";
-
-  const errors: string[] = [];
-  let res: Response | undefined;
-  for (const baseURL of gatewayAddrCandidates(gateway)) {
-    try {
-      res = await fetch(`${baseURL}${path}`, {
-        method,
-        headers,
-        body: body !== undefined ? JSON.stringify(body) : undefined,
-      });
-      baseURLCache()[gateway.id] = baseURL;
-      break;
-    } catch (e) {
-      errors.push(`gateway unreachable (${baseURL}): ${String(e)}`);
-    }
-  }
-  if (!res) {
-    throw new Error(errors.join("; "));
-  }
-
-  const text = await res.text();
-  let parsed: unknown;
-  if (text.trim()) {
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      parsed = text;
-    }
-  }
-  return { status: res.status, body: parsed };
-}
 
 async function forward(
   req: Request,

@@ -3,14 +3,9 @@
 // free of any db/session imports so it can be unit-tested in isolation and
 // reasoned about as the security-critical override table.
 
-export type GatewayAction =
-  | "gateway:read"
-  | "gateway:write"
-  | "gateway:platform_config"
-  | "runtime:chat"
-  | "runtime:permission_resolve"
-  | "secrets:read-redacted"
-  | "gateway:secrets_raw";
+import type { GatewayAction } from "@/packages/contracts/gateway/authorization";
+
+export type { GatewayAction } from "@/packages/contracts/gateway/authorization";
 
 /**
  * Normalize a proxy path into canonical, non-empty path segments.

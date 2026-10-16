@@ -1,20 +1,9 @@
 import { decryptSecret } from "./crypto";
 import type { GatewayRow } from "./db";
 
-// A gateway record with its admin password decrypted in memory, ready to drive
-// a forward. Produced only at the moment of forwarding (§4 redaction) and never
-// serialized back to the client.
-export interface ResolvedGateway {
-  id: string;
-  name: string;
-  adminAddr: string;
-  adminUser: string;
-  adminPassword: string;
-  caddyAdminAddr: string | null;
-  dataplaneAddr: string | null;
-  readonlyServerIds: string[];
-  status: "active" | "disabled";
-}
+import type { ResolvedGateway } from "@/packages/contracts/gateway/connection";
+
+export type { ResolvedGateway } from "@/packages/contracts/gateway/connection";
 
 function parseCsv(raw: string | null): string[] {
   if (!raw) return [];

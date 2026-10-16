@@ -1,5 +1,5 @@
 import { withGatewayAccess } from "@/lib/access";
-import { gatewayRequestJSON } from "@/lib/gateway-proxy";
+import { gatewayRequestJSON } from "@/packages/gateway-client/admin";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -8,7 +8,8 @@ type Params = { params: Promise<{ id: string }> };
  *
  * Every other Virtual Key response is redacted, so this is the single audited
  * escape hatch for an administrator who has lost a key value. It is guarded by
- * `gateway:secrets_raw`, which `lib/gateway-role.ts` grants on the *actor* flag
+ * `gateway:secrets_raw`, which the shared Gateway authorization service grants
+ * on the *actor* flag
  * rather than the gateway role — Platform Admin only, never Gateway Admin.
  *
  * POST rather than GET: it is a deliberate, one-off disclosure, and the verb
