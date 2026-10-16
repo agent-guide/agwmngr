@@ -1,11 +1,9 @@
 // Minimal synchronous SQLite adapter that runs on either runtime.
 //
-// The manager's Next.js server runs under Node.js (even when launched via Bun,
-// `next dev`/`next start` execute under the Node runtime), where `bun:sqlite`
-// is unavailable. Node 22.5+ ships a built-in `node:sqlite` (`DatabaseSync`)
-// with a near-identical API. When the process genuinely runs under Bun, we use
-// `bun:sqlite` instead. This adapter normalizes both to one small interface so
-// the rest of the codebase is runtime-agnostic.
+// The supported launch scripts explicitly run Next.js under Bun. Direct Node
+// launches remain compatible through node:sqlite (Node 22.5+), while genuine
+// Bun processes use bun:sqlite. Keep this adapter runtime-agnostic so tooling
+// does not need to import a runtime-specific driver.
 import { createRequire } from "module";
 
 export interface SqlStatement {
