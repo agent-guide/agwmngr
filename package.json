@@ -8,6 +8,7 @@
     "start": "bun --bun next start",
     "lint": "eslint",
     "test": "bun test",
+    "migrate:platform": "bun scripts/migrate-platform.ts",
     "typecheck": "bun --bun tsc --noEmit",
     "smoke:runtime": "bun scripts/smoke-runtime.ts",
     "smoke:http-agent": "bun scripts/smoke-http-agent.ts",

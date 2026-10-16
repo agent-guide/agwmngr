@@ -141,6 +141,33 @@ async function request(
   return response.json();
 }
 
+async function platformRequest(
+  base: string,
+  path: string,
+  status: number,
+  token?: string,
+  method = "GET",
+  body?: unknown,
+) {
+  const response = await fetch(`${base}/api/platform/v1/${path}`, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(30_000),
+  });
+  assert.equal(
+    response.status,
+    status,
+    `${path}: expected ${status}, received ${response.status}: ${
+      response.status === status ? "" : await response.clone().text()
+    }`,
+  );
+  return response.json();
+}
+
 async function verify(mode: "dev" | "start") {
   let base = await startServer(mode);
   await request(base, "auth/me", 401);
@@ -159,7 +186,7 @@ async function verify(mode: "dev" | "start") {
   assert.equal(user.is_platform_admin, true);
 
   const memberName = `runtime-smoke-member-${mode}`;
-  await request(base, "users", 201, session.token, {
+  const memberUser = await request(base, "users", 201, session.token, {
     username: memberName,
     password,
     is_platform_admin: false,
@@ -170,16 +197,110 @@ async function verify(mode: "dev" | "start") {
   });
   await request(base, "users", 403, member.token);
 
+  await platformRequest(base, "access", 401);
+  const memberAccess = await platformRequest(base, "access", 200, member.token);
+  assert.deepEqual(memberAccess.memberships, []);
+  const adminAccess = await platformRequest(base, "access", 200, session.token);
+  assert.deepEqual(adminAccess.memberships, []);
+
+  const tenantId = `runtime-${mode}`;
+  await platformRequest(base, "identity/tenants", 403, member.token, "POST", {
+    id: "unauthorized",
+    name: "Unauthorized",
+  });
+  await platformRequest(base, "identity/tenants", 201, session.token, "POST", {
+    id: tenantId,
+    name: `Runtime ${mode}`,
+  });
+  await platformRequest(
+    base,
+    `identity/tenants/${tenantId}/members/bootstrap`,
+    201,
+    session.token,
+    "POST",
+    { principal_id: `user:${memberUser.id}`, role: "user" },
+  );
+  const memberWithTenant = await platformRequest(base, "access", 200, member.token);
+  assert.equal(memberWithTenant.memberships[0].tenantId, tenantId);
+  assert.equal(memberWithTenant.memberships[0].role, "user");
+  await platformRequest(
+    base,
+    `identity/tenants/${tenantId}/members`,
+    403,
+    member.token,
+  );
+
+  const serviceName = `runtime-${mode}`;
+  const issued = await platformRequest(
+    base,
+    "identity/service-principals",
+    201,
+    session.token,
+    "POST",
+    { name: serviceName, expires_at: new Date(Date.now() + 86_400_000).toISOString() },
+  );
+  assert.match(issued.token, /^agwmngr_svc_[0-9a-f]{64}$/);
+  await platformRequest(base, "access", 200, issued.token);
+  await platformRequest(
+    base,
+    `identity/tenants/${tenantId}/members/bootstrap`,
+    201,
+    session.token,
+    "POST",
+    { principal_id: issued.principal.id, role: "admin" },
+  );
+  await platformRequest(
+    base,
+    `identity/tenants/${tenantId}/members/user:${user.id}`,
+    403,
+    issued.token,
+    "PUT",
+    { role: "user" },
+  );
+  await platformRequest(
+    base,
+    `identity/tenants/${tenantId}/members/bootstrap`,
+    403,
+    issued.token,
+    "POST",
+    { principal_id: `user:${user.id}`, role: "user" },
+  );
+  await platformRequest(
+    base,
+    `identity/tenants/${tenantId}/members`,
+    200,
+    issued.token,
+  );
+  const audit = await request(base, "audit?limit=100", 200, session.token);
+  assert.ok(
+    audit.items.some((entry: { action?: string }) => entry.action === "platform:identity"),
+    "platform identity calls must be audited",
+  );
+  assert.ok(!JSON.stringify(audit).includes(issued.token), "service bearer must not enter audit");
+
   await stopServer();
   base = await startServer(mode);
   assert.equal((await request(base, "auth/me", 200, session.token)).username, admin);
   await request(base, "users", 403, member.token);
+  assert.equal(
+    (await platformRequest(base, "access", 200, member.token)).memberships[0].tenantId,
+    tenantId,
+  );
+  await platformRequest(base, "access", 200, issued.token);
+  await platformRequest(
+    base,
+    `identity/service-principals/${issued.principal.id}`,
+    200,
+    session.token,
+    "DELETE",
+  );
+  await platformRequest(base, "access", 401, issued.token);
   await request(base, "auth/logout", 200, session.token, {});
   await request(base, "auth/me", 401, session.token);
   await stopServer();
 
   console.log(
-    `${mode}: Bun handler, login, SQLite session/restart, platform denial and logout passed`,
+    `${mode}: Bun handler, session restart, Principal/Tenant membership, service revocation and logout passed`,
   );
 }
 
@@ -211,6 +332,7 @@ try {
   assert.equal(nextPackage.version, "16.2.4", "Install the pinned Next.js version");
 
   await verify("dev");
+  await completion(launch("migrate:platform"));
   await completion(launch("build"));
   await verify("start");
   console.log("Runtime smoke passed; only temporary data and build output were used.");

@@ -107,6 +107,17 @@ const MIGRATIONS: string[] = [
   DROP TABLE user_gateways;
   ALTER TABLE user_gateways_new RENAME TO user_gateways;
   `,
+  // 3: platform human Principals retain manager user IDs after deletion. Keep
+  // every issued ID reserved so a later account can never inherit retained
+  // Tenant memberships that refer to user:<id>.
+  `
+  CREATE TABLE manager_user_ids (id INTEGER PRIMARY KEY AUTOINCREMENT);
+  INSERT INTO manager_user_ids (id) SELECT id FROM users;
+  CREATE TRIGGER reserve_manager_user_id AFTER INSERT ON users
+  BEGIN
+    INSERT OR IGNORE INTO manager_user_ids (id) VALUES (NEW.id);
+  END;
+  `,
 ];
 
 export function migrateDatabase(db: SqlConnection): void {
@@ -124,6 +135,35 @@ export function migrateDatabase(db: SqlConnection): void {
       }
 
       db.exec(MIGRATIONS[current]);
+      if (current === 2) {
+        // An account may have been deleted before permanent reservations were
+        // introduced. Successful manager user-deletion audits are the only
+        // durable evidence left; reserve those IDs without inferring authority.
+        const auditTable = db.get(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'audit_log'",
+        );
+        if (auditTable) {
+          for (const audit of db.all<{ path: string | null }>(
+            `SELECT DISTINCT path FROM audit_log
+              WHERE method = 'DELETE' AND decision = 'allow'
+                AND http_status BETWEEN 200 AND 299`,
+          )) {
+            const match = /^\/api\/admin\/users\/([^/]+)$/.exec(
+              (audit.path ?? "").split("?")[0],
+            );
+            if (!match) continue;
+            let id: number;
+            try {
+              id = Number(decodeURIComponent(match[1]));
+            } catch {
+              continue;
+            }
+            if (Number.isSafeInteger(id) && id > 0) {
+              db.run("INSERT OR IGNORE INTO manager_user_ids (id) VALUES (?)", [id]);
+            }
+          }
+        }
+      }
       const violations = db.all("PRAGMA foreign_key_check");
       if (violations.length > 0) {
         throw new Error(`migration ${current + 1} failed foreign-key validation`);
@@ -158,11 +198,15 @@ function seedFromEnv(db: SqlConnection): void {
   if (!adminUser || !adminHash) return;
 
   const now = new Date().toISOString();
-  db.run(
-    `INSERT INTO users (username, password_hash, is_platform_admin, status, created_at, updated_at)
-     VALUES (?, ?, 1, 'active', ?, ?)`,
-    [adminUser, adminHash, now, now],
-  );
+  db.transaction(() => {
+    const reserved = db.run("INSERT INTO manager_user_ids DEFAULT VALUES");
+    db.run(
+      `INSERT INTO users
+         (id, username, password_hash, is_platform_admin, status, created_at, updated_at)
+       VALUES (?, ?, ?, 1, 'active', ?, ?)`,
+      [Number(reserved.lastInsertRowid), adminUser, adminHash, now, now],
+    );
+  }, "immediate");
 }
 
 function open(): SqlConnection {
@@ -296,12 +340,18 @@ export function createUser(input: {
 }): UserSummary {
   const now = new Date().toISOString();
   const hash = bcrypt.hashSync(input.password, 10);
-  const res = getDb().run(
-    `INSERT INTO users (username, password_hash, is_platform_admin, status, created_at, updated_at)
-     VALUES (?, ?, ?, 'active', ?, ?)`,
-    [input.username, hash, input.isPlatformAdmin ? 1 : 0, now, now],
-  );
-  return getUserSummary(Number(res.lastInsertRowid))!;
+  const db = getDb();
+  let id = 0;
+  db.transaction(() => {
+    id = Number(db.run("INSERT INTO manager_user_ids DEFAULT VALUES").lastInsertRowid);
+    db.run(
+      `INSERT INTO users
+         (id, username, password_hash, is_platform_admin, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'active', ?, ?)`,
+      [id, input.username, hash, input.isPlatformAdmin ? 1 : 0, now, now],
+    );
+  }, "immediate");
+  return getUserSummary(id)!;
 }
 
 export function updateUser(
