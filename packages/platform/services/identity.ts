@@ -754,9 +754,26 @@ export class PlatformIdentityService {
     if (filters.principalId !== undefined && !filters.principalId) {
       throw new IdentityError("invalid_input", "principal ID is required");
     }
-    return (await this.registry.tenantGatewayGrants(filters)).map((grant) =>
-      this.publicGrant(grant)
-    );
+    const active: TenantGatewayGrant[] = [];
+    for (const grant of await this.registry.tenantGatewayGrants(filters)) {
+      try {
+        const authority = await this.grantAuthoritySnapshot(
+          grant.principalId,
+          grant.tenantId,
+          grant.gatewayId,
+          "forbidden",
+        );
+        if (this.grantMatchesAuthority(grant, authority)) {
+          active.push(this.publicGrant(grant));
+        } else {
+          await this.discardStaleGrant(grant);
+        }
+      } catch (error) {
+        if (!isIdentityError(error)) throw error;
+        await this.discardStaleGrant(grant);
+      }
+    }
+    return active;
   }
 
   async setTenantGatewayGrant(

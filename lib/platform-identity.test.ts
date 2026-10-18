@@ -117,6 +117,10 @@ test("live Principal, Tenant, and membership state is revalidated on every opera
     .toBe("manage");
   expect((await service.authorizeTenantGateway(alice, "alpha", "prod", "manage")).gateway.id)
     .toBe("prod");
+  await service.removeTenantGatewayGrant(platformAdmin, "user:2", "alpha", "prod");
+  await expect(service.authorizeTenantGateway(alice, "alpha", "prod", "view"))
+    .rejects.toMatchObject({ code: "forbidden" });
+  await service.setTenantGatewayGrant(platformAdmin, "user:2", "alpha", "prod", "manage");
   await expect(
     service.setTenantGatewayGrant(platformAdmin, "user:3", "alpha", "prod", "view"),
   ).rejects.toMatchObject({ code: "invalid_input" });
@@ -395,6 +399,7 @@ test("grant races fail closed without deleting grants on indeterminate failures"
     await expect(service.authorizeTenantGateway(alice, "alpha", "prod")).rejects.toMatchObject({
       code: "forbidden",
     });
+    expect(await service.listTenantGatewayGrants(admin)).toEqual([]);
   } finally {
     console.error = originalConsoleError;
     registry.removeTenantGatewayGrantIfSnapshot = cleanup;

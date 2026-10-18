@@ -8,6 +8,8 @@ import type {
   Tenant,
   TenantMember,
   TenantMembership,
+  TenantGatewayAccess,
+  TenantGatewayGrant,
   TenantRole,
   TenantStatus,
 } from "@/packages/contracts/platform/identity";
@@ -21,6 +23,8 @@ export type {
   Tenant,
   TenantMember,
   TenantMembership,
+  TenantGatewayAccess,
+  TenantGatewayGrant,
   TenantRole,
   TenantStatus,
 } from "@/packages/contracts/platform/identity";
@@ -167,4 +171,52 @@ export async function revokeServiceAccount(principalId: string): Promise<void> {
     `/api/platform/v1/identity/service-principals/${encodeURIComponent(principalId)}`,
     { method: "DELETE" },
   );
+}
+
+export async function listTenantGatewayGrants(filters: {
+  principalId?: string;
+  tenantId?: string;
+  gatewayId?: string;
+} = {}): Promise<TenantGatewayGrant[]> {
+  const query = new URLSearchParams();
+  if (filters.principalId) query.set("principal_id", filters.principalId);
+  if (filters.tenantId) query.set("tenant_id", filters.tenantId);
+  if (filters.gatewayId) query.set("gateway_id", filters.gatewayId);
+  const suffix = query.size ? `?${query.toString()}` : "";
+  const result = await adminFetch<{ items: TenantGatewayGrant[] }>(
+    `/api/platform/v1/identity/tenant-gateway-grants${suffix}`,
+  );
+  return result.items ?? [];
+}
+
+export function setTenantGatewayGrant(input: {
+  principalId: string;
+  tenantId: string;
+  gatewayId: string;
+  access: TenantGatewayAccess;
+}): Promise<TenantGatewayGrant> {
+  return adminFetch<TenantGatewayGrant>("/api/platform/v1/identity/tenant-gateway-grants", {
+    method: "PUT",
+    body: JSON.stringify({
+      principal_id: input.principalId,
+      tenant_id: input.tenantId,
+      gateway_id: input.gatewayId,
+      access: input.access,
+    }),
+  });
+}
+
+export async function revokeTenantGatewayGrant(input: {
+  principalId: string;
+  tenantId: string;
+  gatewayId: string;
+}): Promise<void> {
+  await adminFetch("/api/platform/v1/identity/tenant-gateway-grants", {
+    method: "DELETE",
+    body: JSON.stringify({
+      principal_id: input.principalId,
+      tenant_id: input.tenantId,
+      gateway_id: input.gatewayId,
+    }),
+  });
 }
