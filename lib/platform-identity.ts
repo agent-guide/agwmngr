@@ -18,6 +18,7 @@ import type { MembershipReceiptIssuer } from "@/packages/platform/ports/credenti
 import { PlatformIdentityService } from "@/packages/platform/services/identity";
 import { IdentityRegistry } from "@/packages/platform/services/identity-registry";
 import { migratePlatformIdentityDatabase } from "@/packages/platform/services/identity-migrations";
+import type { PlatformDatabase } from "@/packages/platform/ports/database";
 
 export const serviceCredentialIssuer: ServiceCredentialIssuer = {
   digest: (token) => createHash("sha256").update(token).digest("hex"),
@@ -40,12 +41,18 @@ export const membershipReceiptIssuer: MembershipReceiptIssuer = {
 };
 
 const globalState = globalThis as typeof globalThis & {
-  __platformIdentity?: Promise<PlatformIdentityService>;
+  __platformRuntime?: Promise<{
+    database: PlatformDatabase;
+    identity: PlatformIdentityService;
+  }>;
 };
 
-export function getPlatformIdentity(): Promise<PlatformIdentityService> {
-  if (!globalState.__platformIdentity) {
-    globalState.__platformIdentity = (async () => {
+export function getPlatformRuntime(): Promise<{
+  database: PlatformDatabase;
+  identity: PlatformIdentityService;
+}> {
+  if (!globalState.__platformRuntime) {
+    globalState.__platformRuntime = (async () => {
       // Initialize the manager authority first. Human Principal rows only
       // reference these users; passwords and editable user state are not copied.
       getDb();
@@ -64,7 +71,7 @@ export function getPlatformIdentity(): Promise<PlatformIdentityService> {
         throw error;
       }
 
-      return new PlatformIdentityService(
+      const identity = new PlatformIdentityService(
         new IdentityRegistry(database),
         {
           async findUser(id) {
@@ -111,12 +118,17 @@ export function getPlatformIdentity(): Promise<PlatformIdentityService> {
         serviceCredentialIssuer,
         membershipReceiptIssuer,
       );
+      return { database, identity };
     })().catch((error) => {
-      delete globalState.__platformIdentity;
+      delete globalState.__platformRuntime;
       throw error;
     });
   }
-  return globalState.__platformIdentity;
+  return globalState.__platformRuntime;
+}
+
+export async function getPlatformIdentity(): Promise<PlatformIdentityService> {
+  return (await getPlatformRuntime()).identity;
 }
 
 export async function authenticatePlatformService(token: string) {

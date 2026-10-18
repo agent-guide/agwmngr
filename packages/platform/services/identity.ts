@@ -180,7 +180,7 @@ export class PlatformIdentityService {
     return user.platformAdmin;
   }
 
-  private async requirePlatformAdmin(actor: PlatformActorReference): Promise<HumanPrincipal> {
+  async requirePlatformAdmin(actor: PlatformActorReference): Promise<HumanPrincipal> {
     if (actor.kind !== "human") {
       await this.resolve(actor);
       throw new IdentityError("forbidden", "Platform Admin access required");

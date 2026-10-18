@@ -13,6 +13,13 @@ import type {
   TenantRole,
   TenantStatus,
 } from "@/packages/contracts/platform/identity";
+import type {
+  CatalogAvailabilityMode,
+  CatalogOfferingCategory,
+  CreateCatalogOfferingInput,
+  PlatformCatalogOffering,
+  TenantCatalogOffering,
+} from "@/packages/contracts/platform/catalog";
 
 export type {
   MembershipAddResolution,
@@ -28,6 +35,15 @@ export type {
   TenantRole,
   TenantStatus,
 } from "@/packages/contracts/platform/identity";
+export type {
+  CatalogAvailabilityMode,
+  CatalogOfferingCategory,
+  CatalogOfferingKind,
+  CatalogOfferingStatus,
+  CreateCatalogOfferingInput,
+  PlatformCatalogOffering,
+  TenantCatalogOffering,
+} from "@/packages/contracts/platform/catalog";
 
 function tenantPath(tenantId: string, suffix: string): string {
   return `/api/platform/v1/tenants/${encodeURIComponent(tenantId)}${suffix}`;
@@ -219,4 +235,81 @@ export async function revokeTenantGatewayGrant(input: {
       gateway_id: input.gatewayId,
     }),
   });
+}
+
+export async function listPlatformCatalogOfferings(
+  category?: CatalogOfferingCategory,
+): Promise<PlatformCatalogOffering[]> {
+  const query = category ? `?category=${encodeURIComponent(category)}` : "";
+  const result = await adminFetch<{ items: PlatformCatalogOffering[] }>(
+    `/api/platform/v1/catalog/offerings${query}`,
+  );
+  return result.items ?? [];
+}
+
+export function createPlatformCatalogOffering(
+  input: CreateCatalogOfferingInput,
+): Promise<PlatformCatalogOffering> {
+  return adminFetch<PlatformCatalogOffering>("/api/platform/v1/catalog/offerings", {
+    method: "POST",
+    body: JSON.stringify({
+      offering_id: input.offeringId,
+      category: input.category,
+      name: input.name,
+      description: input.description,
+      kind: input.kind,
+      ...(input.sourceGatewayId === undefined
+        ? {}
+        : { source_gateway_id: input.sourceGatewayId }),
+      ...(input.upstreamStableId === undefined
+        ? {}
+        : { upstream_stable_id: input.upstreamStableId }),
+      availability: {
+        mode: input.availability.mode,
+        tenant_ids: input.availability.tenantIds ?? [],
+      },
+    }),
+  });
+}
+
+function offeringActionPath(offeringId: string, action: string): string {
+  return `/api/platform/v1/catalog/offerings/${encodeURIComponent(offeringId)}/${action}`;
+}
+
+export function approvePlatformCatalogOffering(
+  offeringId: string,
+): Promise<PlatformCatalogOffering> {
+  return adminFetch<PlatformCatalogOffering>(offeringActionPath(offeringId, "approve"), {
+    method: "POST",
+  });
+}
+
+export function retirePlatformCatalogOffering(
+  offeringId: string,
+): Promise<PlatformCatalogOffering> {
+  return adminFetch<PlatformCatalogOffering>(offeringActionPath(offeringId, "retire"), {
+    method: "POST",
+  });
+}
+
+export function setPlatformCatalogAvailability(
+  offeringId: string,
+  mode: CatalogAvailabilityMode,
+  tenantIds: string[],
+): Promise<PlatformCatalogOffering> {
+  return adminFetch<PlatformCatalogOffering>(offeringActionPath(offeringId, "availability"), {
+    method: "PUT",
+    body: JSON.stringify({ mode, tenant_ids: tenantIds }),
+  });
+}
+
+export async function listTenantCatalogOfferings(
+  tenantId: string,
+  category?: CatalogOfferingCategory,
+): Promise<TenantCatalogOffering[]> {
+  const query = category ? `?category=${encodeURIComponent(category)}` : "";
+  const result = await adminFetch<{ items: TenantCatalogOffering[] }>(
+    tenantPath(tenantId, `/catalog${query}`),
+  );
+  return result.items ?? [];
 }

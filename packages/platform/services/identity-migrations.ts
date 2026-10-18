@@ -131,6 +131,48 @@ const versionThreeStatements = [
     ON platform_membership_add_receipts (expires_at, consumed_at)`,
 ];
 
+const versionFourStatements = [
+  `CREATE TABLE platform_catalog_offerings (
+    offering_id TEXT PRIMARY KEY,
+    category TEXT NOT NULL CHECK (category IN ('model','tool')),
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    owner_principal_id TEXT NOT NULL REFERENCES platform_principals(id) ON DELETE RESTRICT,
+    offering_kind TEXT NOT NULL CHECK (offering_kind IN ('platform-native','gateway-backed')),
+    source_gateway_id TEXT,
+    upstream_stable_id TEXT,
+    source_gateway_authority_epoch BIGINT,
+    status TEXT NOT NULL CHECK (status IN ('draft','active','retired')),
+    version BIGINT NOT NULL CHECK (version = 1),
+    digest TEXT NOT NULL UNIQUE,
+    availability_mode TEXT NOT NULL CHECK (availability_mode IN ('all-active-tenants','tenant-allowlist')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    CHECK (
+      (offering_kind = 'platform-native'
+        AND source_gateway_id IS NULL
+        AND upstream_stable_id IS NULL
+        AND source_gateway_authority_epoch IS NULL)
+      OR
+      (offering_kind = 'gateway-backed'
+        AND source_gateway_id IS NOT NULL
+        AND upstream_stable_id IS NOT NULL
+        AND source_gateway_authority_epoch > 0)
+    )
+  )`,
+  `CREATE INDEX platform_catalog_offerings_category_status
+    ON platform_catalog_offerings (category, status, offering_id)`,
+  `CREATE TABLE platform_catalog_tenant_availability (
+    offering_id TEXT NOT NULL REFERENCES platform_catalog_offerings(offering_id) ON DELETE CASCADE,
+    tenant_id TEXT NOT NULL REFERENCES platform_tenants(id) ON DELETE CASCADE,
+    tenant_authority_epoch BIGINT NOT NULL CHECK (tenant_authority_epoch > 0),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (offering_id, tenant_id)
+  )`,
+  `CREATE INDEX platform_catalog_tenant_availability_tenant
+    ON platform_catalog_tenant_availability (tenant_id, offering_id)`,
+];
+
 export interface IdentityMigrationReport {
   from: number;
   to: number;
@@ -141,7 +183,7 @@ export async function migratePlatformIdentityDatabase(
   database: PlatformDatabase,
   dryRun = false,
 ): Promise<IdentityMigrationReport> {
-  let report: IdentityMigrationReport = { from: 0, to: 3, dryRun };
+  let report: IdentityMigrationReport = { from: 0, to: 4, dryRun };
   const rollback = new Error("platform identity migration dry-run rollback");
 
   try {
@@ -160,8 +202,8 @@ export async function migratePlatformIdentityDatabase(
         `SELECT version FROM platform_schema_lock WHERE id = 1${suffix}`,
       );
       const current = Number(row.version);
-      if (current > 3) throw new Error("platform identity schema is newer than this application");
-      report = { from: current, to: 3, dryRun };
+      if (current > 4) throw new Error("platform schema is newer than this application");
+      report = { from: current, to: 4, dryRun };
 
       if (current === 0) {
         for (const statement of versionOneStatements) await transaction.query(statement);
@@ -176,6 +218,11 @@ export async function migratePlatformIdentityDatabase(
       if (current < 3) {
         for (const statement of versionThreeStatements) await transaction.query(statement);
         await transaction.query("UPDATE platform_schema_lock SET version = 3 WHERE id = 1");
+      }
+
+      if (current < 4) {
+        for (const statement of versionFourStatements) await transaction.query(statement);
+        await transaction.query("UPDATE platform_schema_lock SET version = 4 WHERE id = 1");
       }
 
       await validatePlatformIdentityReferences(transaction);
@@ -209,4 +256,24 @@ export async function validatePlatformIdentityReferences(
      WHERE membership.principal_id IS NULL
   `);
   if (Number(grantRow.n) !== 0) throw new Error("invalid Tenant Gateway grant references");
+
+  const [catalogRow] = await transaction.query<{ n: number }>(`
+    SELECT COUNT(*) AS n
+      FROM platform_catalog_offerings offering
+      LEFT JOIN platform_principals owner ON owner.id = offering.owner_principal_id
+     WHERE owner.id IS NULL
+  `);
+  if (Number(catalogRow.n) !== 0) throw new Error("invalid catalog owner references");
+
+  const [availabilityRow] = await transaction.query<{ n: number }>(`
+    SELECT COUNT(*) AS n
+      FROM platform_catalog_tenant_availability availability
+      LEFT JOIN platform_catalog_offerings offering
+        ON offering.offering_id = availability.offering_id
+      LEFT JOIN platform_tenants tenant ON tenant.id = availability.tenant_id
+     WHERE offering.offering_id IS NULL OR tenant.id IS NULL
+  `);
+  if (Number(availabilityRow.n) !== 0) {
+    throw new Error("invalid catalog availability references");
+  }
 }

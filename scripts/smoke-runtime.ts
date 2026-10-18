@@ -341,6 +341,60 @@ async function verify(mode: "dev" | "start") {
     200,
     issued.token,
   );
+  const offeringId = `runtime-tool-${mode}`;
+  await platformRequest(base, "catalog/offerings", 403, member.token, "POST", {
+    offering_id: "unauthorized-offering",
+    category: "tool",
+    name: "Unauthorized",
+    kind: "platform-native",
+    availability: { mode: "all-active-tenants", tenant_ids: [] },
+  });
+  await platformRequest(base, "catalog/offerings", 400, session.token, "POST", {
+    offering_id: `mixed-source-${mode}`,
+    category: "tool",
+    name: "Mixed source",
+    kind: "platform-native",
+    source_gateway_id: gatewayId,
+    upstream_stable_id: "tool:invalid",
+    availability: { mode: "all-active-tenants", tenant_ids: [] },
+  });
+  const offering = await platformRequest(
+    base,
+    "catalog/offerings",
+    201,
+    session.token,
+    "POST",
+    {
+      offering_id: offeringId,
+      category: "tool",
+      name: `Runtime tool ${mode}`,
+      description: "Runtime catalog proof",
+      kind: "gateway-backed",
+      source_gateway_id: gatewayId,
+      upstream_stable_id: "mcp:runtime:probe",
+      availability: { mode: "tenant-allowlist", tenant_ids: [tenantId] },
+    },
+  );
+  assert.equal(offering.status, "draft");
+  assert.equal(offering.sourceAvailable, true);
+  await platformRequest(
+    base,
+    `catalog/offerings/${offeringId}/approve`,
+    200,
+    session.token,
+    "POST",
+  );
+  const tenantCatalog = await platformRequest(
+    base,
+    `tenants/${tenantId}/catalog?category=tool`,
+    200,
+    member.token,
+  );
+  assert.equal(tenantCatalog.items[0].offeringId, offeringId);
+  assert.equal(tenantCatalog.items[0].owner, "platform");
+  assert.equal(tenantCatalog.items[0].sourceGatewayId, undefined);
+  assert.equal(tenantCatalog.items[0].upstreamStableId, undefined);
+  assert.ok(!JSON.stringify(tenantCatalog).includes("runtime-secret"));
   const audit = await request(base, "audit?limit=100", 200, session.token);
   assert.ok(
     audit.items.some((entry: { action?: string }) => entry.action === "platform:identity"),
@@ -357,6 +411,24 @@ async function verify(mode: "dev" | "start") {
     "Tenant Gateway grant outcome and scope must be audited",
   );
   assert.ok(!JSON.stringify(audit).includes(issued.token), "service bearer must not enter audit");
+  assert.ok(
+    audit.items.some(
+      (entry: { action?: string; target_id?: string; decision?: string }) =>
+        entry.action === "platform:catalog_approve" &&
+        entry.target_id === offeringId &&
+        entry.decision === "allow",
+    ),
+    "catalog approval outcome and target must be audited",
+  );
+  assert.ok(
+    audit.items.some(
+      (entry: { action?: string; decision?: string; http_status?: number }) =>
+        entry.action === "platform:catalog_create" &&
+        entry.decision === "deny" &&
+        entry.http_status === 403,
+    ),
+    "catalog authorization denial must be audited",
+  );
 
   await stopServer();
   base = await startServer(mode);
@@ -367,6 +439,29 @@ async function verify(mode: "dev" | "start") {
     tenantId,
   );
   await platformRequest(base, "access", 200, issued.token);
+  const restartedCatalog = await platformRequest(
+    base,
+    `tenants/${tenantId}/catalog?category=tool`,
+    200,
+    member.token,
+  );
+  assert.equal(restartedCatalog.items[0].offeringId, offeringId);
+  await platformRequest(
+    base,
+    `catalog/offerings/${offeringId}/retire`,
+    200,
+    session.token,
+    "POST",
+  );
+  assert.deepEqual(
+    (await platformRequest(
+      base,
+      `tenants/${tenantId}/catalog?category=tool`,
+      200,
+      member.token,
+    )).items,
+    [],
+  );
   await platformRequest(
     base,
     `identity/service-principals/${issued.principal.id}`,
@@ -380,7 +475,7 @@ async function verify(mode: "dev" | "start") {
   await stopServer();
 
   console.log(
-    `${mode}: Bun handler, session restart, Tenant Gateway grant audit, service revocation and logout passed`,
+    `${mode}: Bun handler, session restart, catalog lifecycle/audit, Tenant Gateway grant audit, service revocation and logout passed`,
   );
 }
 

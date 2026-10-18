@@ -9,6 +9,7 @@ import type {
 // SQLite calls on one adapter are serialized so an async domain transaction
 // holds the connection until its work commits or rolls back.
 export function sqlitePlatformDatabase(connection: SqlConnection): PlatformDatabase {
+  connection.exec("PRAGMA foreign_keys = ON");
   let tail: Promise<unknown> = Promise.resolve();
   function exclusive<T>(work: () => Promise<T>): Promise<T> {
     const next = tail.then(work, work);

@@ -383,6 +383,12 @@ export class IdentityRegistry {
         [now, id],
       );
       await transaction.query("DELETE FROM platform_tenant_gateway_grants WHERE tenant_id = ?", [id]);
+      // Keep deletion semantics identical even when an embedded SQLite caller
+      // has not enabled foreign-key cascades on its connection.
+      await transaction.query(
+        "DELETE FROM platform_catalog_tenant_availability WHERE tenant_id = ?",
+        [id],
+      );
       await transaction.query("DELETE FROM platform_tenants WHERE id = ?", [id]);
       await transaction.query(
         `UPDATE platform_issued_ids SET tombstoned_at = ?
