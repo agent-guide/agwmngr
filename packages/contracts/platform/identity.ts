@@ -74,6 +74,13 @@ export interface PlatformAccessProjection {
   memberships: Array<TenantMembership & { tenant: Tenant }>;
 }
 
+export interface ServicePrincipalCreation {
+  principal: ServicePrincipal;
+  credentialId: string;
+  token: string;
+  expiresAt: string;
+}
+
 // Authentication proves only identity. Services must reload all current
 // authority before each domain operation.
 export type PlatformActorReference =

@@ -137,7 +137,9 @@ const NAV_GROUPS: NavGroup[] = [
     icon: IconShield,
     adminOnly: true,
     items: [
+      { href: "/dashboard/platform/tenants", labelKey: "nav.tenants", icon: IconLayers },
       { href: "/dashboard/platform/users", labelKey: "nav.users", icon: IconUsers },
+      { href: "/dashboard/platform/service-accounts", labelKey: "nav.serviceAccounts", icon: IconBot },
       { href: "/dashboard/platform/gateways", labelKey: "nav.gateways", icon: IconGateway },
       { href: "/dashboard/platform/audit", labelKey: "nav.auditLog", icon: IconActivity },
     ],

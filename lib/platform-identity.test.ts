@@ -306,6 +306,12 @@ test("identity inputs reject role and identity escalation", async () => {
     "worker",
     "2026-10-18T00:00:00.000Z",
   );
+  const listedService = (await service.listPrincipals(admin)).find(
+    (principal) => principal.id === issued.principal.id,
+  );
+  expect(listedService).toEqual(issued.principal);
+  expect(listedService).not.toHaveProperty("token");
+  expect(listedService).not.toHaveProperty("credentialId");
   await service.disableService(admin, issued.principal.id);
   await expect(
     service.createService(admin, "worker", "2026-10-18T00:00:00.000Z"),

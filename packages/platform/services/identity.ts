@@ -12,6 +12,7 @@ import {
   type Principal,
   type PrincipalResolutionInput,
   type ServicePrincipal,
+  type ServicePrincipalCreation,
   type Tenant,
   type TenantGatewayAccess,
   type TenantGatewayGrant,
@@ -874,7 +875,7 @@ export class PlatformIdentityService {
     actor: PlatformActorReference,
     name: string,
     expiresAt: string,
-  ): Promise<{ principal: ServicePrincipal; credentialId: string; token: string; expiresAt: string }> {
+  ): Promise<ServicePrincipalCreation> {
     await this.requirePlatformAdmin(actor);
     validateSlug(name, "service name");
     const expiry = new Date(expiresAt);
