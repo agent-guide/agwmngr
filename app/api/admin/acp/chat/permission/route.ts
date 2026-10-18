@@ -1,5 +1,5 @@
 import { dataplaneFetch } from "@/lib/dataplane-fetch";
-import { requireGatewayAccess, finalizeAccess } from "@/lib/access";
+import { requireGatewayCompatibilityAccess, finalizeAccess } from "@/lib/access";
 import { AgentRouteError, dataplaneCandidates, resolveAgentRouteTarget } from "@/lib/acp-dataplane";
 import { VirtualKeyError, resolveVirtualKeySecret } from "@/lib/virtual-key-secret";
 
@@ -18,7 +18,7 @@ interface PermissionBody {
 
 export async function POST(req: Request): Promise<Response> {
   const start = Date.now();
-  const guard = requireGatewayAccess(req, "runtime:permission_resolve");
+  const guard = requireGatewayCompatibilityAccess(req, "runtime:permission_resolve");
   if (!guard.ok) return guard.res;
   const gateway = guard.ctx.gateway;
   const done = (res: Response, status: number, reason?: string): Response => {

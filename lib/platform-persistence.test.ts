@@ -9,6 +9,7 @@ import { migrateDatabase } from "./db";
 import {
   openPostgresPlatformDatabase,
   openSqlitePlatformDatabase,
+  sqlitePlatformDatabase,
 } from "./platform-database";
 import { openDatabase } from "./sqlite";
 
@@ -166,6 +167,32 @@ test("SQLite identity migration is additive and state survives restart", async (
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("legacy Gateway memberships are not converted into Tenant authority", async () => {
+  const manager = openDatabase(":memory:");
+  manager.exec("PRAGMA foreign_keys = ON");
+  migrateDatabase(manager);
+  manager.run(
+    `INSERT INTO users
+       (id, username, password_hash, is_platform_admin, status, created_at, updated_at)
+     VALUES (1, 'legacy-admin', 'hash', 0, 'active', 'now', 'now')`,
+  );
+  manager.run(
+    `INSERT INTO gateways
+       (id, name, admin_addr, admin_user, admin_password_enc, status, created_at, updated_at)
+     VALUES ('prod', 'Production', 'http://localhost:1', 'admin', 'ciphertext',
+             'active', 'now', 'now')`,
+  );
+  manager.run(
+    "INSERT INTO user_gateways (user_id, gateway_id, role) VALUES (1, 'prod', 'admin')",
+  );
+
+  const platform = sqlitePlatformDatabase(manager);
+  await migratePlatformIdentityDatabase(platform);
+  expect(await platform.query("SELECT * FROM platform_tenants")).toEqual([]);
+  expect(await platform.query("SELECT * FROM platform_tenant_memberships")).toEqual([]);
+  expect(await platform.query("SELECT * FROM platform_tenant_gateway_grants")).toEqual([]);
 });
 
 const postgresUrl = process.env.PLATFORM_TEST_POSTGRES_URL;

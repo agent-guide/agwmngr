@@ -1,5 +1,5 @@
 import { dataplaneFetch } from "@/lib/dataplane-fetch";
-import { requireGatewayAccess, finalizeAccess } from "@/lib/access";
+import { requireGatewayCompatibilityAccess, finalizeAccess } from "@/lib/access";
 import {
   AgentRouteError,
   dataplaneCandidates,
@@ -64,7 +64,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request): Promise<Response> {
   const start = Date.now();
-  const guard = requireGatewayAccess(req, "runtime:chat");
+  const guard = requireGatewayCompatibilityAccess(req, "runtime:chat");
   if (!guard.ok) return guard.res;
   const gateway = guard.ctx.gateway;
   const finalize = (status: number, reason?: string) =>

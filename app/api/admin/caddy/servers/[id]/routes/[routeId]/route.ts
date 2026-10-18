@@ -1,10 +1,10 @@
-import { withGatewayAccess } from "@/lib/access";
+import { withGatewayCompatibilityAccess } from "@/lib/access";
 import { caddyConfigFor, deleteRoute, listRoutes, updateRoute } from "@/lib/caddy-manager";
 import { AppError, ErrNotFound, ErrReadOnly, type RouteRequest } from "@/lib/types";
 
 type Params = { params: Promise<{ id: string; routeId: string }> };
 
-export const PUT = withGatewayAccess("gateway:platform_config", async (req, access, { params }: Params) => {
+export const PUT = withGatewayCompatibilityAccess("gateway:platform_config", async (req, access, { params }: Params) => {
   const cfg = caddyConfigFor(access.gateway);
 
   const { id: serverID, routeId } = await params;
@@ -26,7 +26,7 @@ export const PUT = withGatewayAccess("gateway:platform_config", async (req, acce
   }
 });
 
-export const DELETE = withGatewayAccess("gateway:platform_config", async (_req, access, { params }: Params) => {
+export const DELETE = withGatewayCompatibilityAccess("gateway:platform_config", async (_req, access, { params }: Params) => {
   const cfg = caddyConfigFor(access.gateway);
 
   const { id: serverID, routeId } = await params;

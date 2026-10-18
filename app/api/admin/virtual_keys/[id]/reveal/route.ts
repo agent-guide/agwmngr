@@ -1,4 +1,4 @@
-import { withGatewayAccess } from "@/lib/access";
+import { withGatewayCompatibilityAccess } from "@/lib/access";
 import { gatewayRequestJSON } from "@/packages/gateway-client/admin";
 
 type Params = { params: Promise<{ id: string }> };
@@ -15,7 +15,7 @@ type Params = { params: Promise<{ id: string }> };
  * POST rather than GET: it is a deliberate, one-off disclosure, and the verb
  * keeps it out of anything that prefetches or replays reads.
  */
-export const POST = withGatewayAccess(
+export const POST = withGatewayCompatibilityAccess(
   "gateway:secrets_raw",
   async (_req, access, { params }: Params) => {
     const { id } = await params;

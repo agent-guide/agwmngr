@@ -1,10 +1,10 @@
-import { withGatewayAccess } from "@/lib/access";
+import { withGatewayCompatibilityAccess } from "@/lib/access";
 import { caddyConfigFor, addRoute, listRoutes } from "@/lib/caddy-manager";
 import { AppError, ErrConflict, ErrNotFound, ErrReadOnly, type RouteRequest } from "@/lib/types";
 
 type Params = { params: Promise<{ id: string }> };
 
-export const GET = withGatewayAccess("gateway:platform_config", async (_req, access, { params }: Params) => {
+export const GET = withGatewayCompatibilityAccess("gateway:platform_config", async (_req, access, { params }: Params) => {
   const cfg = caddyConfigFor(access.gateway);
 
   const { id } = await params;
@@ -16,7 +16,7 @@ export const GET = withGatewayAccess("gateway:platform_config", async (_req, acc
   }
 });
 
-export const POST = withGatewayAccess("gateway:platform_config", async (req, access, { params }: Params) => {
+export const POST = withGatewayCompatibilityAccess("gateway:platform_config", async (req, access, { params }: Params) => {
   const cfg = caddyConfigFor(access.gateway);
 
   const { id: serverID } = await params;

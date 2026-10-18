@@ -1,4 +1,8 @@
-import { requireGatewayAccess, actionForProxyPath, finalizeAccess } from "@/lib/access";
+import {
+  requireGatewayCompatibilityAccess,
+  actionForProxyPath,
+  finalizeAccess,
+} from "@/lib/access";
 import { proxyToGateway } from "@/lib/gateway-proxy";
 
 async function handle(req: Request, { params }: { params: Promise<{ path?: string[] }> }) {
@@ -10,7 +14,7 @@ async function handle(req: Request, { params }: { params: Promise<{ path?: strin
   // active gateway, membership, role, and decrypted credentials in one guard.
   const action = actionForProxyPath(req.method, proxyPath);
   const start = Date.now();
-  const guard = requireGatewayAccess(req, action);
+  const guard = requireGatewayCompatibilityAccess(req, action);
   if (!guard.ok) return guard.res;
 
   const res = await proxyToGateway(req, proxyPath, guard.ctx.gateway);

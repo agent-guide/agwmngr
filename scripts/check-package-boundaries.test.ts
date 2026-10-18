@@ -63,3 +63,17 @@ test("rejects HTTP-coupled platform services and reverse adapter imports", () =>
   expect(result.output).toContain("crosses the platform boundary");
   expect(result.output).toContain("computed module loading");
 });
+
+test("keeps Tenant services separate from Gateway compatibility authority", () => {
+  const result = check({
+    "contracts/platform/identity.ts": "export type TenantRole = 'admin' | 'user';",
+    "contracts/gateway/authorization.ts": "export type GatewayRole = 'admin' | 'member';",
+    "platform/authorization/gateway.ts":
+      "import type { TenantRole } from '../../contracts/platform/identity'; export const role: TenantRole = 'admin';",
+    "platform/services/deployment.ts":
+      "import { role } from '../authorization/gateway'; export const authority = role;",
+  });
+  expect(result.code).toBe(1);
+  expect(result.output).toContain("must not depend on Tenant contracts");
+  expect(result.output).toContain("must not consume Gateway compatibility authority");
+});

@@ -1,9 +1,9 @@
-import { withGatewayAccess } from "@/lib/access";
+import { withGatewayCompatibilityAccess } from "@/lib/access";
 import { proxySecretResource } from "@/lib/secret-resource-proxy";
 
 type Params = { params: Promise<{ id: string }> };
 
-export const POST = withGatewayAccess("gateway:write", async (req, access, { params }: Params) => {
+export const POST = withGatewayCompatibilityAccess("gateway:write", async (req, access, { params }: Params) => {
   const { id } = await params;
   return proxySecretResource(
     req,

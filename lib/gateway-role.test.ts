@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { GatewayPrincipalRole } from "@/packages/contracts/gateway/authorization";
-import { canPerformGatewayAction } from "@/packages/platform/authorization/gateway";
+import {
+  canPerformGatewayCompatibilityAction,
+  GATEWAY_COMPATIBILITY_AUTHORITY,
+} from "@/packages/platform/authorization/gateway";
 import type { GatewayAction } from "./proxy-action";
 
 const ORDINARY_ACTIONS: GatewayAction[] = [
@@ -16,29 +19,45 @@ const PLATFORM_ONLY_ACTIONS: GatewayAction[] = [
   "gateway:secrets_raw",
 ];
 
-describe("Gateway-root roles", () => {
+describe("legacy Gateway compatibility authority", () => {
+  test("has an explicit authority-mode marker", () => {
+    expect(GATEWAY_COMPATIBILITY_AUTHORITY).toBe("gateway_membership_compatibility");
+  });
+
   test("Gateway Admin receives ordinary gateway authority", () => {
     for (const action of ORDINARY_ACTIONS) {
-      expect(canPerformGatewayAction("admin", false, action)).toBe(true);
+      expect(canPerformGatewayCompatibilityAction("admin", false, action)).toBe(true);
     }
   });
 
   test("Member receives no implicit gateway content authority", () => {
     for (const action of [...ORDINARY_ACTIONS, ...PLATFORM_ONLY_ACTIONS]) {
-      expect(canPerformGatewayAction("member", false, action)).toBe(false);
+      expect(canPerformGatewayCompatibilityAction("member", false, action)).toBe(false);
     }
   });
 
   test("stored Gateway Admin cannot inherit platform-only authority", () => {
     for (const action of PLATFORM_ONLY_ACTIONS) {
-      expect(canPerformGatewayAction("admin", false, action)).toBe(false);
+      expect(canPerformGatewayCompatibilityAction("admin", false, action)).toBe(false);
     }
   });
 
   test("Platform Admin keeps all gateway authority independently of stored role", () => {
     const effectiveStoredRole: GatewayPrincipalRole = "member";
     for (const action of [...ORDINARY_ACTIONS, ...PLATFORM_ONLY_ACTIONS]) {
-      expect(canPerformGatewayAction(effectiveStoredRole, true, action)).toBe(true);
+      expect(canPerformGatewayCompatibilityAction(effectiveStoredRole, true, action)).toBe(true);
+    }
+  });
+
+  test("Tenant Gateway grant values are never translated into Gateway roles", () => {
+    for (const grantAccess of ["view", "manage"] as const) {
+      expect(
+        canPerformGatewayCompatibilityAction(
+          grantAccess as unknown as GatewayPrincipalRole,
+          false,
+          "gateway:read",
+        ),
+      ).toBe(false);
     }
   });
 });

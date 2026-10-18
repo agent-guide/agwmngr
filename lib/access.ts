@@ -12,7 +12,10 @@ import {
 import { resolveGateway } from "./gateway-resolve";
 import { actionForProxyPath, type GatewayAction } from "./proxy-action";
 import type { ResolvedGateway } from "@/packages/contracts/gateway/connection";
-import { canPerformGatewayAction } from "@/packages/platform/authorization/gateway";
+import {
+  canPerformGatewayCompatibilityAction,
+  GATEWAY_COMPATIBILITY_AUTHORITY,
+} from "@/packages/platform/authorization/gateway";
 
 // Re-export so existing importers (the catch-all proxy) keep using `@/lib/access`
 // as the single entry point; the implementation lives in the dependency-free
@@ -25,8 +28,9 @@ function errorMessage(e: unknown): string {
 }
 
 // Shared access guards (§5 of docs/architecture/multi-tenant-design.md). Platform actions
-// (user/gateway management) resolve no gateway; gateway-scoped actions resolve
-// an active gateway, membership, role, and decrypted credentials. Both guards
+// (user/gateway management) resolve no gateway; the explicitly retained legacy
+// Gateway compatibility actions resolve an active gateway, membership, role,
+// and decrypted credentials. Neither path evaluates Tenant grants. Both guards
 // emit audit rows (§5.1): every deny, plus every allow for mutating/sensitive
 // actions (plain reads are skipped to keep the log bounded).
 
@@ -126,7 +130,7 @@ export function requirePlatformAccess(req: Request): GuardResult<PlatformContext
   return { ok: true, ctx: { session, auditId } };
 }
 
-// ---- Gateway-scoped guard (§2.1, §5) ----
+// ---- Legacy Gateway compatibility guard (§2.1, §5) ----
 
 type EffectiveRole = GatewayRole;
 
@@ -140,11 +144,12 @@ const AUDIT_ALLOW_ACTIONS = new Set<GatewayAction>([
   "gateway:secrets_raw",
 ]);
 
-export interface GatewayContext {
+export interface GatewayCompatibilityContext {
   session: SessionRecord;
   gateway: ResolvedGateway;
   role: EffectiveRole;
   action: GatewayAction;
+  authorityMode: typeof GATEWAY_COMPATIBILITY_AUTHORITY;
   auditId: number | null;
 }
 
@@ -153,10 +158,10 @@ export interface GatewayContext {
  * X-Gateway-Id override), enforces membership + role for the requested action,
  * blocks disabled gateways, decrypts admin credentials, and audits the decision.
  */
-export function requireGatewayAccess(
+export function requireGatewayCompatibilityAccess(
   req: Request,
   action: GatewayAction,
-): GuardResult<GatewayContext> {
+): GuardResult<GatewayCompatibilityContext> {
   const meta = requestMeta(req);
 
   const denyAudit = (
@@ -220,7 +225,7 @@ export function requireGatewayAccess(
     return denyAudit(403, "gateway is disabled", "gateway_disabled", session.userId, gatewayId);
   }
 
-  if (!canPerformGatewayAction(role, session.isPlatformAdmin, action)) {
+  if (!canPerformGatewayCompatibilityAction(role, session.isPlatformAdmin, action)) {
     const platformOnly = action === "gateway:secrets_raw" || action === "gateway:platform_config";
     return denyAudit(
       403,
@@ -261,7 +266,17 @@ export function requireGatewayAccess(
     });
   }
 
-  return { ok: true, ctx: { session, gateway, role, action, auditId } };
+  return {
+    ok: true,
+    ctx: {
+      session,
+      gateway,
+      role,
+      action,
+      authorityMode: GATEWAY_COMPATIBILITY_AUTHORITY,
+      auditId,
+    },
+  };
 }
 
 // ---- withAccess wrappers (§5.1) ----
@@ -305,14 +320,14 @@ export function withPlatformAccess<Ctx = unknown>(
   };
 }
 
-/** Wrap a gateway-scoped handler (fixed action) so its audit row is always finalized. */
-export function withGatewayAccess<Ctx = unknown>(
+/** Wrap a retained Gateway compatibility handler so its audit row is always finalized. */
+export function withGatewayCompatibilityAccess<Ctx = unknown>(
   action: GatewayAction,
-  handler: RouteHandler<GatewayContext, Ctx>,
+  handler: RouteHandler<GatewayCompatibilityContext, Ctx>,
 ): (req: Request, routeCtx: Ctx) => Promise<Response> {
   return async (req, routeCtx) => {
     const start = Date.now();
-    const guard = requireGatewayAccess(req, action);
+    const guard = requireGatewayCompatibilityAccess(req, action);
     if (!guard.ok) return guard.res;
     try {
       const res = await handler(req, guard.ctx, routeCtx);

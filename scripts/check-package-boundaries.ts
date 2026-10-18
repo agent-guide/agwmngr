@@ -69,6 +69,23 @@ for (const layer of layers) {
       if (!allowedDependencies[layer].includes(targetLayer)) {
         fail(`import ${specifier} crosses the ${layer} boundary`);
       }
+
+      const packageLabel = relative(packageRoot, path).replaceAll("\\", "/");
+      const targetLabel = relative(packageRoot, target)
+        .replaceAll("\\", "/")
+        .replace(/\.(?:ts|tsx)$/, "");
+      if (
+        packageLabel === "platform/authorization/gateway.ts" &&
+        targetLabel.startsWith("contracts/platform/")
+      ) {
+        fail("Gateway compatibility authorization must not depend on Tenant contracts");
+      }
+      if (
+        packageLabel.startsWith("platform/services/") &&
+        targetLabel === "platform/authorization/gateway"
+      ) {
+        fail("platform services must not consume Gateway compatibility authority");
+      }
     }
 
     function walk(node: ts.Node) {

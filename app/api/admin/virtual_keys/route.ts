@@ -1,4 +1,4 @@
-import { withGatewayAccess } from "@/lib/access";
+import { withGatewayCompatibilityAccess } from "@/lib/access";
 import { gatewayRequestJSON } from "@/packages/gateway-client/admin";
 import { proxySecretResource } from "@/lib/secret-resource-proxy";
 import { redactVirtualKeyResponse } from "@/lib/secret-resource";
@@ -13,7 +13,7 @@ import { redactVirtualKeyResponse } from "@/lib/secret-resource";
 // The catch-all keeps the raw-secret mapping as the deny-by-default backstop for
 // any Virtual Key subpath that has no explicit handler yet.
 
-export const GET = withGatewayAccess("secrets:read-redacted", (req, access) =>
+export const GET = withGatewayCompatibilityAccess("secrets:read-redacted", (req, access) =>
   proxySecretResource(req, access.gateway, "/admin/virtual_keys", "virtualKey"),
 );
 
@@ -25,7 +25,7 @@ export const GET = withGatewayAccess("secrets:read-redacted", (req, access) =>
  * again by a list or get. The rest of the object is redacted as usual, keeping
  * `key_set`/`key_preview` consistent with every other Virtual Key response.
  */
-export const POST = withGatewayAccess("gateway:write", async (req, access) => {
+export const POST = withGatewayCompatibilityAccess("gateway:write", async (req, access) => {
   let body: unknown;
   try {
     body = await req.json();
