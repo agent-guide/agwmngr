@@ -112,6 +112,25 @@ const versionTwoStatements = [
     ON platform_tenant_gateway_grants (gateway_id, tenant_id, principal_id)`,
 ];
 
+const versionThreeStatements = [
+  `CREATE TABLE platform_membership_add_receipts (
+    receipt_digest TEXT PRIMARY KEY,
+    actor_principal_id TEXT NOT NULL REFERENCES platform_principals(id) ON DELETE CASCADE,
+    tenant_id TEXT NOT NULL REFERENCES platform_tenants(id) ON DELETE CASCADE,
+    target_principal_id TEXT NOT NULL REFERENCES platform_principals(id) ON DELETE CASCADE,
+    target_kind TEXT NOT NULL CHECK (target_kind IN ('human','service')),
+    actor_principal_authority_epoch BIGINT NOT NULL CHECK (actor_principal_authority_epoch > 0),
+    tenant_authority_epoch BIGINT NOT NULL CHECK (tenant_authority_epoch > 0),
+    actor_membership_authority_epoch BIGINT NOT NULL CHECK (actor_membership_authority_epoch > 0),
+    target_principal_authority_epoch BIGINT NOT NULL CHECK (target_principal_authority_epoch > 0),
+    expires_at TEXT NOT NULL,
+    consumed_at TEXT,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX platform_membership_add_receipts_expiry
+    ON platform_membership_add_receipts (expires_at, consumed_at)`,
+];
+
 export interface IdentityMigrationReport {
   from: number;
   to: number;
@@ -122,7 +141,7 @@ export async function migratePlatformIdentityDatabase(
   database: PlatformDatabase,
   dryRun = false,
 ): Promise<IdentityMigrationReport> {
-  let report: IdentityMigrationReport = { from: 0, to: 2, dryRun };
+  let report: IdentityMigrationReport = { from: 0, to: 3, dryRun };
   const rollback = new Error("platform identity migration dry-run rollback");
 
   try {
@@ -141,8 +160,8 @@ export async function migratePlatformIdentityDatabase(
         `SELECT version FROM platform_schema_lock WHERE id = 1${suffix}`,
       );
       const current = Number(row.version);
-      if (current > 2) throw new Error("platform identity schema is newer than this application");
-      report = { from: current, to: 2, dryRun };
+      if (current > 3) throw new Error("platform identity schema is newer than this application");
+      report = { from: current, to: 3, dryRun };
 
       if (current === 0) {
         for (const statement of versionOneStatements) await transaction.query(statement);
@@ -152,6 +171,11 @@ export async function migratePlatformIdentityDatabase(
       if (current < 2) {
         for (const statement of versionTwoStatements) await transaction.query(statement);
         await transaction.query("UPDATE platform_schema_lock SET version = 2 WHERE id = 1");
+      }
+
+      if (current < 3) {
+        for (const statement of versionThreeStatements) await transaction.query(statement);
+        await transaction.query("UPDATE platform_schema_lock SET version = 3 WHERE id = 1");
       }
 
       await validatePlatformIdentityReferences(transaction);

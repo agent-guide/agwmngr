@@ -19,7 +19,7 @@ async function verifyPersistence(
 ) {
   expect(await migratePlatformIdentityDatabase(database, true)).toEqual({
     from: 0,
-    to: 2,
+    to: 3,
     dryRun: true,
   });
   await expect(database.query("SELECT * FROM platform_principals")).rejects.toThrow();
@@ -28,7 +28,7 @@ async function verifyPersistence(
     migratePlatformIdentityDatabase(database),
     migratePlatformIdentityDatabase(database),
   ]);
-  expect((await migratePlatformIdentityDatabase(database)).from).toBe(2);
+  expect((await migratePlatformIdentityDatabase(database)).from).toBe(3);
 
   const registry = new IdentityRegistry(database);
   await registry.ensureHuman(1, "2026-10-17T00:00:00.000Z");

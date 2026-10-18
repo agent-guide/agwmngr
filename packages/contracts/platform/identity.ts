@@ -53,6 +53,18 @@ export interface TenantGatewayGrant {
   updatedAt: string;
 }
 
+export type PrincipalResolutionInput =
+  | { kind: "human"; username: string }
+  | { kind: "service"; principalId: string };
+
+export interface MembershipAddResolution {
+  kind: Principal["kind"];
+  label: string;
+  status: "active";
+  receipt: string;
+  expiresAt: string;
+}
+
 // Authentication proves only identity. Services must reload all current
 // authority before each domain operation.
 export type PlatformActorReference =

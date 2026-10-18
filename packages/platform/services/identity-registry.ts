@@ -61,6 +61,21 @@ interface GrantRow {
   updated_at: string;
 }
 
+interface MembershipAddReceiptRow {
+  receipt_digest: string;
+  actor_principal_id: string;
+  tenant_id: string;
+  target_principal_id: string;
+  target_kind: "human" | "service";
+  actor_principal_authority_epoch: number;
+  tenant_authority_epoch: number;
+  actor_membership_authority_epoch: number;
+  target_principal_authority_epoch: number;
+  expires_at: string;
+  consumed_at: string | null;
+  created_at: string;
+}
+
 export interface TenantGatewayGrantSnapshot extends TenantGatewayGrant {
   principalAuthorityEpoch: number;
   tenantAuthorityEpoch: number;
@@ -76,6 +91,25 @@ export interface LocalGrantAuthority {
   membership: TenantMembership;
   membershipAuthorityEpoch: number;
 }
+
+export interface MembershipAddReceiptSnapshot {
+  digest: string;
+  actorPrincipalId: string;
+  tenantId: string;
+  targetPrincipalId: string;
+  targetKind: "human" | "service";
+  actorPrincipalAuthorityEpoch: number;
+  tenantAuthorityEpoch: number;
+  actorMembershipAuthorityEpoch: number;
+  targetPrincipalAuthorityEpoch: number;
+  expiresAt: string;
+  consumedAt: string | null;
+  createdAt: string;
+}
+
+export type MembershipReceiptConsumeResult =
+  | { status: "created"; membership: TenantMembership }
+  | { status: "invalid" | "expired" | "replayed" | "stale" | "exists" };
 
 function toPrincipal(row: PrincipalRow): StoredPrincipal {
   return {
@@ -121,6 +155,23 @@ function toGrant(row: GrantRow): TenantGatewayGrantSnapshot {
     gatewayAuthorityEpoch: Number(row.gateway_authority_epoch),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function toMembershipAddReceipt(row: MembershipAddReceiptRow): MembershipAddReceiptSnapshot {
+  return {
+    digest: row.receipt_digest,
+    actorPrincipalId: row.actor_principal_id,
+    tenantId: row.tenant_id,
+    targetPrincipalId: row.target_principal_id,
+    targetKind: row.target_kind,
+    actorPrincipalAuthorityEpoch: Number(row.actor_principal_authority_epoch),
+    tenantAuthorityEpoch: Number(row.tenant_authority_epoch),
+    actorMembershipAuthorityEpoch: Number(row.actor_membership_authority_epoch),
+    targetPrincipalAuthorityEpoch: Number(row.target_principal_authority_epoch),
+    expiresAt: row.expires_at,
+    consumedAt: row.consumed_at,
+    createdAt: row.created_at,
   };
 }
 
@@ -182,6 +233,13 @@ export class IdentityRegistry {
       [kind, id, tenantId],
     );
     return row ? Number(row.authority_epoch) : null;
+  }
+
+  async servicePrincipalAuthorityEpoch(
+    principalId: string,
+    session: DatabaseSession = this.database,
+  ): Promise<number | null> {
+    return this.authorityEpoch("service_principal", principalId, "", session);
   }
 
   async localGrantAuthority(
@@ -442,6 +500,188 @@ export class IdentityRegistry {
         "DELETE FROM platform_tenant_memberships WHERE principal_id = ? AND tenant_id = ?",
         [principalId, tenantId],
       );
+    });
+  }
+
+  async membershipAddReceipt(
+    digest: string,
+    session: DatabaseSession = this.database,
+  ): Promise<MembershipAddReceiptSnapshot | null> {
+    const [row] = await session.query<MembershipAddReceiptRow>(
+      `SELECT receipt_digest, actor_principal_id, tenant_id, target_principal_id,
+              target_kind, actor_principal_authority_epoch, tenant_authority_epoch,
+              actor_membership_authority_epoch, target_principal_authority_epoch,
+              expires_at, consumed_at, created_at
+         FROM platform_membership_add_receipts
+        WHERE receipt_digest = ?`,
+      [digest],
+    );
+    return row ? toMembershipAddReceipt(row) : null;
+  }
+
+  async createMembershipAddReceipt(input: MembershipAddReceiptSnapshot): Promise<boolean> {
+    return this.write(async (transaction) => {
+      const actor = await this.localGrantAuthority(
+        input.actorPrincipalId,
+        input.tenantId,
+        transaction,
+      );
+      const target = await this.principal(input.targetPrincipalId, transaction);
+      const targetEpoch = target?.kind === "service"
+        ? await this.servicePrincipalAuthorityEpoch(input.targetPrincipalId, transaction)
+        : null;
+      if (
+        !actor ||
+        actor.principal.status !== "active" ||
+        actor.tenant.status !== "active" ||
+        actor.membership.role !== "admin" ||
+        actor.tenantAuthorityEpoch !== input.tenantAuthorityEpoch ||
+        actor.membershipAuthorityEpoch !== input.actorMembershipAuthorityEpoch ||
+        (actor.principal.kind === "service" &&
+          actor.principalAuthorityEpoch !== input.actorPrincipalAuthorityEpoch) ||
+        !target ||
+        target.kind !== input.targetKind ||
+        target.status !== "active" ||
+        (target.kind === "service" && targetEpoch !== input.targetPrincipalAuthorityEpoch)
+      ) {
+        return false;
+      }
+      await transaction.query(
+        `INSERT INTO platform_membership_add_receipts
+           (receipt_digest, actor_principal_id, tenant_id, target_principal_id,
+            target_kind, actor_principal_authority_epoch, tenant_authority_epoch,
+            actor_membership_authority_epoch, target_principal_authority_epoch,
+            expires_at, consumed_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+        [
+          input.digest,
+          input.actorPrincipalId,
+          input.tenantId,
+          input.targetPrincipalId,
+          input.targetKind,
+          input.actorPrincipalAuthorityEpoch,
+          input.tenantAuthorityEpoch,
+          input.actorMembershipAuthorityEpoch,
+          input.targetPrincipalAuthorityEpoch,
+          input.expiresAt,
+          input.createdAt,
+        ],
+      );
+      return true;
+    });
+  }
+
+  async removeMembershipAddReceipt(digest: string): Promise<void> {
+    await this.write((transaction) =>
+      transaction.query(
+        "DELETE FROM platform_membership_add_receipts WHERE receipt_digest = ?",
+        [digest],
+      ),
+    );
+  }
+
+  async consumeMembershipAddReceipt(input: {
+    digest: string;
+    actorPrincipalId: string;
+    tenantId: string;
+    role: TenantRole;
+    now: string;
+  }): Promise<MembershipReceiptConsumeResult> {
+    return this.write(async (transaction) => {
+      const receipt = await this.membershipAddReceipt(input.digest, transaction);
+      if (
+        !receipt ||
+        receipt.actorPrincipalId !== input.actorPrincipalId ||
+        receipt.tenantId !== input.tenantId
+      ) return { status: "invalid" };
+      if (receipt.consumedAt) return { status: "replayed" };
+      if (receipt.expiresAt <= input.now) return { status: "expired" };
+
+      const actor = await this.localGrantAuthority(
+        receipt.actorPrincipalId,
+        receipt.tenantId,
+        transaction,
+      );
+      const target = await this.principal(receipt.targetPrincipalId, transaction);
+      const targetEpoch = target?.kind === "service"
+        ? await this.servicePrincipalAuthorityEpoch(receipt.targetPrincipalId, transaction)
+        : null;
+      if (
+        !actor ||
+        actor.principal.status !== "active" ||
+        actor.tenant.status !== "active" ||
+        actor.membership.role !== "admin" ||
+        actor.tenantAuthorityEpoch !== receipt.tenantAuthorityEpoch ||
+        actor.membershipAuthorityEpoch !== receipt.actorMembershipAuthorityEpoch ||
+        (actor.principal.kind === "service" &&
+          actor.principalAuthorityEpoch !== receipt.actorPrincipalAuthorityEpoch) ||
+        !target ||
+        target.kind !== receipt.targetKind ||
+        target.status !== "active" ||
+        (target.kind === "service" &&
+          targetEpoch !== receipt.targetPrincipalAuthorityEpoch)
+      ) return { status: "stale" };
+
+      if (await this.membership(receipt.targetPrincipalId, receipt.tenantId, transaction)) {
+        return { status: "exists" };
+      }
+      const consumed = await transaction.query<{ receipt_digest: string }>(
+        `UPDATE platform_membership_add_receipts SET consumed_at = ?
+          WHERE receipt_digest = ? AND consumed_at IS NULL
+        RETURNING receipt_digest`,
+        [input.now, input.digest],
+      );
+      if (consumed.length !== 1) return { status: "replayed" };
+
+      await transaction.query(
+        `INSERT INTO platform_authority_fences
+           (subject_kind, subject_id, tenant_id, authority_epoch, updated_at)
+         VALUES ('membership', ?, ?, 1, ?)
+         ON CONFLICT (subject_kind, subject_id, tenant_id) DO NOTHING`,
+        [receipt.targetPrincipalId, receipt.tenantId, input.now],
+      );
+      await transaction.query(
+        `INSERT INTO platform_tenant_memberships
+           (principal_id, tenant_id, role, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        [receipt.targetPrincipalId, receipt.tenantId, input.role, input.now, input.now],
+      );
+      return {
+        status: "created",
+        membership: {
+          principalId: receipt.targetPrincipalId,
+          tenantId: receipt.tenantId,
+          role: input.role,
+          createdAt: input.now,
+          updatedAt: input.now,
+        },
+      };
+    });
+  }
+
+  async removeMembershipIfSnapshot(membership: TenantMembership, now: string): Promise<void> {
+    await this.write(async (transaction) => {
+      const rows = await transaction.query<{ principal_id: string }>(
+        `DELETE FROM platform_tenant_memberships
+          WHERE principal_id = ? AND tenant_id = ? AND role = ?
+            AND created_at = ? AND updated_at = ?
+        RETURNING principal_id`,
+        [
+          membership.principalId,
+          membership.tenantId,
+          membership.role,
+          membership.createdAt,
+          membership.updatedAt,
+        ],
+      );
+      if (rows.length === 1) {
+        await transaction.query(
+          `UPDATE platform_authority_fences
+              SET authority_epoch = authority_epoch + 1, updated_at = ?
+            WHERE subject_kind = 'membership' AND subject_id = ? AND tenant_id = ?`,
+          [now, membership.principalId, membership.tenantId],
+        );
+      }
     });
   }
 

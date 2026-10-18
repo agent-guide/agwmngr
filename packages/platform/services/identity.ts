@@ -6,8 +6,10 @@ import {
   tenantRoleAllows,
   tenantStatuses,
   type HumanPrincipal,
+  type MembershipAddResolution,
   type PlatformActorReference,
   type Principal,
+  type PrincipalResolutionInput,
   type ServicePrincipal,
   type Tenant,
   type TenantGatewayAccess,
@@ -15,7 +17,10 @@ import {
   type TenantMembership,
   type TenantRole,
 } from "../../contracts/platform/identity";
-import type { ServiceCredentialIssuer } from "../ports/credentials";
+import type {
+  MembershipReceiptIssuer,
+  ServiceCredentialIssuer,
+} from "../ports/credentials";
 import type {
   IdentityDirectory,
   ManagerGatewayIdentity,
@@ -24,6 +29,7 @@ import type {
 import {
   IdentityRegistry,
   type LocalGrantAuthority,
+  type MembershipAddReceiptSnapshot,
   type StoredPrincipal,
   type TenantGatewayGrantSnapshot,
 } from "./identity-registry";
@@ -103,11 +109,20 @@ interface GrantAuthoritySnapshot {
   gateway: ManagerGatewayIdentity;
 }
 
+interface MembershipReceiptAuthority {
+  actor: Principal;
+  actorPrincipalAuthorityEpoch: number;
+  local: LocalGrantAuthority;
+  target: Principal;
+  targetPrincipalAuthorityEpoch: number;
+}
+
 export class PlatformIdentityService {
   constructor(
     private readonly registry: IdentityRegistry,
     private readonly directory: IdentityDirectory,
     private readonly credentials: ServiceCredentialIssuer,
+    private readonly receipts: MembershipReceiptIssuer,
     private readonly now = () => new Date(),
   ) {}
 
@@ -290,6 +305,211 @@ export class PlatformIdentityService {
       throw new IdentityError("invalid_input", "service Principal is disabled");
     }
     return principal;
+  }
+
+  private async principalAuthorityEpoch(principal: Principal): Promise<number> {
+    if (principal.kind === "human") {
+      const user = await this.directory.findUser(principal.userId);
+      if (
+        !user?.active ||
+        !Number.isSafeInteger(user.authorityEpoch) ||
+        user.authorityEpoch <= 0
+      ) {
+        throw new IdentityError("invalid_input", "Principal is disabled");
+      }
+      return user.authorityEpoch;
+    }
+    const epoch = await this.registry.servicePrincipalAuthorityEpoch(principal.id);
+    if (epoch === null || principal.status !== "active") {
+      throw new IdentityError("invalid_input", "Principal is disabled");
+    }
+    return epoch;
+  }
+
+  private async membershipReceiptAuthority(
+    actor: PlatformActorReference,
+    tenantId: string,
+    target: Principal,
+  ): Promise<MembershipReceiptAuthority> {
+    const authorization = await this.authorizeTenant(actor, tenantId, "admin");
+    const local = await this.registry.localGrantAuthority(authorization.principal.id, tenantId);
+    if (
+      !local ||
+      local.principal.status !== "active" ||
+      local.tenant.status !== "active" ||
+      local.membership.role !== "admin"
+    ) {
+      throw new IdentityError("forbidden");
+    }
+    return {
+      actor: authorization.principal,
+      actorPrincipalAuthorityEpoch: await this.principalAuthorityEpoch(
+        authorization.principal,
+      ),
+      local,
+      target,
+      targetPrincipalAuthorityEpoch: await this.principalAuthorityEpoch(target),
+    };
+  }
+
+  private receiptAuthorityMatches(
+    receipt: MembershipAddReceiptSnapshot,
+    authority: MembershipReceiptAuthority,
+  ): boolean {
+    return (
+      receipt.actorPrincipalId === authority.actor.id &&
+      receipt.targetPrincipalId === authority.target.id &&
+      receipt.targetKind === authority.target.kind &&
+      receipt.actorPrincipalAuthorityEpoch === authority.actorPrincipalAuthorityEpoch &&
+      receipt.tenantAuthorityEpoch === authority.local.tenantAuthorityEpoch &&
+      receipt.actorMembershipAuthorityEpoch === authority.local.membershipAuthorityEpoch &&
+      receipt.targetPrincipalAuthorityEpoch === authority.targetPrincipalAuthorityEpoch
+    );
+  }
+
+  private async resolveExactPrincipal(input: PrincipalResolutionInput): Promise<Principal> {
+    if (input.kind === "human") {
+      if (
+        typeof input.username !== "string" ||
+        !input.username ||
+        input.username.length > 128
+      ) {
+        throw new IdentityError("invalid_input", "username is required");
+      }
+      const user = await this.directory.findUserByUsername(input.username);
+      if (!user || user.username !== input.username) {
+        throw new IdentityError("not_found", "human Principal not found");
+      }
+      if (!user.active) throw new IdentityError("invalid_input", "human Principal is disabled");
+      await this.registry.ensureHuman(user.id, this.nowIso());
+      return humanPrincipal(user);
+    }
+    if (
+      typeof input.principalId !== "string" ||
+      !/^service:[a-z0-9][a-z0-9-]{0,63}$/.test(input.principalId)
+    ) {
+      throw new IdentityError("invalid_input", "service principal_id is required");
+    }
+    const stored = await this.registry.principal(input.principalId);
+    if (!stored || stored.kind !== "service") {
+      throw new IdentityError("not_found", "service Principal not found");
+    }
+    const principal = servicePrincipal(stored);
+    if (principal.status !== "active") {
+      throw new IdentityError("invalid_input", "service Principal is disabled");
+    }
+    return principal;
+  }
+
+  async resolveMembershipTarget(
+    actor: PlatformActorReference,
+    tenantId: string,
+    input: PrincipalResolutionInput,
+  ): Promise<MembershipAddResolution> {
+    validateSlug(tenantId, "tenant ID");
+    // Authorize before touching either identity namespace so rejected callers
+    // cannot use not-found/conflict differences as a platform directory oracle.
+    await this.authorizeTenant(actor, tenantId, "admin");
+    const target = await this.resolveExactPrincipal(input);
+    if (await this.registry.membership(target.id, tenantId)) {
+      throw new IdentityError("conflict", "Principal is already a Tenant member");
+    }
+    const authority = await this.membershipReceiptAuthority(actor, tenantId, target);
+    const issued = this.receipts.issue();
+    const now = this.now();
+    const createdAt = now.toISOString();
+    const expiresAt = new Date(now.getTime() + 5 * 60_000).toISOString();
+    const receipt: MembershipAddReceiptSnapshot = {
+      digest: issued.digest,
+      actorPrincipalId: authority.actor.id,
+      tenantId,
+      targetPrincipalId: target.id,
+      targetKind: target.kind,
+      actorPrincipalAuthorityEpoch: authority.actorPrincipalAuthorityEpoch,
+      tenantAuthorityEpoch: authority.local.tenantAuthorityEpoch,
+      actorMembershipAuthorityEpoch: authority.local.membershipAuthorityEpoch,
+      targetPrincipalAuthorityEpoch: authority.targetPrincipalAuthorityEpoch,
+      expiresAt,
+      consumedAt: null,
+      createdAt,
+    };
+    if (!await this.registry.createMembershipAddReceipt(receipt)) {
+      throw new IdentityError("conflict", "authority changed while resolving Principal");
+    }
+
+    try {
+      const current = await this.membershipReceiptAuthority(actor, tenantId, target);
+      if (!this.receiptAuthorityMatches(receipt, current)) {
+        throw new IdentityError("conflict", "authority changed while resolving Principal");
+      }
+    } catch (error) {
+      if (!isIdentityError(error)) throw error;
+      await this.registry.removeMembershipAddReceipt(receipt.digest);
+      throw error;
+    }
+
+    return {
+      kind: target.kind,
+      label: target.label,
+      status: "active",
+      receipt: issued.token,
+      expiresAt,
+    };
+  }
+
+  async addMembershipWithReceipt(
+    actor: PlatformActorReference,
+    tenantId: string,
+    receiptToken: string,
+    role: TenantRole,
+  ): Promise<TenantMembership> {
+    validateSlug(tenantId, "tenant ID");
+    if (!tenantRoles.includes(role)) throw new IdentityError("invalid_input", "invalid Tenant role");
+    if (!/^agwmngr_member_[0-9a-f]{64}$/.test(receiptToken)) {
+      throw new IdentityError("invalid_input", "invalid membership add receipt");
+    }
+    const actorPrincipal = await this.resolve(actor);
+    const digest = this.receipts.digest(receiptToken);
+    const stored = await this.registry.membershipAddReceipt(digest);
+    if (
+      !stored ||
+      stored.actorPrincipalId !== actorPrincipal.id ||
+      stored.tenantId !== tenantId
+    ) {
+      throw new IdentityError("forbidden", "membership add receipt is not valid for this request");
+    }
+    const target = await this.targetPrincipal(stored.targetPrincipalId);
+    if (target.kind !== stored.targetKind) {
+      throw new IdentityError("conflict", "membership add receipt is stale");
+    }
+    const authority = await this.membershipReceiptAuthority(actor, tenantId, target);
+    if (!this.receiptAuthorityMatches(stored, authority)) {
+      throw new IdentityError("conflict", "membership add receipt is stale");
+    }
+    const result = await this.registry.consumeMembershipAddReceipt({
+      digest,
+      actorPrincipalId: actorPrincipal.id,
+      tenantId,
+      role,
+      now: this.nowIso(),
+    });
+    if (result.status !== "created") {
+      const code = result.status === "exists" ? "conflict" :
+        result.status === "invalid" ? "forbidden" : "conflict";
+      throw new IdentityError(code, `membership add receipt is ${result.status}`);
+    }
+
+    try {
+      const current = await this.membershipReceiptAuthority(actor, tenantId, target);
+      if (!this.receiptAuthorityMatches(stored, current)) {
+        throw new IdentityError("conflict", "authority changed while adding member");
+      }
+    } catch (error) {
+      if (!isIdentityError(error)) throw error;
+      await this.registry.removeMembershipIfSnapshot(result.membership, this.nowIso());
+      throw error;
+    }
+    return result.membership;
   }
 
   private async requireMembershipManager(

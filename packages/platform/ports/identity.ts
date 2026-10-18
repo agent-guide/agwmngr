@@ -15,6 +15,7 @@ export interface ManagerGatewayIdentity {
 // Manager users remain the only editable human identity/password authority.
 export interface IdentityDirectory {
   findUser(id: number): Promise<ManagerUserIdentity | null>;
+  findUserByUsername(username: string): Promise<ManagerUserIdentity | null>;
   listUsers(): Promise<ManagerUserIdentity[]>;
   findGateway(id: string): Promise<ManagerGatewayIdentity | null>;
 }

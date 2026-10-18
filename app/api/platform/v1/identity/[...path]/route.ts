@@ -126,6 +126,69 @@ async function dispatch(request: Request, context: Context) {
 
     if (
       request.method === "POST" &&
+      path.length === 3 &&
+      path[0] === "tenants" &&
+      path[2] === "member-resolutions"
+    ) {
+      audit.set({
+        action: "tenant:membership_resolve",
+        tenantId: path[1],
+        targetKind: "membership_add_receipt",
+      });
+      const body = await platformIdentityBody(request, ["kind", "username", "principal_id"]);
+      const kind = requiredText(body, "kind");
+      if (kind === "human") {
+        if (body.principal_id !== undefined) {
+          throw new IdentityError("invalid_input", "human resolution accepts only username");
+        }
+        return Response.json(
+          await service.resolveMembershipTarget(actor, path[1], {
+            kind,
+            username: requiredText(body, "username"),
+          }),
+          { status: 201 },
+        );
+      }
+      if (kind === "service") {
+        if (body.username !== undefined) {
+          throw new IdentityError("invalid_input", "service resolution accepts only principal_id");
+        }
+        return Response.json(
+          await service.resolveMembershipTarget(actor, path[1], {
+            kind,
+            principalId: requiredText(body, "principal_id"),
+          }),
+          { status: 201 },
+        );
+      }
+      throw new IdentityError("invalid_input", "kind must be human or service");
+    }
+
+    if (
+      request.method === "POST" &&
+      path.length === 3 &&
+      path[0] === "tenants" &&
+      path[2] === "members"
+    ) {
+      audit.set({
+        action: "tenant:membership_add",
+        tenantId: path[1],
+        targetKind: "tenant_membership",
+      });
+      const body = await platformIdentityBody(request, ["receipt", "role"]);
+      return Response.json(
+        await service.addMembershipWithReceipt(
+          actor,
+          path[1],
+          requiredText(body, "receipt"),
+          requiredText(body, "role") as TenantRole,
+        ),
+        { status: 201 },
+      );
+    }
+
+    if (
+      request.method === "POST" &&
       path.length === 4 &&
       path[0] === "tenants" &&
       path[2] === "members" &&

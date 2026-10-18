@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import {
   findUserById,
+  findUserByUsername,
   getDb,
   getGatewayAuthority,
   getHumanPrincipalAuthorityEpoch,
@@ -13,6 +14,7 @@ import {
   openSqlitePlatformDatabase,
 } from "./platform-database";
 import type { ServiceCredentialIssuer } from "@/packages/platform/ports/credentials";
+import type { MembershipReceiptIssuer } from "@/packages/platform/ports/credentials";
 import { PlatformIdentityService } from "@/packages/platform/services/identity";
 import { IdentityRegistry } from "@/packages/platform/services/identity-registry";
 import { migratePlatformIdentityDatabase } from "@/packages/platform/services/identity-migrations";
@@ -26,6 +28,14 @@ export const serviceCredentialIssuer: ServiceCredentialIssuer = {
       token,
       digest: this.digest(token),
     };
+  },
+};
+
+export const membershipReceiptIssuer: MembershipReceiptIssuer = {
+  digest: (token) => createHash("sha256").update(token).digest("hex"),
+  issue() {
+    const token = `agwmngr_member_${randomBytes(32).toString("hex")}`;
+    return { token, digest: this.digest(token) };
   },
 };
 
@@ -70,6 +80,18 @@ export function getPlatformIdentity(): Promise<PlatformIdentityService> {
                 }
               : null;
           },
+          async findUserByUsername(username) {
+            const row = findUserByUsername(username);
+            if (!row || row.username !== username) return null;
+            const authorityEpoch = getHumanPrincipalAuthorityEpoch(row.id);
+            return authorityEpoch === null ? null : {
+              id: row.id,
+              username: row.username,
+              active: row.status === "active",
+              platformAdmin: row.is_platform_admin === 1,
+              authorityEpoch,
+            };
+          },
           async listUsers() {
             return listUsers().flatMap((user) => {
               const authorityEpoch = getHumanPrincipalAuthorityEpoch(user.id);
@@ -87,6 +109,7 @@ export function getPlatformIdentity(): Promise<PlatformIdentityService> {
           },
         },
         serviceCredentialIssuer,
+        membershipReceiptIssuer,
       );
     })().catch((error) => {
       delete globalState.__platformIdentity;
