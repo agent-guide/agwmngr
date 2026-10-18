@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import {
   getCurrentUser,
   listSessionGateways,
@@ -8,6 +8,8 @@ import {
   type CurrentUser,
   type SessionGateway,
 } from "@/lib/api";
+import { getPlatformAccess, type PlatformAccessProjection } from "@/lib/platform-api";
+import { useI18n } from "@/components/i18n-provider";
 
 interface CurrentUserContextValue {
   user: CurrentUser | null;
@@ -15,6 +17,8 @@ interface CurrentUserContextValue {
   gateways: SessionGateway[];
   activeGatewayId: string | null;
   activeGateway: SessionGateway | null;
+  platformAccess: PlatformAccessProjection | null;
+  platformAccessError: string | null;
   switchGateway: (id: string) => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -25,30 +29,55 @@ const CurrentUserContext = createContext<CurrentUserContextValue>({
   gateways: [],
   activeGatewayId: null,
   activeGateway: null,
+  platformAccess: null,
+  platformAccessError: null,
   switchGateway: async () => {},
   refresh: async () => {},
 });
 
 export function CurrentUserProvider({ children }: { children: React.ReactNode }) {
+  const { t } = useI18n();
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [gateways, setGateways] = useState<SessionGateway[]>([]);
   const [activeGatewayId, setActiveGatewayId] = useState<string | null>(null);
+  const [platformAccess, setPlatformAccess] = useState<PlatformAccessProjection | null>(null);
+  const [platformAccessError, setPlatformAccessError] = useState<string | null>(null);
+  const refreshGeneration = useRef(0);
 
   const refresh = useCallback(async () => {
+    const generation = ++refreshGeneration.current;
     try {
-      const [u, g] = await Promise.all([getCurrentUser(), listSessionGateways().catch(() => null)]);
+      const [u, g, accessResult] = await Promise.all([
+        getCurrentUser(),
+        listSessionGateways().catch(() => null),
+        getPlatformAccess().then(
+          (access) => ({ access, error: null }),
+          (error: unknown) => ({
+            access: null,
+            error: error instanceof Error ? error.message : t("platformAccess.loadFailed"),
+          }),
+        ),
+      ]);
+      if (generation !== refreshGeneration.current) return;
       setUser(u);
+      setPlatformAccess(accessResult.access);
+      setPlatformAccessError(accessResult.error);
       if (g) {
         setGateways(g.items);
         setActiveGatewayId(g.active_gateway_id);
       }
-    } catch {
+    } catch (error) {
+      if (generation !== refreshGeneration.current) return;
       setUser(null);
+      setPlatformAccess(null);
+      setPlatformAccessError(
+        error instanceof Error ? error.message : t("platformAccess.userLoadFailed"),
+      );
     } finally {
-      setLoading(false);
+      if (generation === refreshGeneration.current) setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const t = window.setTimeout(() => void refresh(), 0);
@@ -72,7 +101,17 @@ export function CurrentUserProvider({ children }: { children: React.ReactNode })
 
   return (
     <CurrentUserContext.Provider
-      value={{ user, loading, gateways, activeGatewayId, activeGateway, switchGateway, refresh }}
+      value={{
+        user,
+        loading,
+        gateways,
+        activeGatewayId,
+        activeGateway,
+        platformAccess,
+        platformAccessError,
+        switchGateway,
+        refresh,
+      }}
     >
       {children}
     </CurrentUserContext.Provider>

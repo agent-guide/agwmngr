@@ -8,6 +8,7 @@ import {
   type PlatformIdentityService,
 } from "@/packages/platform/services/identity";
 import type { PlatformActorReference } from "@/packages/contracts/platform/identity";
+import type { PrincipalResolutionInput } from "@/packages/contracts/platform/identity";
 
 type PlatformHandler = (
   service: PlatformIdentityService,
@@ -144,4 +145,23 @@ export function requiredText(body: Record<string, unknown>, field: string): stri
     throw new IdentityError("invalid_input", `${field} is required`);
   }
   return body[field];
+}
+
+export function principalResolutionInput(
+  body: Record<string, unknown>,
+): PrincipalResolutionInput {
+  const kind = requiredText(body, "kind");
+  if (kind === "human") {
+    if (body.principal_id !== undefined) {
+      throw new IdentityError("invalid_input", "human resolution accepts only username");
+    }
+    return { kind, username: requiredText(body, "username") };
+  }
+  if (kind === "service") {
+    if (body.username !== undefined) {
+      throw new IdentityError("invalid_input", "service resolution accepts only principal_id");
+    }
+    return { kind, principalId: requiredText(body, "principal_id") };
+  }
+  throw new IdentityError("invalid_input", "kind must be human or service");
 }

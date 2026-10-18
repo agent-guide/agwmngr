@@ -65,6 +65,15 @@ export interface MembershipAddResolution {
   expiresAt: string;
 }
 
+export interface TenantMember extends TenantMembership {
+  principal: Principal;
+}
+
+export interface PlatformAccessProjection {
+  principal: Principal;
+  memberships: Array<TenantMembership & { tenant: Tenant }>;
+}
+
 // Authentication proves only identity. Services must reload all current
 // authority before each domain operation.
 export type PlatformActorReference =

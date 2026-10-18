@@ -7,6 +7,7 @@ import {
   tenantStatuses,
   type HumanPrincipal,
   type MembershipAddResolution,
+  type PlatformAccessProjection,
   type PlatformActorReference,
   type Principal,
   type PrincipalResolutionInput,
@@ -15,6 +16,7 @@ import {
   type TenantGatewayAccess,
   type TenantGatewayGrant,
   type TenantMembership,
+  type TenantMember,
   type TenantRole,
 } from "../../contracts/platform/identity";
 import type {
@@ -207,10 +209,7 @@ export class PlatformIdentityService {
     return { principal, tenant, membership };
   }
 
-  async access(actor: PlatformActorReference): Promise<{
-    principal: Principal;
-    memberships: Array<TenantMembership & { tenant: Tenant }>;
-  }> {
+  async access(actor: PlatformActorReference): Promise<PlatformAccessProjection> {
     const principal = await this.resolve(actor);
     const memberships = await this.registry.membershipsForPrincipal(principal.id);
     const active: Array<TenantMembership & { tenant: Tenant }> = [];
@@ -524,13 +523,26 @@ export class PlatformIdentityService {
   async listMemberships(
     actor: PlatformActorReference,
     tenantId: string,
-  ): Promise<Array<TenantMembership & { principal: Principal }>> {
+  ): Promise<TenantMember[]> {
     validateSlug(tenantId, "tenant ID");
     await this.requireMembershipManager(actor, tenantId);
+    return this.membershipProjection(tenantId);
+  }
+
+  async listTenantMemberships(
+    actor: PlatformActorReference,
+    tenantId: string,
+  ): Promise<TenantMember[]> {
+    validateSlug(tenantId, "tenant ID");
+    await this.authorizeTenant(actor, tenantId, "admin");
+    return this.membershipProjection(tenantId);
+  }
+
+  private async membershipProjection(tenantId: string): Promise<TenantMember[]> {
     const tenant = await this.registry.tenant(tenantId);
     if (!tenant) throw new IdentityError("not_found", "Tenant not found");
     const memberships = await this.registry.membershipsForTenant(tenantId);
-    const result: Array<TenantMembership & { principal: Principal }> = [];
+    const result: TenantMember[] = [];
     for (const membership of memberships) {
       const stored = await this.registry.principal(membership.principalId);
       if (!stored) continue;
@@ -542,6 +554,44 @@ export class PlatformIdentityService {
       }
     }
     return result;
+  }
+
+  async setTenantMembership(
+    actor: PlatformActorReference,
+    tenantId: string,
+    principalId: string,
+    role: TenantRole,
+  ): Promise<TenantMembership> {
+    validateSlug(tenantId, "tenant ID");
+    if (!tenantRoles.includes(role)) throw new IdentityError("invalid_input", "invalid Tenant role");
+    await this.authorizeTenant(actor, tenantId, "admin");
+    if (!await this.registry.membership(principalId, tenantId)) {
+      // Tenant Admins know stable IDs only from their existing-member projection.
+      // Check membership before the manager directory to avoid an existence oracle.
+      throw new IdentityError("not_found", "Tenant membership not found");
+    }
+    await this.targetPrincipal(principalId);
+    const updated = await this.registry.updateMembership(
+      principalId,
+      tenantId,
+      role,
+      this.nowIso(),
+    );
+    if (!updated) throw new IdentityError("not_found", "Tenant membership not found");
+    return (await this.registry.membership(principalId, tenantId))!;
+  }
+
+  async removeTenantMembership(
+    actor: PlatformActorReference,
+    tenantId: string,
+    principalId: string,
+  ): Promise<void> {
+    validateSlug(tenantId, "tenant ID");
+    await this.authorizeTenant(actor, tenantId, "admin");
+    if (!await this.registry.membership(principalId, tenantId)) {
+      throw new IdentityError("not_found", "Tenant membership not found");
+    }
+    await this.registry.removeMembership(principalId, tenantId, this.nowIso());
   }
 
   async setMembership(

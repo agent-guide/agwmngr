@@ -8,6 +8,7 @@ import { useMobileSidebar } from "@/components/mobile-sidebar-context";
 import { useCurrentUser } from "@/components/current-user-context";
 import { useI18n } from "@/components/i18n-provider";
 import type { MessageKey } from "@/lib/i18n";
+import { tenantPathScope } from "@/lib/dashboard-scope";
 
 function IconHome({ className }: { className?: string }) {
   return <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>;
@@ -154,7 +155,7 @@ const STORAGE_KEY = "dashboard.nav.groups";
  * match, so `/dashboard/agents/interactions` highlights Interactions (not the
  * shorter Agents) and `/dashboard/agents/new` still highlights Agents.
  */
-function resolveActiveHref(pathname: string, allHrefs: string[]): string | null {
+export function resolveActiveHref(pathname: string, allHrefs: string[]): string | null {
   let best: string | null = null;
   for (const href of allHrefs) {
     if (pathname === href || pathname.startsWith(href + "/")) {
@@ -167,7 +168,7 @@ function resolveActiveHref(pathname: string, allHrefs: string[]): string | null 
 export function DashboardNav() {
   const pathname = usePathname();
   const { isOpen, isCollapsed, toggleCollapsed, close } = useMobileSidebar();
-  const { user, activeGateway } = useCurrentUser();
+  const { user, activeGateway, platformAccess, platformAccessError } = useCurrentUser();
   const { t } = useI18n();
   const hasGatewayContentAccess = Boolean(
     user?.is_platform_admin || activeGateway?.role === "admin",
@@ -180,11 +181,43 @@ export function DashboardNav() {
   // (app/api/admin/virtual_keys/[id]/reveal).
   const workspaceActivityItems = hasGatewayContentAccess ? WORKSPACE_ACTIVITY_ITEMS : [];
 
-  const groups = NAV_GROUPS.filter(
+  const baseGroups = NAV_GROUPS.filter(
     (g) =>
       (hasGatewayContentAccess || g.key === "platform") &&
       (!g.adminOnly || user?.is_platform_admin),
   );
+  const scopedTenantId = tenantPathScope(pathname)?.tenantId;
+  const tenantAdmins = (platformAccess?.memberships ?? []).filter(
+    (membership) => membership.role === "admin",
+  );
+  const selectedTenant = tenantAdmins.find(
+    (membership) => membership.tenantId === scopedTenantId,
+  ) ?? tenantAdmins[0];
+  const tenantAdminId = selectedTenant?.tenantId ?? (
+    platformAccessError ? scopedTenantId : undefined
+  );
+  const tenantGroup: NavGroup | null = tenantAdminId
+    ? {
+        key: "tenant",
+        labelKey: "nav.tenantAdministration",
+        icon: IconUsers,
+        items: [{
+          href: `/dashboard/tenant/${encodeURIComponent(tenantAdminId)}/members`,
+          labelKey: "nav.members",
+          icon: IconUsers,
+        }],
+      }
+    : null;
+  const platformIndex = baseGroups.findIndex((group) => group.key === "platform");
+  const groups = tenantGroup
+    ? platformIndex === -1
+      ? [...baseGroups, tenantGroup]
+      : [
+          ...baseGroups.slice(0, platformIndex),
+          tenantGroup,
+          ...baseGroups.slice(platformIndex),
+        ]
+    : baseGroups;
   const runtimeGroup = groups.find((g) => g.key === "runtimes");
   const lowerGroups = groups.filter((g) => g.key !== "runtimes");
 

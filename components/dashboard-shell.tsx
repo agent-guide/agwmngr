@@ -7,14 +7,19 @@ import { PermissionBanner } from "@/components/permission-banner";
 import { getUsername } from "@/lib/auth";
 import { useCurrentUser } from "@/components/current-user-context";
 import { useI18n } from "@/components/i18n-provider";
+import { usePathname } from "next/navigation";
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [panelOpen, setPanelOpen] = useState(false);
   const [username] = useState(() => getUsername() || "admin");
   const { user, loading, activeGateway } = useCurrentUser();
   const { t } = useI18n();
+  const pathname = usePathname();
   const hasGatewayContentAccess =
     user?.is_platform_admin || activeGateway?.role === "admin";
+  const ownsAccessDecision =
+    pathname.startsWith("/dashboard/tenant/") ||
+    pathname.startsWith("/dashboard/platform/");
 
   return (
     <>
@@ -27,9 +32,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         <div className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-8 text-center text-sm text-slate-400">
           {t("common.loadingAccess")}
         </div>
-      ) : hasGatewayContentAccess ? (
+      ) : hasGatewayContentAccess || ownsAccessDecision ? (
         <>
-          <PermissionBanner />
+          {hasGatewayContentAccess && <PermissionBanner />}
           {children}
         </>
       ) : (

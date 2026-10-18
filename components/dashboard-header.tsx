@@ -1,9 +1,11 @@
 "use client";
 
 import { GatewaySwitcher } from "@/components/gateway-switcher";
+import { TenantScopeSwitcher } from "@/components/tenant-scope-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LanguageSelect } from "@/components/language-select";
 import { useI18n } from "@/components/i18n-provider";
+import { usePathname } from "next/navigation";
 
 interface DashboardHeaderProps {
   onUserClick: () => void;
@@ -12,8 +14,11 @@ interface DashboardHeaderProps {
 }
 
 export function DashboardHeader({ onUserClick, username, isAdmin }: DashboardHeaderProps) {
+  const pathname = usePathname();
   const initial = username ? username.charAt(0).toUpperCase() : "?";
   const { t } = useI18n();
+  const tenantScoped = pathname.startsWith("/dashboard/tenant/");
+  const platformScoped = pathname.startsWith("/dashboard/platform/");
   return (
     <header className="relative z-50 w-full bg-slate-900/40 border-b border-slate-700/70 backdrop-blur-sm py-2.5 px-4 lg:px-6 rounded-lg mb-4 flex items-center justify-between">
       <div className="flex items-center gap-3 text-sm">
@@ -25,7 +30,7 @@ export function DashboardHeader({ onUserClick, username, isAdmin }: DashboardHea
       <div className="flex items-center gap-3">
         <LanguageSelect className="hidden sm:inline-flex" />
         <ThemeToggle />
-        <GatewaySwitcher />
+        {tenantScoped ? <TenantScopeSwitcher /> : !platformScoped ? <GatewaySwitcher /> : null}
         <button
           onClick={onUserClick}
           aria-label={t("header.userSettings")}

@@ -80,6 +80,14 @@ test("live Principal, Tenant, and membership state is revalidated on every opera
 
   await service.bootstrapMembership(platformAdmin, "alpha", "user:2", "admin");
   await service.bootstrapMembership(platformAdmin, "alpha", "user:3", "user");
+  expect((await service.listTenantMemberships(alice, "alpha")).map((item) => item.principalId))
+    .toEqual(["user:2", "user:3"]);
+  await expect(service.listTenantMemberships(platformAdmin, "alpha")).rejects.toMatchObject({
+    code: "forbidden",
+  });
+  await expect(service.listTenantMemberships(bob, "alpha")).rejects.toMatchObject({
+    code: "forbidden",
+  });
   expect((await service.authorizeTenant(alice, "alpha", "admin")).membership.role).toBe(
     "admin",
   );
@@ -150,11 +158,18 @@ test("live Principal, Tenant, and membership state is revalidated on every opera
   await expect(service.authorizeTenantGateway(alice, "alpha", "prod")).rejects.toMatchObject({
     code: "forbidden",
   });
+  await service.bootstrapMembership(platformAdmin, "beta", "user:2", "admin");
   await service.setTenantGatewayGrant(platformAdmin, "user:2", "alpha", "prod", "view");
   await service.setTenantStatus(platformAdmin, "alpha", "disabled");
   await expect(service.authorizeTenant(alice, "alpha")).rejects.toMatchObject({
     code: "forbidden",
   });
+  await expect(service.listTenantMemberships(alice, "alpha")).rejects.toMatchObject({
+    code: "forbidden",
+  });
+  expect((await service.listTenantMemberships(alice, "beta")).map((item) => item.principalId))
+    .toEqual(["user:2"]);
+  expect((await service.access(alice)).memberships.map((item) => item.tenantId)).toEqual(["beta"]);
   await service.setTenantStatus(platformAdmin, "alpha", "active");
   await expect(service.authorizeTenantGateway(alice, "alpha", "prod")).rejects.toMatchObject({
     code: "forbidden",
@@ -519,6 +534,21 @@ test("Tenant Admin exact resolution issues fenced single-use membership receipts
       "user",
     ),
   ).toMatchObject({ principalId: "user:3", tenantId: "alpha", role: "user" });
+  await expect(
+    service.setTenantMembership(platform, "alpha", "user:3", "admin"),
+  ).rejects.toMatchObject({ code: "forbidden" });
+  expect(await service.setTenantMembership(tenantAdmin, "alpha", "user:3", "admin"))
+    .toMatchObject({ role: "admin" });
+  expect(await service.setTenantMembership(tenantAdmin, "alpha", "user:3", "user"))
+    .toMatchObject({ role: "user" });
+  for (const principalId of ["user:4", "user:999"]) {
+    await expect(
+      service.setTenantMembership(tenantAdmin, "alpha", principalId, "user"),
+    ).rejects.toMatchObject({
+      code: "not_found",
+      message: "Tenant membership not found",
+    });
+  }
   await expect(
     service.addMembershipWithReceipt(tenantAdmin, "alpha", humanCollision.receipt, "admin"),
   ).rejects.toMatchObject({ code: "conflict" });
