@@ -1,5 +1,7 @@
 import {
   humanPrincipalId,
+  tenantGatewayAccessAllows,
+  tenantGatewayAccessLevels,
   tenantRoles,
   tenantRoleAllows,
   tenantStatuses,
@@ -8,12 +10,23 @@ import {
   type Principal,
   type ServicePrincipal,
   type Tenant,
+  type TenantGatewayAccess,
+  type TenantGatewayGrant,
   type TenantMembership,
   type TenantRole,
 } from "../../contracts/platform/identity";
 import type { ServiceCredentialIssuer } from "../ports/credentials";
-import type { IdentityDirectory, ManagerUserIdentity } from "../ports/identity";
-import { IdentityRegistry, type StoredPrincipal } from "./identity-registry";
+import type {
+  IdentityDirectory,
+  ManagerGatewayIdentity,
+  ManagerUserIdentity,
+} from "../ports/identity";
+import {
+  IdentityRegistry,
+  type LocalGrantAuthority,
+  type StoredPrincipal,
+  type TenantGatewayGrantSnapshot,
+} from "./identity-registry";
 
 export type IdentityErrorCode =
   | "unauthenticated"
@@ -78,6 +91,18 @@ export interface TenantAuthorization {
   membership: TenantMembership;
 }
 
+export interface TenantGatewayAuthorization extends TenantAuthorization {
+  gateway: ManagerGatewayIdentity;
+  grant: TenantGatewayGrant;
+}
+
+interface GrantAuthoritySnapshot {
+  principal: Principal;
+  local: LocalGrantAuthority;
+  principalAuthorityEpoch: number;
+  gateway: ManagerGatewayIdentity;
+}
+
 export class PlatformIdentityService {
   constructor(
     private readonly registry: IdentityRegistry,
@@ -95,7 +120,9 @@ export class PlatformIdentityService {
       throw new IdentityError("unauthenticated");
     }
     const user = await this.directory.findUser(userId);
-    if (!user?.active) throw new IdentityError("unauthenticated");
+    if (!user?.active || !Number.isSafeInteger(user.authorityEpoch) || user.authorityEpoch <= 0) {
+      throw new IdentityError("unauthenticated");
+    }
     return user;
   }
 
@@ -204,7 +231,9 @@ export class PlatformIdentityService {
     if (typeof name !== "string" || !name.trim() || name.trim().length > 200) {
       throw new IdentityError("invalid_input", "tenant name must be between 1 and 200 characters");
     }
-    if (await this.registry.tenant(id)) throw new IdentityError("conflict", "Tenant already exists");
+    if (await this.registry.issued("tenant", id)) {
+      throw new IdentityError("conflict", "Tenant ID was already issued");
+    }
     const now = this.nowIso();
     const tenant: Tenant = {
       id,
@@ -230,6 +259,14 @@ export class PlatformIdentityService {
     const now = this.nowIso();
     await this.registry.setTenantStatus(id, status, now);
     return { ...existing, status, updatedAt: now };
+  }
+
+  async deleteTenant(actor: PlatformActorReference, id: string): Promise<void> {
+    await this.requirePlatformAdmin(actor);
+    validateSlug(id, "tenant ID");
+    if (!await this.registry.deleteTenant(id, this.nowIso())) {
+      throw new IdentityError("not_found", "Tenant not found");
+    }
   }
 
   private async targetPrincipal(id: string): Promise<Principal> {
@@ -351,7 +388,216 @@ export class PlatformIdentityService {
     if (!await this.registry.tenant(tenantId)) {
       throw new IdentityError("not_found", "Tenant not found");
     }
-    await this.registry.removeMembership(principalId, tenantId);
+    await this.registry.removeMembership(principalId, tenantId, this.nowIso());
+  }
+
+  private async grantAuthoritySnapshot(
+    principalId: string,
+    tenantId: string,
+    gatewayId: string,
+    failureCode: "invalid_input" | "forbidden",
+  ): Promise<GrantAuthoritySnapshot> {
+    const local = await this.registry.localGrantAuthority(principalId, tenantId);
+    if (
+      !local ||
+      local.principal.status !== "active" ||
+      local.tenant.status !== "active" ||
+      local.membership.role !== "admin"
+    ) {
+      throw new IdentityError(failureCode, "an active Tenant Admin membership is required");
+    }
+
+    let principal: Principal;
+    let principalAuthorityEpoch: number;
+    if (local.principal.kind === "human") {
+      if (local.principal.userId === null) throw new Error("invalid stored human principal");
+      const user = await this.directory.findUser(local.principal.userId);
+      if (
+        !user?.active ||
+        !Number.isSafeInteger(user.authorityEpoch) ||
+        user.authorityEpoch <= 0
+      ) {
+        throw new IdentityError(failureCode, "an active Principal is required");
+      }
+      principal = humanPrincipal(user);
+      principalAuthorityEpoch = user.authorityEpoch;
+    } else {
+      if (local.principalAuthorityEpoch === null) {
+        throw new Error("missing service Principal authority fence");
+      }
+      principal = servicePrincipal(local.principal);
+      principalAuthorityEpoch = local.principalAuthorityEpoch;
+    }
+
+    const gateway = await this.directory.findGateway(gatewayId);
+    if (
+      !gateway?.active ||
+      !Number.isSafeInteger(gateway.authorityEpoch) ||
+      gateway.authorityEpoch <= 0
+    ) {
+      throw new IdentityError(failureCode, "an active Gateway is required");
+    }
+    return { principal, local, principalAuthorityEpoch, gateway };
+  }
+
+  private grantMatchesAuthority(
+    grant: TenantGatewayGrantSnapshot,
+    authority: GrantAuthoritySnapshot,
+  ): boolean {
+    return (
+      grant.principalAuthorityEpoch === authority.principalAuthorityEpoch &&
+      grant.tenantAuthorityEpoch === authority.local.tenantAuthorityEpoch &&
+      grant.membershipAuthorityEpoch === authority.local.membershipAuthorityEpoch &&
+      grant.gatewayAuthorityEpoch === authority.gateway.authorityEpoch
+    );
+  }
+
+  private publicGrant(grant: TenantGatewayGrantSnapshot): TenantGatewayGrant {
+    return {
+      principalId: grant.principalId,
+      tenantId: grant.tenantId,
+      gatewayId: grant.gatewayId,
+      access: grant.access,
+      createdAt: grant.createdAt,
+      updatedAt: grant.updatedAt,
+    };
+  }
+
+  private async discardStaleGrant(grant: TenantGatewayGrantSnapshot): Promise<void> {
+    try {
+      await this.registry.removeTenantGatewayGrantIfSnapshot(grant);
+    } catch (error) {
+      // Cleanup is availability work, not the authorization decision. Epoch and
+      // live-state checks above keep a retained stale row fail-closed.
+      console.error("[platform identity] failed to remove stale Tenant Gateway grant", error);
+    }
+  }
+
+  async listTenantGatewayGrants(
+    actor: PlatformActorReference,
+    filters: { principalId?: string; tenantId?: string; gatewayId?: string } = {},
+  ): Promise<TenantGatewayGrant[]> {
+    await this.requirePlatformAdmin(actor);
+    if (filters.tenantId) validateSlug(filters.tenantId, "tenant ID");
+    if (filters.gatewayId) validateSlug(filters.gatewayId, "gateway ID");
+    if (filters.principalId !== undefined && !filters.principalId) {
+      throw new IdentityError("invalid_input", "principal ID is required");
+    }
+    return (await this.registry.tenantGatewayGrants(filters)).map((grant) =>
+      this.publicGrant(grant)
+    );
+  }
+
+  async setTenantGatewayGrant(
+    actor: PlatformActorReference,
+    principalId: string,
+    tenantId: string,
+    gatewayId: string,
+    access: TenantGatewayAccess,
+  ): Promise<TenantGatewayGrant> {
+    await this.requirePlatformAdmin(actor);
+    validateSlug(tenantId, "tenant ID");
+    validateSlug(gatewayId, "gateway ID");
+    if (!tenantGatewayAccessLevels.includes(access)) {
+      throw new IdentityError("invalid_input", "invalid Tenant Gateway access");
+    }
+    await this.targetPrincipal(principalId);
+    const authority = await this.grantAuthoritySnapshot(
+      principalId,
+      tenantId,
+      gatewayId,
+      "invalid_input",
+    );
+    const existing = await this.registry.tenantGatewayGrant(principalId, tenantId, gatewayId);
+    const now = this.nowIso();
+    const snapshot: TenantGatewayGrantSnapshot = {
+      principalId,
+      tenantId,
+      gatewayId,
+      access,
+      principalAuthorityEpoch: authority.principalAuthorityEpoch,
+      tenantAuthorityEpoch: authority.local.tenantAuthorityEpoch,
+      membershipAuthorityEpoch: authority.local.membershipAuthorityEpoch,
+      gatewayAuthorityEpoch: authority.gateway.authorityEpoch,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    if (!await this.registry.putTenantGatewayGrant(snapshot)) {
+      throw new IdentityError("conflict", "grant authority changed while saving");
+    }
+
+    let currentAuthority: GrantAuthoritySnapshot;
+    try {
+      currentAuthority = await this.grantAuthoritySnapshot(
+        principalId,
+        tenantId,
+        gatewayId,
+        "invalid_input",
+      );
+    } catch (error) {
+      if (!isIdentityError(error)) throw error;
+      await this.discardStaleGrant(snapshot);
+      throw new IdentityError("conflict", "grant authority changed while saving");
+    }
+    const saved = await this.registry.tenantGatewayGrant(principalId, tenantId, gatewayId);
+    if (!saved || !this.grantMatchesAuthority(saved, currentAuthority)) {
+      if (saved) await this.discardStaleGrant(saved);
+      throw new IdentityError("conflict", "grant authority changed while saving");
+    }
+    return this.publicGrant(saved);
+  }
+
+  async removeTenantGatewayGrant(
+    actor: PlatformActorReference,
+    principalId: string,
+    tenantId: string,
+    gatewayId: string,
+  ): Promise<void> {
+    await this.requirePlatformAdmin(actor);
+    validateSlug(tenantId, "tenant ID");
+    validateSlug(gatewayId, "gateway ID");
+    if (!principalId) throw new IdentityError("invalid_input", "principal ID is required");
+    if (!await this.registry.removeTenantGatewayGrant(principalId, tenantId, gatewayId)) {
+      throw new IdentityError("not_found", "Tenant Gateway grant not found");
+    }
+  }
+
+  async authorizeTenantGateway(
+    actor: PlatformActorReference,
+    tenantId: string,
+    gatewayId: string,
+    requiredAccess: TenantGatewayAccess = "view",
+  ): Promise<TenantGatewayAuthorization> {
+    validateSlug(tenantId, "tenant ID");
+    validateSlug(gatewayId, "gateway ID");
+    if (!tenantGatewayAccessLevels.includes(requiredAccess)) {
+      throw new IdentityError("invalid_input", "invalid Tenant Gateway access");
+    }
+    const principal = await this.resolve(actor);
+    const authority = await this.grantAuthoritySnapshot(
+      principal.id,
+      tenantId,
+      gatewayId,
+      "forbidden",
+    );
+    const grant = await this.registry.tenantGatewayGrant(principal.id, tenantId, gatewayId);
+    if (
+      !grant ||
+      !this.grantMatchesAuthority(grant, authority) ||
+      !tenantGatewayAccessAllows(grant.access, requiredAccess)
+    ) {
+      if (grant && !this.grantMatchesAuthority(grant, authority)) {
+        await this.discardStaleGrant(grant);
+      }
+      throw new IdentityError("forbidden", `tenant_gateway:${requiredAccess} is required`);
+    }
+    return {
+      principal,
+      tenant: authority.local.tenant,
+      membership: authority.local.membership,
+      gateway: authority.gateway,
+      grant: this.publicGrant(grant),
+    };
   }
 
   async createService(
@@ -367,8 +613,8 @@ export class PlatformIdentityService {
       throw new IdentityError("invalid_input", "credential expiry must be within one year");
     }
     const id = `service:${name}`;
-    if (await this.registry.principal(id)) {
-      throw new IdentityError("conflict", "service Principal already exists");
+    if (await this.registry.issued("service_principal", id)) {
+      throw new IdentityError("conflict", "service Principal ID was already issued");
     }
     const issued = this.credentials.issue();
     await this.registry.createService({

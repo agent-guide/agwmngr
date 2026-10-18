@@ -118,6 +118,52 @@ const MIGRATIONS: string[] = [
     INSERT OR IGNORE INTO manager_user_ids (id) VALUES (NEW.id);
   END;
   `,
+  // 4: Step 2B authority fences and permanent Gateway ID reservations. These
+  // rows deliberately survive subject deletion so retained cross-store grants
+  // cannot attach to a recreated human Principal or Gateway.
+  `
+  CREATE TABLE manager_gateway_ids (
+    id TEXT PRIMARY KEY,
+    issued_at TEXT NOT NULL,
+    tombstoned_at TEXT
+  );
+  INSERT INTO manager_gateway_ids (id, issued_at, tombstoned_at)
+  SELECT id, created_at, NULL FROM gateways;
+
+  CREATE TABLE manager_authority_fences (
+    subject_kind TEXT NOT NULL CHECK (subject_kind IN ('human_principal','gateway')),
+    subject_id TEXT NOT NULL,
+    authority_epoch INTEGER NOT NULL CHECK (authority_epoch > 0),
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (subject_kind, subject_id)
+  );
+  INSERT INTO manager_authority_fences
+    (subject_kind, subject_id, authority_epoch, updated_at)
+  SELECT 'human_principal', CAST(id AS TEXT), 1, updated_at FROM users;
+  INSERT INTO manager_authority_fences
+    (subject_kind, subject_id, authority_epoch, updated_at)
+  SELECT 'gateway', id, 1, updated_at FROM gateways;
+
+  CREATE TRIGGER initialize_manager_user_authority AFTER INSERT ON users
+  BEGIN
+    INSERT INTO manager_authority_fences
+      (subject_kind, subject_id, authority_epoch, updated_at)
+    VALUES ('human_principal', CAST(NEW.id AS TEXT), 1, NEW.updated_at);
+  END;
+
+  CREATE TRIGGER reserve_manager_gateway_id AFTER INSERT ON gateways
+  BEGIN
+    INSERT INTO manager_gateway_ids (id, issued_at, tombstoned_at)
+    VALUES (NEW.id, NEW.created_at, NULL);
+    INSERT INTO manager_authority_fences
+      (subject_kind, subject_id, authority_epoch, updated_at)
+    VALUES ('gateway', NEW.id, 1, NEW.updated_at);
+  END;
+
+  ALTER TABLE audit_log ADD COLUMN actor_principal_id TEXT;
+  ALTER TABLE audit_log ADD COLUMN tenant_id TEXT;
+  ALTER TABLE audit_log ADD COLUMN effective_access TEXT;
+  `,
 ];
 
 export function migrateDatabase(db: SqlConnection): void {
@@ -162,6 +208,39 @@ export function migrateDatabase(db: SqlConnection): void {
               db.run("INSERT OR IGNORE INTO manager_user_ids (id) VALUES (?)", [id]);
             }
           }
+        }
+      }
+      if (current === 3) {
+        // Preserve the only durable evidence of Gateways deleted before the
+        // reservation primitive existed. A successful historical delete is a
+        // tombstone, never permission to reuse the identifier.
+        for (const audit of db.all<{ path: string | null; ts: string }>(
+          `SELECT DISTINCT path, ts FROM audit_log
+            WHERE method = 'DELETE' AND decision = 'allow'
+              AND http_status BETWEEN 200 AND 299`,
+        )) {
+          const match = /^\/api\/admin\/gateways\/([^/]+)$/.exec(
+            (audit.path ?? "").split("?")[0],
+          );
+          if (!match) continue;
+          let id: string;
+          try {
+            id = decodeURIComponent(match[1]);
+          } catch {
+            continue;
+          }
+          if (!id) continue;
+          db.run(
+            `INSERT OR IGNORE INTO manager_gateway_ids
+               (id, issued_at, tombstoned_at) VALUES (?, ?, ?)`,
+            [id, audit.ts, audit.ts],
+          );
+          db.run(
+            `INSERT OR IGNORE INTO manager_authority_fences
+               (subject_kind, subject_id, authority_epoch, updated_at)
+             VALUES ('gateway', ?, 2, ?)`,
+            [id, audit.ts],
+          );
         }
       }
       const violations = db.all("PRAGMA foreign_key_check");
@@ -301,6 +380,22 @@ export function findUserById(id: number): UserRow | null {
   return getDb().get<UserRow>("SELECT * FROM users WHERE id = ?", [id]) ?? null;
 }
 
+function managerAuthorityEpoch(
+  kind: "human_principal" | "gateway",
+  id: string,
+): number | null {
+  const row = getDb().get<{ authority_epoch: number }>(
+    `SELECT authority_epoch FROM manager_authority_fences
+      WHERE subject_kind = ? AND subject_id = ?`,
+    [kind, id],
+  );
+  return row ? Number(row.authority_epoch) : null;
+}
+
+export function getHumanPrincipalAuthorityEpoch(userId: number): number | null {
+  return managerAuthorityEpoch("human_principal", String(userId));
+}
+
 // Public-facing user shape (never exposes password_hash).
 export interface UserSummary {
   id: number;
@@ -379,12 +474,33 @@ export function updateUser(
   params.push(new Date().toISOString());
   params.push(id);
 
-  getDb().run(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`, params);
+  const db = getDb();
+  db.transaction(() => {
+    db.run(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`, params);
+    if (patch.status !== undefined && patch.status !== existing.status) {
+      db.run(
+        `UPDATE manager_authority_fences
+            SET authority_epoch = authority_epoch + 1, updated_at = ?
+          WHERE subject_kind = 'human_principal' AND subject_id = ?`,
+        [new Date().toISOString(), String(id)],
+      );
+    }
+  }, "immediate");
   return getUserSummary(id);
 }
 
 export function deleteUser(id: number): void {
-  getDb().run("DELETE FROM users WHERE id = ?", [id]);
+  const db = getDb();
+  const now = new Date().toISOString();
+  db.transaction(() => {
+    db.run(
+      `UPDATE manager_authority_fences
+          SET authority_epoch = authority_epoch + 1, updated_at = ?
+        WHERE subject_kind = 'human_principal' AND subject_id = ?`,
+      [now, String(id)],
+    );
+    db.run("DELETE FROM users WHERE id = ?", [id]);
+  }, "immediate");
 }
 
 // Count of users who can still perform platform administration. Used to block
@@ -472,6 +588,19 @@ export function getGateway(id: string): GatewayRow | null {
   return getDb().get<GatewayRow>("SELECT * FROM gateways WHERE id = ?", [id]) ?? null;
 }
 
+export interface GatewayAuthority {
+  id: string;
+  active: boolean;
+  authorityEpoch: number;
+}
+
+export function getGatewayAuthority(id: string): GatewayAuthority | null {
+  const gateway = getGateway(id);
+  const authorityEpoch = managerAuthorityEpoch("gateway", id);
+  if (!gateway || authorityEpoch === null) return null;
+  return { id, active: gateway.status === "active", authorityEpoch };
+}
+
 export interface GatewayWriteInput {
   id: string;
   name: string;
@@ -537,14 +666,40 @@ export function updateGateway(
     put("readonly_server_ids", patch.readonly_server_ids ?? null);
   if (patch.status !== undefined) put("status", patch.status);
 
-  put("updated_at", new Date().toISOString());
+  const now = new Date().toISOString();
+  put("updated_at", now);
   params.push(id);
-  getDb().run(`UPDATE gateways SET ${sets.join(", ")} WHERE id = ?`, params);
+  const db = getDb();
+  db.transaction(() => {
+    db.run(`UPDATE gateways SET ${sets.join(", ")} WHERE id = ?`, params);
+    if (patch.status !== undefined && patch.status !== existing.status) {
+      db.run(
+        `UPDATE manager_authority_fences
+            SET authority_epoch = authority_epoch + 1, updated_at = ?
+          WHERE subject_kind = 'gateway' AND subject_id = ?`,
+        [now, id],
+      );
+    }
+  }, "immediate");
   return getGateway(id);
 }
 
 export function deleteGateway(id: string): void {
-  getDb().run("DELETE FROM gateways WHERE id = ?", [id]);
+  const db = getDb();
+  const now = new Date().toISOString();
+  db.transaction(() => {
+    db.run(
+      `UPDATE manager_authority_fences
+          SET authority_epoch = authority_epoch + 1, updated_at = ?
+        WHERE subject_kind = 'gateway' AND subject_id = ?`,
+      [now, id],
+    );
+    db.run(
+      "UPDATE manager_gateway_ids SET tombstoned_at = ? WHERE id = ?",
+      [now, id],
+    );
+    db.run("DELETE FROM gateways WHERE id = ?", [id]);
+  }, "immediate");
 }
 
 // ---- Memberships (user_gateways) ----
@@ -635,7 +790,10 @@ export function removeMembership(userId: number, gatewayId: string): void {
 export interface AuditEntry {
   request_id?: string | null;
   actor_user_id?: number | null;
+  actor_principal_id?: string | null;
+  tenant_id?: string | null;
   gateway_id?: string | null;
+  effective_access?: string | null;
   action?: string | null;
   method?: string | null;
   path?: string | null;
@@ -654,14 +812,18 @@ export interface AuditEntry {
 export function insertAudit(e: AuditEntry): number {
   const res = getDb().run(
     `INSERT INTO audit_log
-       (ts, request_id, actor_user_id, gateway_id, action, method, path,
-        target_kind, target_id, decision, failure_reason, http_status, ip, user_agent, duration_ms)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (ts, request_id, actor_user_id, actor_principal_id, tenant_id, gateway_id,
+        effective_access, action, method, path, target_kind, target_id, decision,
+        failure_reason, http_status, ip, user_agent, duration_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       new Date().toISOString(),
       e.request_id ?? null,
       e.actor_user_id ?? null,
+      e.actor_principal_id ?? null,
+      e.tenant_id ?? null,
       e.gateway_id ?? null,
+      e.effective_access ?? null,
       e.action ?? null,
       e.method ?? null,
       e.path ?? null,
@@ -705,8 +867,11 @@ export interface AuditRow {
   ts: string;
   request_id: string | null;
   actor_user_id: number | null;
+  actor_principal_id: string | null;
   username: string | null;
+  tenant_id: string | null;
   gateway_id: string | null;
+  effective_access: string | null;
   action: string | null;
   method: string | null;
   path: string | null;

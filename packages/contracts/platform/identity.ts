@@ -7,6 +7,9 @@ export type TenantStatus = (typeof tenantStatuses)[number];
 export const tenantRoles = ["admin", "user"] as const;
 export type TenantRole = (typeof tenantRoles)[number];
 
+export const tenantGatewayAccessLevels = ["view", "manage"] as const;
+export type TenantGatewayAccess = (typeof tenantGatewayAccessLevels)[number];
+
 interface PrincipalBase {
   id: string;
   status: PrincipalStatus;
@@ -41,6 +44,15 @@ export interface TenantMembership {
   updatedAt: string;
 }
 
+export interface TenantGatewayGrant {
+  principalId: string;
+  tenantId: string;
+  gatewayId: string;
+  access: TenantGatewayAccess;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // Authentication proves only identity. Services must reload all current
 // authority before each domain operation.
 export type PlatformActorReference =
@@ -53,4 +65,11 @@ export function humanPrincipalId(userId: number): string {
 
 export function tenantRoleAllows(actual: TenantRole, required: TenantRole): boolean {
   return actual === "admin" || required === "user";
+}
+
+export function tenantGatewayAccessAllows(
+  actual: TenantGatewayAccess,
+  required: TenantGatewayAccess,
+): boolean {
+  return actual === "manage" || required === "view";
 }

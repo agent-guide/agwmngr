@@ -1,6 +1,12 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { findUserById, getDb, listUsers } from "./db";
+import {
+  findUserById,
+  getDb,
+  getGatewayAuthority,
+  getHumanPrincipalAuthorityEpoch,
+  listUsers,
+} from "./db";
 import { getServerEnv } from "./server-env";
 import {
   openPostgresPlatformDatabase,
@@ -53,22 +59,31 @@ export function getPlatformIdentity(): Promise<PlatformIdentityService> {
         {
           async findUser(id) {
             const row = findUserById(id);
-            return row
+            const authorityEpoch = getHumanPrincipalAuthorityEpoch(id);
+            return row && authorityEpoch !== null
               ? {
                   id: row.id,
                   username: row.username,
                   active: row.status === "active",
                   platformAdmin: row.is_platform_admin === 1,
+                  authorityEpoch,
                 }
               : null;
           },
           async listUsers() {
-            return listUsers().map((user) => ({
-              id: user.id,
-              username: user.username,
-              active: user.status === "active",
-              platformAdmin: user.is_platform_admin,
-            }));
+            return listUsers().flatMap((user) => {
+              const authorityEpoch = getHumanPrincipalAuthorityEpoch(user.id);
+              return authorityEpoch === null ? [] : [{
+                id: user.id,
+                username: user.username,
+                active: user.status === "active",
+                platformAdmin: user.is_platform_admin,
+                authorityEpoch,
+              }];
+            });
+          },
+          async findGateway(id) {
+            return getGatewayAuthority(id);
           },
         },
         serviceCredentialIssuer,

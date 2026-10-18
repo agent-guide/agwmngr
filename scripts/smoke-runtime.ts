@@ -41,6 +41,7 @@ Object.assign(env, {
   PLATFORM_OBJECT_DIR: join(sandbox, "data", "objects"),
   AGWMNGR_ADMIN_USER: admin,
   AGWMNGR_ADMIN_PASSWORD_HASH: await bcrypt.hash(password, 10),
+  MANAGER_SECRET_KEY: "11".repeat(32),
 });
 
 let server: ChildProcess | undefined;
@@ -168,6 +169,27 @@ async function platformRequest(
   return response.json();
 }
 
+async function adminRequest(
+  base: string,
+  path: string,
+  status: number,
+  token: string,
+  method: string,
+  body?: unknown,
+) {
+  const response = await fetch(`${base}/api/admin/${path}`, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(30_000),
+  });
+  assert.equal(response.status, status, `${path}: ${await response.clone().text()}`);
+  return response.json();
+}
+
 async function verify(mode: "dev" | "start") {
   let base = await startServer(mode);
   await request(base, "auth/me", 401);
@@ -184,6 +206,14 @@ async function verify(mode: "dev" | "start") {
   const user = await request(base, "auth/me", 200, session.token);
   assert.equal(user.username, admin);
   assert.equal(user.is_platform_admin, true);
+  const gatewayId = `runtime-${mode}`;
+  await adminRequest(base, "gateways", 201, session.token, "POST", {
+    id: gatewayId,
+    name: `Runtime ${mode}`,
+    admin_addr: "http://127.0.0.1:1",
+    admin_user: "runtime",
+    admin_password: "runtime-secret",
+  });
 
   const memberName = `runtime-smoke-member-${mode}`;
   const memberUser = await request(base, "users", 201, session.token, {
@@ -251,6 +281,46 @@ async function verify(mode: "dev" | "start") {
   );
   await platformRequest(
     base,
+    "identity/tenant-gateway-grants",
+    400,
+    session.token,
+    "PUT",
+    {
+      principal_id: `user:${memberUser.id}`,
+      tenant_id: tenantId,
+      gateway_id: gatewayId,
+      access: "view",
+    },
+  );
+  await platformRequest(
+    base,
+    "identity/tenant-gateway-grants",
+    200,
+    session.token,
+    "PUT",
+    {
+      principal_id: issued.principal.id,
+      tenant_id: tenantId,
+      gateway_id: gatewayId,
+      access: "manage",
+    },
+  );
+  const grants = await platformRequest(
+    base,
+    `identity/tenant-gateway-grants?tenant_id=${tenantId}`,
+    200,
+    session.token,
+  );
+  assert.deepEqual(grants.items[0], {
+    principalId: issued.principal.id,
+    tenantId,
+    gatewayId,
+    access: "manage",
+    createdAt: grants.items[0].createdAt,
+    updatedAt: grants.items[0].updatedAt,
+  });
+  await platformRequest(
+    base,
     `identity/tenants/${tenantId}/members/user:${user.id}`,
     403,
     issued.token,
@@ -276,6 +346,16 @@ async function verify(mode: "dev" | "start") {
     audit.items.some((entry: { action?: string }) => entry.action === "platform:identity"),
     "platform identity calls must be audited",
   );
+  assert.ok(
+    audit.items.some(
+      (entry: { action?: string; tenant_id?: string; gateway_id?: string; effective_access?: string }) =>
+        entry.action === "platform:tenant_gateway_grant" &&
+        entry.tenant_id === tenantId &&
+        entry.gateway_id === gatewayId &&
+        entry.effective_access === "manage",
+    ),
+    "Tenant Gateway grant outcome and scope must be audited",
+  );
   assert.ok(!JSON.stringify(audit).includes(issued.token), "service bearer must not enter audit");
 
   await stopServer();
@@ -300,7 +380,7 @@ async function verify(mode: "dev" | "start") {
   await stopServer();
 
   console.log(
-    `${mode}: Bun handler, session restart, Principal/Tenant membership, service revocation and logout passed`,
+    `${mode}: Bun handler, session restart, Tenant Gateway grant audit, service revocation and logout passed`,
   );
 }
 

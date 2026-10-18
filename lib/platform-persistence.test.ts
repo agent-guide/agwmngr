@@ -18,7 +18,7 @@ async function verifyPersistence(
 ) {
   expect(await migratePlatformIdentityDatabase(database, true)).toEqual({
     from: 0,
-    to: 1,
+    to: 2,
     dryRun: true,
   });
   await expect(database.query("SELECT * FROM platform_principals")).rejects.toThrow();
@@ -27,7 +27,7 @@ async function verifyPersistence(
     migratePlatformIdentityDatabase(database),
     migratePlatformIdentityDatabase(database),
   ]);
-  expect((await migratePlatformIdentityDatabase(database)).from).toBe(1);
+  expect((await migratePlatformIdentityDatabase(database)).from).toBe(2);
 
   const registry = new IdentityRegistry(database);
   await registry.ensureHuman(1, "2026-10-17T00:00:00.000Z");
@@ -46,6 +46,7 @@ async function verifyPersistence(
       "2026-10-17T00:00:00.000Z",
     ),
   ).toBe(true);
+
   expect(
     await registry.updateMembership(
       "user:1",
@@ -55,6 +56,34 @@ async function verifyPersistence(
     ),
   ).toBe(true);
   expect((await registry.membership("user:1", "alpha"))?.role).toBe("admin");
+  const authority = await registry.localGrantAuthority("user:1", "alpha");
+  expect(authority).not.toBeNull();
+  expect(
+    await registry.putTenantGatewayGrant({
+      principalId: "user:1",
+      tenantId: "alpha",
+      gatewayId: "prod",
+      access: "manage",
+      principalAuthorityEpoch: 7,
+      tenantAuthorityEpoch: authority!.tenantAuthorityEpoch,
+      membershipAuthorityEpoch: authority!.membershipAuthorityEpoch,
+      gatewayAuthorityEpoch: 3,
+      createdAt: "2026-10-17T00:04:00.000Z",
+      updatedAt: "2026-10-17T00:04:00.000Z",
+    }),
+  ).toBe(true);
+  expect((await registry.tenantGatewayGrant("user:1", "alpha", "prod"))?.access).toBe(
+    "manage",
+  );
+  await registry.updateMembership("user:1", "alpha", "user", "2026-10-17T00:05:00.000Z");
+  expect(await registry.tenantGatewayGrant("user:1", "alpha", "prod")).toBeNull();
+  await registry.updateMembership("user:1", "alpha", "admin", "2026-10-17T00:06:00.000Z");
+  expect((await registry.localGrantAuthority("user:1", "alpha"))!.membershipAuthorityEpoch)
+    .toBeGreaterThan(authority!.membershipAuthorityEpoch);
+  await registry.setTenantStatus("alpha", "disabled", "2026-10-17T00:07:00.000Z");
+  await registry.setTenantStatus("alpha", "active", "2026-10-17T00:08:00.000Z");
+  expect((await registry.localGrantAuthority("user:1", "alpha"))!.tenantAuthorityEpoch)
+    .toBeGreaterThan(authority!.tenantAuthorityEpoch);
   expect(
     await registry.createMembership(
       "user:1",
@@ -63,7 +92,7 @@ async function verifyPersistence(
       "2026-10-17T00:02:00.000Z",
     ),
   ).toBe(false);
-  await registry.removeMembership("user:1", "alpha");
+  await registry.removeMembership("user:1", "alpha", "2026-10-17T00:02:30.000Z");
   expect(
     await registry.updateMembership(
       "user:1",
@@ -89,6 +118,8 @@ async function verifyPersistence(
     expiresAt: "2099-01-01T00:00:00.000Z",
     now: "2026-10-17T00:00:00.000Z",
   });
+  expect(await registry.issued("service_principal", "service:worker")).toBe(true);
+  expect(await registry.issued("tenant", "alpha")).toBe(true);
   expect(
     (await registry.serviceForCredential("test-digest", "2026-10-17T00:00:00.000Z"))?.id,
   ).toBe("service:worker");
@@ -130,7 +161,7 @@ test("SQLite identity migration is additive and state survives restart", async (
       async () => openSqlitePlatformDatabase(path),
     );
     expect(manager.all("SELECT * FROM users")).toEqual(usersBefore);
-    expect(manager.get<{ user_version: number }>("PRAGMA user_version")?.user_version).toBe(3);
+    expect(manager.get<{ user_version: number }>("PRAGMA user_version")?.user_version).toBe(4);
     expect(manager.all("PRAGMA foreign_key_check")).toEqual([]);
   } finally {
     rmSync(root, { recursive: true, force: true });

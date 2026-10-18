@@ -44,6 +44,74 @@ const versionOneStatements = [
     ON platform_service_credentials (principal_id)`,
 ];
 
+const versionTwoStatements = [
+  `CREATE TABLE platform_issued_ids (
+    subject_kind TEXT NOT NULL CHECK (subject_kind IN ('service_principal','tenant')),
+    subject_id TEXT NOT NULL,
+    issued_at TEXT NOT NULL,
+    tombstoned_at TEXT,
+    PRIMARY KEY (subject_kind, subject_id)
+  )`,
+  `INSERT INTO platform_issued_ids (subject_kind, subject_id, issued_at, tombstoned_at)
+   SELECT 'service_principal', id, created_at, NULL
+     FROM platform_principals
+    WHERE kind = 'service'
+   ON CONFLICT DO NOTHING`,
+  `INSERT INTO platform_issued_ids (subject_kind, subject_id, issued_at, tombstoned_at)
+   SELECT 'tenant', id, created_at, NULL
+     FROM platform_tenants
+    WHERE 1 = 1
+   ON CONFLICT DO NOTHING`,
+  `CREATE TABLE platform_authority_fences (
+    subject_kind TEXT NOT NULL CHECK (subject_kind IN ('service_principal','tenant','membership')),
+    subject_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL DEFAULT '',
+    authority_epoch BIGINT NOT NULL CHECK (authority_epoch > 0),
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (subject_kind, subject_id, tenant_id),
+    CHECK (
+      (subject_kind = 'membership' AND tenant_id <> '')
+      OR (subject_kind <> 'membership' AND tenant_id = '')
+    )
+  )`,
+  `INSERT INTO platform_authority_fences
+     (subject_kind, subject_id, tenant_id, authority_epoch, updated_at)
+   SELECT 'service_principal', id, '', 1, updated_at
+     FROM platform_principals
+    WHERE kind = 'service'
+   ON CONFLICT DO NOTHING`,
+  `INSERT INTO platform_authority_fences
+     (subject_kind, subject_id, tenant_id, authority_epoch, updated_at)
+   SELECT 'tenant', id, '', 1, updated_at
+     FROM platform_tenants
+    WHERE 1 = 1
+   ON CONFLICT DO NOTHING`,
+  `INSERT INTO platform_authority_fences
+     (subject_kind, subject_id, tenant_id, authority_epoch, updated_at)
+   SELECT 'membership', principal_id, tenant_id, 1, updated_at
+     FROM platform_tenant_memberships
+    WHERE 1 = 1
+   ON CONFLICT DO NOTHING`,
+  `CREATE TABLE platform_tenant_gateway_grants (
+    principal_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    gateway_id TEXT NOT NULL,
+    access TEXT NOT NULL CHECK (access IN ('view','manage')),
+    principal_authority_epoch BIGINT NOT NULL CHECK (principal_authority_epoch > 0),
+    tenant_authority_epoch BIGINT NOT NULL CHECK (tenant_authority_epoch > 0),
+    membership_authority_epoch BIGINT NOT NULL CHECK (membership_authority_epoch > 0),
+    gateway_authority_epoch BIGINT NOT NULL CHECK (gateway_authority_epoch > 0),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (principal_id, tenant_id, gateway_id),
+    FOREIGN KEY (principal_id, tenant_id)
+      REFERENCES platform_tenant_memberships(principal_id, tenant_id)
+      ON DELETE CASCADE
+  )`,
+  `CREATE INDEX platform_tenant_gateway_grants_gateway
+    ON platform_tenant_gateway_grants (gateway_id, tenant_id, principal_id)`,
+];
+
 export interface IdentityMigrationReport {
   from: number;
   to: number;
@@ -54,7 +122,7 @@ export async function migratePlatformIdentityDatabase(
   database: PlatformDatabase,
   dryRun = false,
 ): Promise<IdentityMigrationReport> {
-  let report: IdentityMigrationReport = { from: 0, to: 1, dryRun };
+  let report: IdentityMigrationReport = { from: 0, to: 2, dryRun };
   const rollback = new Error("platform identity migration dry-run rollback");
 
   try {
@@ -73,12 +141,17 @@ export async function migratePlatformIdentityDatabase(
         `SELECT version FROM platform_schema_lock WHERE id = 1${suffix}`,
       );
       const current = Number(row.version);
-      if (current > 1) throw new Error("platform identity schema is newer than this application");
-      report = { from: current, to: 1, dryRun };
+      if (current > 2) throw new Error("platform identity schema is newer than this application");
+      report = { from: current, to: 2, dryRun };
 
       if (current === 0) {
         for (const statement of versionOneStatements) await transaction.query(statement);
         await transaction.query("UPDATE platform_schema_lock SET version = 1 WHERE id = 1");
+      }
+
+      if (current < 2) {
+        for (const statement of versionTwoStatements) await transaction.query(statement);
+        await transaction.query("UPDATE platform_schema_lock SET version = 2 WHERE id = 1");
       }
 
       await validatePlatformIdentityReferences(transaction);
@@ -102,4 +175,14 @@ export async function validatePlatformIdentityReferences(
      WHERE principal.id IS NULL OR tenant.id IS NULL
   `);
   if (Number(row.n) !== 0) throw new Error("invalid platform identity references");
+
+  const [grantRow] = await transaction.query<{ n: number }>(`
+    SELECT COUNT(*) AS n
+      FROM platform_tenant_gateway_grants grant_row
+      LEFT JOIN platform_tenant_memberships membership
+        ON membership.principal_id = grant_row.principal_id
+       AND membership.tenant_id = grant_row.tenant_id
+     WHERE membership.principal_id IS NULL
+  `);
+  if (Number(grantRow.n) !== 0) throw new Error("invalid Tenant Gateway grant references");
 }

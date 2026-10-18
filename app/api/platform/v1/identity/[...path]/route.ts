@@ -4,14 +4,65 @@ import {
   withPlatformIdentity,
 } from "@/lib/platform-access";
 import { IdentityError } from "@/packages/platform/services/identity";
-import type { TenantRole, TenantStatus } from "@/packages/contracts/platform/identity";
+import type {
+  TenantGatewayAccess,
+  TenantRole,
+  TenantStatus,
+} from "@/packages/contracts/platform/identity";
 
 export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ path: string[] }> };
 
 async function dispatch(request: Request, context: Context) {
   const { path } = await context.params;
-  return withPlatformIdentity(request, async (service, actor) => {
+  return withPlatformIdentity(request, async (service, actor, audit) => {
+    if (path.length === 1 && path[0] === "tenant-gateway-grants") {
+      audit.set({ action: "platform:tenant_gateway_grant" });
+      if (request.method === "GET") {
+        const query = new URL(request.url).searchParams;
+        const filters = {
+          principalId: query.get("principal_id") || undefined,
+          tenantId: query.get("tenant_id") || undefined,
+          gatewayId: query.get("gateway_id") || undefined,
+        };
+        audit.set({
+          tenantId: filters.tenantId ?? null,
+          gatewayId: filters.gatewayId ?? null,
+          targetKind: "tenant_gateway_grant_collection",
+        });
+        return Response.json({ items: await service.listTenantGatewayGrants(actor, filters) });
+      }
+      if (request.method === "PUT" || request.method === "DELETE") {
+        const fields = request.method === "PUT"
+          ? ["principal_id", "tenant_id", "gateway_id", "access"]
+          : ["principal_id", "tenant_id", "gateway_id"];
+        const body = await platformIdentityBody(request, fields);
+        const principalId = requiredText(body, "principal_id");
+        const tenantId = requiredText(body, "tenant_id");
+        const gatewayId = requiredText(body, "gateway_id");
+        audit.set({
+          tenantId,
+          gatewayId,
+          effectiveAccess: request.method === "PUT" ? requiredText(body, "access") : null,
+          targetKind: "tenant_gateway_grant",
+          targetId: `${principalId}:${tenantId}:${gatewayId}`,
+        });
+        if (request.method === "PUT") {
+          return Response.json(
+            await service.setTenantGatewayGrant(
+              actor,
+              principalId,
+              tenantId,
+              gatewayId,
+              requiredText(body, "access") as TenantGatewayAccess,
+            ),
+          );
+        }
+        await service.removeTenantGatewayGrant(actor, principalId, tenantId, gatewayId);
+        return Response.json({ status: "deleted" });
+      }
+    }
+
     if (request.method === "GET" && path.length === 1) {
       if (path[0] === "tenants") {
         return Response.json({ items: await service.listTenants(actor) });
@@ -51,6 +102,17 @@ async function dispatch(request: Request, context: Context) {
           requiredText(body, "status") as TenantStatus,
         ),
       );
+    }
+
+    if (request.method === "DELETE" && path.length === 2 && path[0] === "tenants") {
+      audit.set({
+        action: "platform:tenant",
+        tenantId: path[1],
+        targetKind: "tenant",
+        targetId: path[1],
+      });
+      await service.deleteTenant(actor, path[1]);
+      return Response.json({ status: "deleted" });
     }
 
     if (

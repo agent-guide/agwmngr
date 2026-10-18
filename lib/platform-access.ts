@@ -12,7 +12,19 @@ import type { PlatformActorReference } from "@/packages/contracts/platform/ident
 type PlatformHandler = (
   service: PlatformIdentityService,
   actor: PlatformActorReference,
+  audit: PlatformIdentityAudit,
 ) => Promise<Response> | Response;
+
+export interface PlatformIdentityAudit {
+  set(fields: {
+    action?: string;
+    tenantId?: string | null;
+    gatewayId?: string | null;
+    effectiveAccess?: string | null;
+    targetKind?: string | null;
+    targetId?: string | null;
+  }): void;
+}
 
 export async function withPlatformIdentity(
   request: Request,
@@ -23,6 +35,26 @@ export async function withPlatformIdentity(
   let actorPrincipalId: string | null = null;
   let failureReason: string | null = null;
   let response: Response;
+  const auditDetails = {
+    action: "platform:identity",
+    tenantId: null as string | null,
+    gatewayId: null as string | null,
+    effectiveAccess: null as string | null,
+    targetKind: null as string | null,
+    targetId: null as string | null,
+  };
+  const audit: PlatformIdentityAudit = {
+    set(fields) {
+      if (fields.action !== undefined) auditDetails.action = fields.action;
+      if (fields.tenantId !== undefined) auditDetails.tenantId = fields.tenantId;
+      if (fields.gatewayId !== undefined) auditDetails.gatewayId = fields.gatewayId;
+      if (fields.effectiveAccess !== undefined) {
+        auditDetails.effectiveAccess = fields.effectiveAccess;
+      }
+      if (fields.targetKind !== undefined) auditDetails.targetKind = fields.targetKind;
+      if (fields.targetId !== undefined) auditDetails.targetId = fields.targetId;
+    },
+  };
 
   try {
     const token = getAuthToken(request);
@@ -39,7 +71,7 @@ export async function withPlatformIdentity(
       actorPrincipalId = `user:${session.userId}`;
       actor = { kind: "human", userId: session.userId };
     }
-    response = await handler(service, actor);
+    response = await handler(service, actor, audit);
     if (!response.ok) failureReason = `http_${response.status}`;
   } catch (error) {
     if (isIdentityError(error)) {
@@ -68,13 +100,17 @@ export async function withPlatformIdentity(
   // Tokens and request bodies (including one-time credentials) are never logged.
   insertAudit({
     actor_user_id: actorUserId,
-    action: "platform:identity",
+    actor_principal_id: actorPrincipalId,
+    tenant_id: auditDetails.tenantId,
+    gateway_id: auditDetails.gatewayId,
+    effective_access: auditDetails.effectiveAccess,
+    action: auditDetails.action,
     method: request.method,
     path: new URL(request.url).pathname,
-    target_kind: actorPrincipalId?.startsWith("service:")
+    target_kind: auditDetails.targetKind ?? (actorPrincipalId?.startsWith("service:")
       ? "service_principal_actor"
-      : "platform_identity",
-    target_id: actorPrincipalId,
+      : "platform_identity"),
+    target_id: auditDetails.targetId ?? actorPrincipalId,
     decision: response.ok ? "allow" : "deny",
     failure_reason: failureReason,
     http_status: response.status,
