@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal, ModalHeader, ModalTitle, ModalContent, ModalFooter } from "@/components/ui/modal";
@@ -310,6 +311,12 @@ export default function GatewaysPage() {
               <span className={`text-xs ${g.status === "active" ? "text-emerald-400" : "text-amber-400"}`}>{g.status === "active" ? t("common.active") : t("common.disabled")}</span>
               <span><HealthBadge health={g.health_status} /></span>
               <div className="flex flex-wrap gap-1">
+                <Link
+                  href={`/dashboard/platform/gateways/${encodeURIComponent(g.id)}/credentials`}
+                  className="rounded-md border border-slate-600/60 bg-slate-800/40 px-2 py-1 text-xs font-medium text-slate-300 transition-colors hover:text-slate-100"
+                >
+                  {t("credentials.title")}
+                </Link>
                 <Button variant="ghost" onClick={() => handleTestStored(g)} className="px-2 py-1 text-xs">{t("common.test")}</Button>
                 <Button variant="ghost" onClick={() => openMembers(g)} className="px-2 py-1 text-xs">{t("gateways.members")}</Button>
                 <Button variant="ghost" onClick={() => openEdit(g)} className="px-2 py-1 text-xs">{t("common.edit")}</Button>

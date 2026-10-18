@@ -288,6 +288,57 @@ export async function deleteCredential(id: string): Promise<void> {
   await adminFetch(`/admin/credentials/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
+function platformGatewayPath(gatewayId: string, suffix: string): string {
+  return `/api/platform/v1/gateways/${encodeURIComponent(gatewayId)}${suffix}`;
+}
+
+export async function listPlatformGatewayCredentials(
+  gatewayId: string,
+): Promise<CredentialItem[]> {
+  const result = await adminFetch<{ items: CredentialItem[] }>(
+    platformGatewayPath(gatewayId, "/credentials"),
+  );
+  return result.items ?? [];
+}
+
+export async function listPlatformGatewayProviders(gatewayId: string): Promise<ProviderItem[]> {
+  const result = await adminFetch<{ items: ProviderItem[] }>(
+    platformGatewayPath(gatewayId, "/providers"),
+  );
+  return result.items ?? [];
+}
+
+export function createPlatformGatewayCredential(
+  gatewayId: string,
+  payload: CredentialCreatePayload,
+): Promise<CredentialItem> {
+  return adminFetch<CredentialItem>(platformGatewayPath(gatewayId, "/credentials"), {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updatePlatformGatewayCredential(
+  gatewayId: string,
+  id: string,
+  payload: CredentialUpdatePayload,
+): Promise<CredentialItem> {
+  return adminFetch<CredentialItem>(
+    platformGatewayPath(gatewayId, `/credentials/${encodeURIComponent(id)}`),
+    { method: "PUT", body: JSON.stringify(payload) },
+  );
+}
+
+export async function deletePlatformGatewayCredential(
+  gatewayId: string,
+  id: string,
+): Promise<void> {
+  await adminFetch(
+    platformGatewayPath(gatewayId, `/credentials/${encodeURIComponent(id)}`),
+    { method: "DELETE" },
+  );
+}
+
 // ---- Model types ----
 
 export interface ModelCapabilities {

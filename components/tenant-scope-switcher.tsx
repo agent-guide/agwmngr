@@ -27,6 +27,15 @@ export function TenantScopeSwitcher() {
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
 
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open]);
+
   if (!scope) return null;
   const label = current?.tenant.name ?? scope.tenantId;
   const navigate = (tenantId: string) => {
