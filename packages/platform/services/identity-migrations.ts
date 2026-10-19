@@ -294,6 +294,50 @@ const versionSixStatements = [
   )`,
 ];
 
+const versionSevenStatements = [
+  `ALTER TABLE platform_knowledge_documents ADD COLUMN object_deleted_at TEXT`,
+  `CREATE TABLE platform_personal_files (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    tenant_authority_epoch BIGINT NOT NULL CHECK (tenant_authority_epoch > 0),
+    owner_principal_id TEXT NOT NULL,
+    owner_user_id BIGINT NOT NULL CHECK (owner_user_id > 0),
+    name TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    size_bytes BIGINT NOT NULL CHECK (size_bytes > 0),
+    expected_hash TEXT,
+    content_hash TEXT,
+    object_key TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL CHECK (status IN ('pending','active','failed','deleted')),
+    failure_reason TEXT,
+    request_key TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    object_deleted_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (tenant_id, owner_principal_id, request_key)
+  )`,
+  `CREATE INDEX platform_personal_files_owner_status
+    ON platform_personal_files (tenant_id, owner_principal_id, status, id)`,
+  `CREATE TABLE platform_personal_file_tickets (
+    digest TEXT PRIMARY KEY,
+    file_id TEXT NOT NULL REFERENCES platform_personal_files(id) ON DELETE CASCADE,
+    operation TEXT NOT NULL CHECK (operation IN ('upload','download','preview')),
+    owner_principal_id TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX platform_personal_file_tickets_file
+    ON platform_personal_file_tickets (file_id, operation, expires_at)`,
+  `CREATE TABLE platform_personal_file_refs (
+    source_kind TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    file_id TEXT NOT NULL REFERENCES platform_personal_files(id) ON DELETE RESTRICT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (source_kind, source_id, file_id)
+  )`,
+];
+
 export interface IdentityMigrationReport {
   from: number;
   to: number;
@@ -304,7 +348,7 @@ export async function migratePlatformIdentityDatabase(
   database: PlatformDatabase,
   dryRun = false,
 ): Promise<IdentityMigrationReport> {
-  let report: IdentityMigrationReport = { from: 0, to: 6, dryRun };
+  let report: IdentityMigrationReport = { from: 0, to: 7, dryRun };
   const rollback = new Error("platform identity migration dry-run rollback");
 
   try {
@@ -323,8 +367,8 @@ export async function migratePlatformIdentityDatabase(
         `SELECT version FROM platform_schema_lock WHERE id = 1${suffix}`,
       );
       const current = Number(row.version);
-      if (current > 6) throw new Error("platform schema is newer than this application");
-      report = { from: current, to: 6, dryRun };
+      if (current > 7) throw new Error("platform schema is newer than this application");
+      report = { from: current, to: 7, dryRun };
 
       if (current === 0) {
         for (const statement of versionOneStatements) await transaction.query(statement);
@@ -354,6 +398,11 @@ export async function migratePlatformIdentityDatabase(
       if (current < 6) {
         for (const statement of versionSixStatements) await transaction.query(statement);
         await transaction.query("UPDATE platform_schema_lock SET version = 6 WHERE id = 1");
+      }
+
+      if (current < 7) {
+        for (const statement of versionSevenStatements) await transaction.query(statement);
+        await transaction.query("UPDATE platform_schema_lock SET version = 7 WHERE id = 1");
       }
 
       await validatePlatformIdentityReferences(transaction);

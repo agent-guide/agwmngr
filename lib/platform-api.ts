@@ -35,6 +35,11 @@ import type {
   KnowledgeBase,
   KnowledgeDocument,
 } from "@/packages/contracts/platform/knowledge";
+import type {
+  PersonalFile,
+  PersonalFileUploadRequest,
+  PersonalFileUploadSession,
+} from "@/packages/contracts/platform/personal-files";
 
 export type {
   MembershipAddResolution,
@@ -73,6 +78,11 @@ export type {
   KnowledgeBase,
   KnowledgeDocument,
 } from "@/packages/contracts/platform/knowledge";
+export type {
+  PersonalFile,
+  PersonalFileUploadRequest,
+  PersonalFileUploadSession,
+} from "@/packages/contracts/platform/personal-files";
 
 function tenantPath(tenantId: string, suffix: string): string {
   return `/api/platform/v1/tenants/${encodeURIComponent(tenantId)}${suffix}`;
@@ -597,4 +607,79 @@ export async function deleteKnowledgeDocument(
     tenantId,
     `/${encodeURIComponent(knowledgeBaseId)}/documents/${encodeURIComponent(documentId)}`,
   ), { method: "DELETE" });
+}
+
+function personalFilesPath(tenantId: string, suffix = ""): string {
+  return tenantPath(tenantId, `/files${suffix}`);
+}
+
+export async function listPersonalFiles(tenantId: string): Promise<PersonalFile[]> {
+  const result = await adminFetch<{ items: PersonalFile[] }>(personalFilesPath(tenantId));
+  return result.items ?? [];
+}
+
+export async function createPersonalFileUploadSession(
+  tenantId: string,
+  input: PersonalFileUploadRequest,
+): Promise<PersonalFileUploadSession> {
+  const result = await adminFetch<{
+    file: PersonalFile;
+    upload_url: string;
+    method: "PUT";
+    headers: { "Content-Type": string };
+    expires_at: string;
+  }>(personalFilesPath(tenantId, "/upload-session"), {
+    method: "POST",
+    body: JSON.stringify({
+      request_key: input.requestKey,
+      name: input.name,
+      mime_type: input.mimeType,
+      size_bytes: input.sizeBytes,
+      ...(input.contentHash ? { content_hash: input.contentHash } : {}),
+    }),
+  });
+  return {
+    file: result.file,
+    uploadUrl: result.upload_url,
+    method: result.method,
+    headers: result.headers,
+    expiresAt: result.expires_at,
+  };
+}
+
+export async function uploadPersonalFile(
+  session: PersonalFileUploadSession,
+  file: File,
+): Promise<PersonalFile> {
+  const response = await authenticatedStorageFetch(session.uploadUrl, {
+    method: "PUT",
+    headers: session.headers,
+    body: file,
+  });
+  return response.json() as Promise<PersonalFile>;
+}
+
+export function completePersonalFile(
+  tenantId: string,
+  id: string,
+): Promise<PersonalFile> {
+  return adminFetch<PersonalFile>(personalFilesPath(tenantId, `/${encodeURIComponent(id)}/complete`), {
+    method: "POST",
+  });
+}
+
+export async function readPersonalFile(
+  tenantId: string,
+  id: string,
+  operation: "preview" | "download",
+): Promise<Blob> {
+  const ticket = await adminFetch<{ url: string }>(personalFilesPath(
+    tenantId,
+    `/${encodeURIComponent(id)}/${operation}-url`,
+  ));
+  return (await authenticatedStorageFetch(ticket.url, { method: "GET" })).blob();
+}
+
+export async function deletePersonalFile(tenantId: string, id: string): Promise<void> {
+  await adminFetch(personalFilesPath(tenantId, `/${encodeURIComponent(id)}`), { method: "DELETE" });
 }

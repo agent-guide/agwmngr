@@ -364,7 +364,16 @@ export class KnowledgeRegistry {
 
   async deletedObjects(): Promise<Array<{ id: string; objectKey: string }>> {
     return (await this.database.query<{ id: string; object_key: string }>(
-      "SELECT id, object_key FROM platform_knowledge_documents WHERE status = 'deleted' ORDER BY id",
+      "SELECT id, object_key FROM platform_knowledge_documents WHERE status = 'deleted' AND object_deleted_at IS NULL ORDER BY id",
     )).map((row) => ({ id: row.id, objectKey: row.object_key }));
+  }
+
+  async markObjectDeleted(id: string, now: string): Promise<void> {
+    await this.write(async (tx) => {
+      await tx.query(
+        "UPDATE platform_knowledge_documents SET object_deleted_at = ? WHERE id = ? AND status = 'deleted'",
+        [now, id],
+      );
+    });
   }
 }

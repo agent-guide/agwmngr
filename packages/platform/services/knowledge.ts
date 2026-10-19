@@ -428,6 +428,7 @@ export async function collectKnowledgeDocumentGarbage(
   for (const item of await registry.deletedObjects()) {
     try {
       await objects.remove(item.objectKey);
+      await registry.markObjectDeleted(item.id, now);
       removed += 1;
     } catch {
       failed.push(item.id);

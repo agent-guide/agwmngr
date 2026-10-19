@@ -19,7 +19,7 @@ async function verifyPersistence(
 ) {
   expect(await migratePlatformIdentityDatabase(database, true)).toEqual({
     from: 0,
-    to: 6,
+    to: 7,
     dryRun: true,
   });
   await expect(database.query("SELECT * FROM platform_principals")).rejects.toThrow();
@@ -28,7 +28,7 @@ async function verifyPersistence(
     migratePlatformIdentityDatabase(database),
     migratePlatformIdentityDatabase(database),
   ]);
-  expect((await migratePlatformIdentityDatabase(database)).from).toBe(6);
+  expect((await migratePlatformIdentityDatabase(database)).from).toBe(7);
   expect(await database.query("SELECT * FROM platform_catalog_offerings")).toEqual([]);
 
   const registry = new IdentityRegistry(database);
@@ -144,26 +144,25 @@ async function verifyPersistence(
   ).rejects.toThrow("rollback");
   expect(await restarted.tenant("alpha")).not.toBeNull();
 
-  // Rehearse the exact additive v5 -> v6 knowledge/document upgrade on both adapters.
-  await database.query("DROP TABLE platform_knowledge_document_refs");
-  await database.query("DROP TABLE platform_knowledge_base_refs");
-  await database.query("DROP TABLE platform_document_object_tickets");
-  await database.query("DROP TABLE platform_knowledge_documents");
-  await database.query("DROP TABLE platform_knowledge_bases");
-  await database.query("UPDATE platform_schema_lock SET version = 5 WHERE id = 1");
+  // Rehearse the exact additive v6 -> v7 personal-file upgrade on both adapters.
+  await database.query("DROP TABLE platform_personal_file_refs");
+  await database.query("DROP TABLE platform_personal_file_tickets");
+  await database.query("DROP TABLE platform_personal_files");
+  await database.query("ALTER TABLE platform_knowledge_documents DROP COLUMN object_deleted_at");
+  await database.query("UPDATE platform_schema_lock SET version = 6 WHERE id = 1");
   expect(await migratePlatformIdentityDatabase(database, true)).toEqual({
-    from: 5,
-    to: 6,
+    from: 6,
+    to: 7,
     dryRun: true,
   });
-  await expect(database.query("SELECT * FROM platform_knowledge_bases")).rejects.toThrow();
+  await expect(database.query("SELECT * FROM platform_personal_files")).rejects.toThrow();
   expect((await restarted.tenant("alpha"))?.name).toBe("Alpha");
   expect(await migratePlatformIdentityDatabase(database)).toEqual({
-    from: 5,
-    to: 6,
+    from: 6,
+    to: 7,
     dryRun: false,
   });
-  expect(await database.query("SELECT * FROM platform_knowledge_bases")).toEqual([]);
+  expect(await database.query("SELECT * FROM platform_personal_files")).toEqual([]);
   expect((await restarted.principal("user:1"))?.userId).toBe(1);
 }
 

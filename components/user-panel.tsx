@@ -78,6 +78,19 @@ function UserPanelContent({ onClose, username, isAdmin }: Omit<UserPanelProps, "
           <div className="border-t border-slate-700/50 mb-4" />
 
           <div className="mb-4">
+            <Button
+              variant="secondary"
+              className="w-full"
+              onClick={() => {
+                onClose();
+                router.push("/dashboard/resources/files");
+              }}
+            >
+              {t("nav.myFiles")}
+            </Button>
+          </div>
+
+          <div className="mb-4">
             <button type="button" onClick={() => setPasswordOpen(!passwordOpen)}
               className="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-semibold text-slate-200 hover:bg-slate-800/50 transition-colors">
               <div className="flex items-center gap-2">

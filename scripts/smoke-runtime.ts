@@ -503,6 +503,48 @@ async function verify(mode: "dev" | "start") {
   });
   assert.equal(downloadResponse.status, 200);
   assert.equal(await downloadResponse.text(), documentBytes.toString());
+  await platformRequest(base, `tenants/${tenantId}/files`, 403, issued.token);
+  const personalBytes = Buffer.from(`private runtime file ${mode}`);
+  const personalUpload = await platformRequest(
+    base,
+    `tenants/${tenantId}/files/upload-session`,
+    201,
+    member.token,
+    "POST",
+    {
+      request_key: `private-${mode}`,
+      name: "private.txt",
+      mime_type: "text/plain",
+      size_bytes: personalBytes.byteLength,
+    },
+  );
+  const personalPut = await fetch(`${base}${personalUpload.upload_url}`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${member.token}`, "Content-Type": "text/plain" },
+    body: personalBytes,
+  });
+  assert.equal(personalPut.status, 200, await personalPut.text());
+  const personalFile = await platformRequest(
+    base,
+    `tenants/${tenantId}/files/${encodeURIComponent(personalUpload.file.id)}/complete`,
+    200,
+    member.token,
+    "POST",
+  );
+  assert.equal(personalFile.status, "active");
+  assert.equal(personalFile.previewAvailable, true);
+  const previewTicket = await platformRequest(
+    base,
+    `tenants/${tenantId}/files/${encodeURIComponent(personalFile.id)}/preview-url`,
+    200,
+    member.token,
+  );
+  const previewResponse = await fetch(`${base}${previewTicket.url}`, {
+    headers: { Authorization: `Bearer ${member.token}` },
+  });
+  assert.equal(previewResponse.status, 200);
+  assert.equal(previewResponse.headers.get("content-security-policy")?.startsWith("sandbox"), true);
+  assert.equal(await previewResponse.text(), personalBytes.toString());
   const audit = await request(base, "audit?limit=100", 200, session.token);
   assert.ok(
     audit.items.some((entry: { action?: string }) => entry.action === "platform:identity"),
@@ -521,6 +563,8 @@ async function verify(mode: "dev" | "start") {
   assert.ok(!JSON.stringify(audit).includes(issued.token), "service bearer must not enter audit");
   const uploadSecret = new URL(`${base}${uploadTicket.upload_url}`).searchParams.get("token");
   assert.ok(uploadSecret && !JSON.stringify(audit).includes(uploadSecret), "object ticket must not enter audit");
+  const personalSecret = new URL(`${base}${personalUpload.upload_url}`).searchParams.get("token");
+  assert.ok(personalSecret && !JSON.stringify(audit).includes(personalSecret), "personal-file ticket must not enter audit");
   assert.ok(
     audit.items.some(
       (entry: { action?: string; tenant_id?: string; target_id?: string }) =>
@@ -581,6 +625,14 @@ async function verify(mode: "dev" | "start") {
   );
   assert.equal(restartedDocuments.items[0].id, completedDocument.id);
   assert.equal(restartedDocuments.items[0].status, "active");
+  const restartedFiles = await platformRequest(
+    base,
+    `tenants/${tenantId}/files`,
+    200,
+    member.token,
+  );
+  assert.equal(restartedFiles.items[0].id, personalFile.id);
+  assert.equal(restartedFiles.items[0].ownerPrincipalId, `user:${memberUser.id}`);
   await platformRequest(
     base,
     `catalog/offerings/${offeringId}/retire`,
@@ -610,7 +662,7 @@ async function verify(mode: "dev" | "start") {
   await stopServer();
 
   console.log(
-    `${mode}: Bun handler, session restart, catalog/authored/knowledge resources, Tenant Gateway grant audit, service revocation and logout passed`,
+    `${mode}: Bun handler, session restart, catalog/authored/knowledge/personal resources, Tenant Gateway grant audit, service revocation and logout passed`,
   );
 }
 
