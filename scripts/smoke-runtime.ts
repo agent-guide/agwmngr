@@ -452,6 +452,57 @@ async function verify(mode: "dev" | "start") {
   );
   assert.equal(tenantInstructions.items[0].id, sharedInstruction.resource.id);
   assert.equal(tenantInstructions.items[0].owner.kind, "platform");
+  const knowledge = await platformRequest(
+    base,
+    `tenants/${tenantId}/knowledge-bases`,
+    201,
+    member.token,
+    "POST",
+    { name: `Runtime knowledge ${mode}`, description: "Document lifecycle proof" },
+  );
+  assert.equal(knowledge.indexingStatus, "unavailable");
+  assert.equal(knowledge.retrievalStatus, "unavailable");
+  const documentBytes = Buffer.from(`runtime document ${mode}`);
+  const uploadBatch = await platformRequest(
+    base,
+    `tenants/${tenantId}/knowledge-bases/${encodeURIComponent(knowledge.id)}/documents/upload-sessions`,
+    201,
+    member.token,
+    "POST",
+    { files: [
+      { request_key: `runtime-${mode}`, name: "runtime.txt", mime_type: "text/plain", size_bytes: documentBytes.byteLength },
+      { request_key: `invalid-${mode}`, name: "runtime.exe", mime_type: "application/octet-stream", size_bytes: 1 },
+    ] },
+  );
+  assert.equal(uploadBatch.items[0].ok, true);
+  assert.equal(uploadBatch.items[1].ok, false);
+  const uploadTicket = uploadBatch.items[0];
+  const uploadResponse = await fetch(`${base}${uploadTicket.upload_url}`, {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${member.token}`, "Content-Type": "text/plain" },
+    body: documentBytes,
+  });
+  assert.equal(uploadResponse.status, 200, await uploadResponse.text());
+  const completedDocument = await platformRequest(
+    base,
+    `tenants/${tenantId}/knowledge-bases/${encodeURIComponent(knowledge.id)}/documents/${encodeURIComponent(uploadTicket.document.id)}/complete`,
+    200,
+    member.token,
+    "POST",
+  );
+  assert.equal(completedDocument.status, "active");
+  assert.equal(completedDocument.indexStatus, "unavailable");
+  const downloadTicket = await platformRequest(
+    base,
+    `tenants/${tenantId}/knowledge-bases/${encodeURIComponent(knowledge.id)}/documents/${encodeURIComponent(completedDocument.id)}/download-url`,
+    200,
+    member.token,
+  );
+  const downloadResponse = await fetch(`${base}${downloadTicket.download_url}`, {
+    headers: { Authorization: `Bearer ${member.token}` },
+  });
+  assert.equal(downloadResponse.status, 200);
+  assert.equal(await downloadResponse.text(), documentBytes.toString());
   const audit = await request(base, "audit?limit=100", 200, session.token);
   assert.ok(
     audit.items.some((entry: { action?: string }) => entry.action === "platform:identity"),
@@ -468,6 +519,17 @@ async function verify(mode: "dev" | "start") {
     "Tenant Gateway grant outcome and scope must be audited",
   );
   assert.ok(!JSON.stringify(audit).includes(issued.token), "service bearer must not enter audit");
+  const uploadSecret = new URL(`${base}${uploadTicket.upload_url}`).searchParams.get("token");
+  assert.ok(uploadSecret && !JSON.stringify(audit).includes(uploadSecret), "object ticket must not enter audit");
+  assert.ok(
+    audit.items.some(
+      (entry: { action?: string; tenant_id?: string; target_id?: string }) =>
+        entry.action === "tenant:document_storage_put" &&
+        entry.tenant_id === tenantId &&
+        entry.target_id === completedDocument.id,
+    ),
+    "document storage outcome and Tenant scope must be audited",
+  );
   assert.ok(
     audit.items.some(
       (entry: { action?: string; target_id?: string; decision?: string }) =>
@@ -511,6 +573,14 @@ async function verify(mode: "dev" | "start") {
   );
   assert.equal(restartedSkills.items[0].id, tenantSkill.resource.id);
   assert.equal(restartedSkills.items[0].latestRevisionNumber, 2);
+  const restartedDocuments = await platformRequest(
+    base,
+    `tenants/${tenantId}/knowledge-bases/${encodeURIComponent(knowledge.id)}/documents`,
+    200,
+    member.token,
+  );
+  assert.equal(restartedDocuments.items[0].id, completedDocument.id);
+  assert.equal(restartedDocuments.items[0].status, "active");
   await platformRequest(
     base,
     `catalog/offerings/${offeringId}/retire`,
@@ -540,7 +610,7 @@ async function verify(mode: "dev" | "start") {
   await stopServer();
 
   console.log(
-    `${mode}: Bun handler, session restart, catalog/authored resources, Tenant Gateway grant audit, service revocation and logout passed`,
+    `${mode}: Bun handler, session restart, catalog/authored/knowledge resources, Tenant Gateway grant audit, service revocation and logout passed`,
   );
 }
 

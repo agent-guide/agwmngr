@@ -46,6 +46,7 @@ async function verifyAuthoredResources(database: PlatformDatabase) {
       id: () => `id-${++sequence}`,
       now: () => now.toISOString(),
       hash: (value) => createHash("sha256").update(value).digest("hex"),
+      hashBytes: (value) => createHash("sha256").update(value).digest("hex"),
       decodeBase64: (value) => Buffer.from(value, "base64"),
       encodeBase64: (value) => Buffer.from(value).toString("base64"),
     },

@@ -102,6 +102,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/dashboard/resources/skills", labelKey: "nav.skills", icon: IconLayers },
       { href: "/dashboard/resources/instructions", labelKey: "nav.instructions", icon: IconLayers },
+      { href: "/dashboard/resources/knowledge-bases", labelKey: "nav.knowledgeBases", icon: IconBrain },
     ],
   },
   {

@@ -1,4 +1,5 @@
-import { adminFetch } from "./api";
+import { adminFetch, ApiError } from "./api";
+import { API_BASE_URL, getToken } from "./auth";
 import type {
   MembershipAddResolution,
   PlatformAccessProjection,
@@ -28,6 +29,12 @@ import type {
   AuthoredResourceRevision,
   CreateAuthoredResourceInput,
 } from "@/packages/contracts/platform/authored-resources";
+import type {
+  DocumentUploadRequest,
+  DocumentUploadResult,
+  KnowledgeBase,
+  KnowledgeDocument,
+} from "@/packages/contracts/platform/knowledge";
 
 export type {
   MembershipAddResolution,
@@ -60,6 +67,12 @@ export type {
   AuthoredResourceRevision,
   CreateAuthoredResourceInput,
 } from "@/packages/contracts/platform/authored-resources";
+export type {
+  DocumentUploadRequest,
+  DocumentUploadResult,
+  KnowledgeBase,
+  KnowledgeDocument,
+} from "@/packages/contracts/platform/knowledge";
 
 function tenantPath(tenantId: string, suffix: string): string {
   return `/api/platform/v1/tenants/${encodeURIComponent(tenantId)}${suffix}`;
@@ -438,4 +451,150 @@ export function setAuthoredResourceAvailability(
   return adminFetch<AuthoredResource>(authoredResourcePath(
     { platform: true }, kind, `/${encodeURIComponent(id)}/availability`,
   ), { method: "PUT", body: JSON.stringify({ mode, tenant_ids: tenantIds }) });
+}
+
+function knowledgePath(tenantId: string, suffix = ""): string {
+  return tenantPath(tenantId, `/knowledge-bases${suffix}`);
+}
+
+export async function listKnowledgeBases(tenantId: string): Promise<KnowledgeBase[]> {
+  const result = await adminFetch<{ items: KnowledgeBase[] }>(knowledgePath(tenantId));
+  return result.items ?? [];
+}
+
+export function createKnowledgeBase(
+  tenantId: string,
+  input: { name: string; description: string },
+): Promise<KnowledgeBase> {
+  return adminFetch<KnowledgeBase>(knowledgePath(tenantId), {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateKnowledgeBase(
+  tenantId: string,
+  id: string,
+  input: { name: string; description: string },
+): Promise<KnowledgeBase> {
+  return adminFetch<KnowledgeBase>(knowledgePath(tenantId, `/${encodeURIComponent(id)}`), {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteKnowledgeBase(tenantId: string, id: string): Promise<void> {
+  await adminFetch(knowledgePath(tenantId, `/${encodeURIComponent(id)}`), { method: "DELETE" });
+}
+
+export async function listKnowledgeDocuments(
+  tenantId: string,
+  knowledgeBaseId: string,
+): Promise<KnowledgeDocument[]> {
+  const result = await adminFetch<{ items: KnowledgeDocument[] }>(
+    knowledgePath(tenantId, `/${encodeURIComponent(knowledgeBaseId)}/documents`),
+  );
+  return result.items ?? [];
+}
+
+export async function createDocumentUploadSessions(
+  tenantId: string,
+  knowledgeBaseId: string,
+  files: DocumentUploadRequest[],
+): Promise<DocumentUploadResult[]> {
+  const response = await adminFetch<{ items: Array<Record<string, unknown>> }>(
+    knowledgePath(tenantId, `/${encodeURIComponent(knowledgeBaseId)}/documents/upload-sessions`),
+    {
+      method: "POST",
+      body: JSON.stringify({
+        files: files.map((file) => ({
+          request_key: file.requestKey,
+          name: file.name,
+          mime_type: file.mimeType,
+          size_bytes: file.sizeBytes,
+          ...(file.contentHash ? { content_hash: file.contentHash } : {}),
+        })),
+      }),
+    },
+  );
+  return response.items.map((item) => item.ok ? {
+    requestKey: item.request_key as string,
+    ok: true,
+    file: item.document as KnowledgeDocument,
+    uploadUrl: item.upload_url as string,
+    method: "PUT",
+    headers: item.headers as { "Content-Type": string },
+    expiresAt: item.expires_at as string,
+  } : {
+    requestKey: item.request_key as string,
+    ok: false,
+    error: item.error as string,
+    code: item.code as "invalid_input" | "conflict" | "forbidden" | "unavailable",
+  });
+}
+
+async function authenticatedStorageFetch(path: string, options: RequestInit): Promise<Response> {
+  const token = getToken();
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      ...(options.headers as Record<string, string>),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!response.ok) {
+    let message = response.statusText;
+    try {
+      const body = await response.json() as { error?: string };
+      message = body.error ?? message;
+    } catch {}
+    throw new ApiError(response.status, message);
+  }
+  return response;
+}
+
+export async function uploadKnowledgeDocument(
+  result: Extract<DocumentUploadResult, { ok: true }>,
+  file: File,
+): Promise<KnowledgeDocument> {
+  const response = await authenticatedStorageFetch(result.uploadUrl, {
+    method: "PUT",
+    headers: result.headers,
+    body: file,
+  });
+  return response.json() as Promise<KnowledgeDocument>;
+}
+
+export function completeKnowledgeDocument(
+  tenantId: string,
+  knowledgeBaseId: string,
+  documentId: string,
+): Promise<KnowledgeDocument> {
+  return adminFetch<KnowledgeDocument>(knowledgePath(
+    tenantId,
+    `/${encodeURIComponent(knowledgeBaseId)}/documents/${encodeURIComponent(documentId)}/complete`,
+  ), { method: "POST" });
+}
+
+export async function downloadKnowledgeDocument(
+  tenantId: string,
+  knowledgeBaseId: string,
+  documentId: string,
+): Promise<Blob> {
+  const ticket = await adminFetch<{ download_url: string }>(knowledgePath(
+    tenantId,
+    `/${encodeURIComponent(knowledgeBaseId)}/documents/${encodeURIComponent(documentId)}/download-url`,
+  ));
+  return (await authenticatedStorageFetch(ticket.download_url, { method: "GET" })).blob();
+}
+
+export async function deleteKnowledgeDocument(
+  tenantId: string,
+  knowledgeBaseId: string,
+  documentId: string,
+): Promise<void> {
+  await adminFetch(knowledgePath(
+    tenantId,
+    `/${encodeURIComponent(knowledgeBaseId)}/documents/${encodeURIComponent(documentId)}`,
+  ), { method: "DELETE" });
 }

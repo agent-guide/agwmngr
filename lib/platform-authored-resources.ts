@@ -18,6 +18,7 @@ export function getPlatformAuthoredResources(): Promise<AuthoredResourceService>
           id: () => randomUUID(),
           now: () => new Date().toISOString(),
           hash: (value) => createHash("sha256").update(value).digest("hex"),
+          hashBytes: (value) => createHash("sha256").update(value).digest("hex"),
           decodeBase64(value) {
             if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
               throw new Error("invalid base64");

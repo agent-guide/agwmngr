@@ -232,6 +232,68 @@ const versionFiveStatements = [
     ON platform_authored_revision_refs (revision_id)`,
 ];
 
+const versionSixStatements = [
+  `CREATE TABLE platform_knowledge_bases (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    tenant_authority_epoch BIGINT NOT NULL CHECK (tenant_authority_epoch > 0),
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('active','archived')),
+    created_by_principal_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX platform_knowledge_bases_tenant_status
+    ON platform_knowledge_bases (tenant_id, status, id)`,
+  `CREATE TABLE platform_knowledge_documents (
+    id TEXT PRIMARY KEY,
+    knowledge_base_id TEXT NOT NULL REFERENCES platform_knowledge_bases(id) ON DELETE RESTRICT,
+    tenant_id TEXT NOT NULL,
+    tenant_authority_epoch BIGINT NOT NULL CHECK (tenant_authority_epoch > 0),
+    name TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    size_bytes BIGINT NOT NULL CHECK (size_bytes > 0),
+    expected_hash TEXT,
+    content_hash TEXT,
+    object_key TEXT NOT NULL UNIQUE,
+    status TEXT NOT NULL CHECK (status IN ('pending','active','failed','deleted')),
+    failure_reason TEXT,
+    created_by_principal_id TEXT NOT NULL,
+    request_key TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (knowledge_base_id, created_by_principal_id, request_key)
+  )`,
+  `CREATE INDEX platform_knowledge_documents_parent_status
+    ON platform_knowledge_documents (knowledge_base_id, status, id)`,
+  `CREATE TABLE platform_document_object_tickets (
+    digest TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL REFERENCES platform_knowledge_documents(id) ON DELETE CASCADE,
+    operation TEXT NOT NULL CHECK (operation IN ('upload','download')),
+    principal_id TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX platform_document_object_tickets_document
+    ON platform_document_object_tickets (document_id, operation, expires_at)`,
+  `CREATE TABLE platform_knowledge_base_refs (
+    source_kind TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    knowledge_base_id TEXT NOT NULL REFERENCES platform_knowledge_bases(id) ON DELETE RESTRICT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (source_kind, source_id, knowledge_base_id)
+  )`,
+  `CREATE TABLE platform_knowledge_document_refs (
+    source_kind TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    document_id TEXT NOT NULL REFERENCES platform_knowledge_documents(id) ON DELETE RESTRICT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (source_kind, source_id, document_id)
+  )`,
+];
+
 export interface IdentityMigrationReport {
   from: number;
   to: number;
@@ -242,7 +304,7 @@ export async function migratePlatformIdentityDatabase(
   database: PlatformDatabase,
   dryRun = false,
 ): Promise<IdentityMigrationReport> {
-  let report: IdentityMigrationReport = { from: 0, to: 5, dryRun };
+  let report: IdentityMigrationReport = { from: 0, to: 6, dryRun };
   const rollback = new Error("platform identity migration dry-run rollback");
 
   try {
@@ -261,8 +323,8 @@ export async function migratePlatformIdentityDatabase(
         `SELECT version FROM platform_schema_lock WHERE id = 1${suffix}`,
       );
       const current = Number(row.version);
-      if (current > 5) throw new Error("platform schema is newer than this application");
-      report = { from: current, to: 5, dryRun };
+      if (current > 6) throw new Error("platform schema is newer than this application");
+      report = { from: current, to: 6, dryRun };
 
       if (current === 0) {
         for (const statement of versionOneStatements) await transaction.query(statement);
@@ -287,6 +349,11 @@ export async function migratePlatformIdentityDatabase(
       if (current < 5) {
         for (const statement of versionFiveStatements) await transaction.query(statement);
         await transaction.query("UPDATE platform_schema_lock SET version = 5 WHERE id = 1");
+      }
+
+      if (current < 6) {
+        for (const statement of versionSixStatements) await transaction.query(statement);
+        await transaction.query("UPDATE platform_schema_lock SET version = 6 WHERE id = 1");
       }
 
       await validatePlatformIdentityReferences(transaction);
@@ -359,5 +426,15 @@ export async function validatePlatformIdentityReferences(
   `);
   if (Number(resourceAvailabilityRow.n) !== 0) {
     throw new Error("invalid authored resource availability references");
+  }
+
+  const [documentRow] = await transaction.query<{ n: number }>(`
+    SELECT COUNT(*) AS n
+      FROM platform_knowledge_documents document
+      LEFT JOIN platform_knowledge_bases knowledge ON knowledge.id = document.knowledge_base_id
+     WHERE knowledge.id IS NULL
+  `);
+  if (Number(documentRow.n) !== 0) {
+    throw new Error("invalid knowledge document references");
   }
 }
