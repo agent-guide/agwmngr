@@ -91,8 +91,8 @@ const CREDENTIALS_ITEM: NavItem = {
   icon: IconCredential,
 };
 
-// Shared infrastructure and host-wide diagnostics use independent disclosure
-// groups, so LLM and MCP can be expanded without a generic Resources wrapper.
+// Platform-authored resources and Gateway infrastructure use separate
+// disclosure groups so their independent authority contexts stay visible.
 const NAV_GROUPS: NavGroup[] = [
   {
     key: "resources",
@@ -101,6 +101,7 @@ const NAV_GROUPS: NavGroup[] = [
     resourceScope: true,
     items: [
       { href: "/dashboard/resources/models", labelKey: "nav.models", icon: IconBrain },
+      { href: "/dashboard/resources/tools", labelKey: "nav.tools", icon: IconPlug },
       { href: "/dashboard/resources/skills", labelKey: "nav.skills", icon: IconLayers },
       { href: "/dashboard/resources/instructions", labelKey: "nav.instructions", icon: IconLayers },
       { href: "/dashboard/resources/knowledge-bases", labelKey: "nav.knowledgeBases", icon: IconBrain },

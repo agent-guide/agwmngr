@@ -46,6 +46,7 @@ export async function gatewayRequestJSON(
   path: string,
   gateway: ResolvedGateway,
   body?: unknown,
+  options: { signal?: AbortSignal } = {},
 ): Promise<{ status: number; body: unknown }> {
   const headers: Record<string, string> = { Authorization: basicAuthHeader(gateway) };
   if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -58,6 +59,7 @@ export async function gatewayRequestJSON(
         method,
         headers,
         body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: options.signal,
       });
       baseURLCache()[gateway.id] = baseURL;
       break;

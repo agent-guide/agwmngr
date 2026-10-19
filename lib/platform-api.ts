@@ -44,6 +44,10 @@ import type {
   CreateTenantModelDefinitionInput,
   TenantModelDefinition,
 } from "@/packages/contracts/platform/models";
+import type {
+  CreateTenantToolDefinitionInput,
+  TenantToolDefinition,
+} from "@/packages/contracts/platform/tools";
 
 export type {
   MembershipAddResolution,
@@ -92,6 +96,11 @@ export type {
   TenantModelDefinition,
   TenantModelDefinitionReference,
 } from "@/packages/contracts/platform/models";
+export type {
+  CreateTenantToolDefinitionInput,
+  TenantToolDefinition,
+  TenantToolDefinitionReference,
+} from "@/packages/contracts/platform/tools";
 
 function tenantPath(tenantId: string, suffix: string): string {
   return `/api/platform/v1/tenants/${encodeURIComponent(tenantId)}${suffix}`;
@@ -725,4 +734,38 @@ export function updateTenantModelDefinition(
 
 export async function deleteTenantModelDefinition(tenantId: string, id: string): Promise<void> {
   await adminFetch(modelDefinitionsPath(tenantId, `/${encodeURIComponent(id)}`), { method: "DELETE" });
+}
+
+function toolDefinitionsPath(tenantId: string, suffix = ""): string {
+  return tenantPath(tenantId, `/tools${suffix}`);
+}
+
+export async function listTenantToolDefinitions(tenantId: string): Promise<TenantToolDefinition[]> {
+  const result = await adminFetch<{ items: TenantToolDefinition[] }>(toolDefinitionsPath(tenantId));
+  return result.items ?? [];
+}
+
+export function createTenantToolDefinition(
+  tenantId: string,
+  input: CreateTenantToolDefinitionInput,
+): Promise<TenantToolDefinition> {
+  return adminFetch<TenantToolDefinition>(toolDefinitionsPath(tenantId), {
+    method: "POST",
+    body: JSON.stringify({ name: input.name, description: input.description, offering_id: input.offeringId }),
+  });
+}
+
+export function updateTenantToolDefinition(
+  tenantId: string,
+  id: string,
+  input: CreateTenantToolDefinitionInput,
+): Promise<TenantToolDefinition> {
+  return adminFetch<TenantToolDefinition>(toolDefinitionsPath(tenantId, `/${encodeURIComponent(id)}`), {
+    method: "PUT",
+    body: JSON.stringify({ name: input.name, description: input.description, offering_id: input.offeringId }),
+  });
+}
+
+export async function deleteTenantToolDefinition(tenantId: string, id: string): Promise<void> {
+  await adminFetch(toolDefinitionsPath(tenantId, `/${encodeURIComponent(id)}`), { method: "DELETE" });
 }

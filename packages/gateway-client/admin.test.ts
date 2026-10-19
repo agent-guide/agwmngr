@@ -80,4 +80,33 @@ describe("Gateway Admin client", () => {
       await server.stop(true);
     }
   });
+
+  test("forwards cancellation to an in-flight Gateway request", async () => {
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch() {
+        markStarted();
+        return new Promise<Response>(() => undefined);
+      },
+    });
+
+    try {
+      const controller = new AbortController();
+      const request = gatewayRequestJSON(
+        "GET",
+        "/admin/hanging",
+        gateway({ adminAddr: `http://127.0.0.1:${server.port}` }),
+        undefined,
+        { signal: controller.signal },
+      );
+      await started;
+      controller.abort();
+      await expect(request).rejects.toThrow("gateway unreachable");
+    } finally {
+      await server.stop(true);
+    }
+  });
 });

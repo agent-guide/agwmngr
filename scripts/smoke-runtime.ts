@@ -395,6 +395,64 @@ async function verify(mode: "dev" | "start") {
   assert.equal(tenantCatalog.items[0].sourceGatewayId, undefined);
   assert.equal(tenantCatalog.items[0].upstreamStableId, undefined);
   assert.ok(!JSON.stringify(tenantCatalog).includes("runtime-secret"));
+  await platformRequest(base, `tenants/${tenantId}/tools`, 409, member.token, "POST", {
+    name: "Unavailable Gateway tool",
+    description: "Catalog visibility is not live capability",
+    offering_id: offeringId,
+  });
+  const toolOfferingId = `runtime-native-tool-${mode}`;
+  await platformRequest(base, "catalog/offerings", 201, session.token, "POST", {
+    offering_id: toolOfferingId,
+    category: "tool",
+    name: `Runtime native tool ${mode}`,
+    description: "Runtime Tenant-tool proof",
+    kind: "platform-native",
+    availability: { mode: "tenant-allowlist", tenant_ids: [tenantId] },
+  });
+  await platformRequest(
+    base,
+    `catalog/offerings/${toolOfferingId}/approve`,
+    200,
+    session.token,
+    "POST",
+  );
+  await platformRequest(base, `tenants/${tenantId}/tools`, 400, member.token, "POST", {
+    name: "Leaky tool",
+    description: "Rejected",
+    offering_id: toolOfferingId,
+    credential_id: "must-not-enter-definition",
+  });
+  const tenantTool = await platformRequest(
+    base,
+    `tenants/${tenantId}/tools`,
+    201,
+    member.token,
+    "POST",
+    {
+      name: `Runtime tool ${mode}`,
+      description: "Immutable definition proof",
+      offering_id: toolOfferingId,
+    },
+  );
+  assert.equal(tenantTool.version, 1);
+  assert.equal(tenantTool.offeringId, toolOfferingId);
+  assert.equal(tenantTool.availability, "available");
+  assert.equal(tenantTool.digest.length, 64);
+  assert.ok(!JSON.stringify(tenantTool).includes("credential"));
+  const tenantToolV2 = await platformRequest(
+    base,
+    `tenants/${tenantId}/tools/${encodeURIComponent(tenantTool.id)}`,
+    200,
+    member.token,
+    "PUT",
+    {
+      name: `Runtime tool ${mode} v2`,
+      description: "Second immutable version",
+      offering_id: toolOfferingId,
+    },
+  );
+  assert.equal(tenantToolV2.version, 2);
+  assert.notEqual(tenantToolV2.digest, tenantTool.digest);
   const modelOfferingId = `runtime-model-${mode}`;
   await platformRequest(base, "catalog/offerings", 201, session.token, "POST", {
     offering_id: modelOfferingId,
@@ -661,7 +719,10 @@ async function verify(mode: "dev" | "start") {
     200,
     member.token,
   );
-  assert.equal(restartedCatalog.items[0].offeringId, offeringId);
+  assert.equal(
+    restartedCatalog.items.some((item: { offeringId?: string }) => item.offeringId === offeringId),
+    true,
+  );
   const restartedSkills = await platformRequest(
     base,
     `tenants/${tenantId}/skills`,
@@ -695,6 +756,29 @@ async function verify(mode: "dev" | "start") {
   assert.equal(restartedModels.items[0].id, tenantModel.id);
   assert.equal(restartedModels.items[0].version, 2);
   assert.equal(restartedModels.items[0].availability, "available");
+  const restartedTools = await platformRequest(
+    base,
+    `tenants/${tenantId}/tools`,
+    200,
+    member.token,
+  );
+  assert.equal(restartedTools.items[0].id, tenantTool.id);
+  assert.equal(restartedTools.items[0].version, 2);
+  assert.equal(restartedTools.items[0].availability, "available");
+  await platformRequest(
+    base,
+    `catalog/offerings/${toolOfferingId}/retire`,
+    200,
+    session.token,
+    "POST",
+  );
+  const unavailableTool = await platformRequest(
+    base,
+    `tenants/${tenantId}/tools/${encodeURIComponent(tenantTool.id)}`,
+    200,
+    member.token,
+  );
+  assert.equal(unavailableTool.availability, "unavailable");
   await platformRequest(
     base,
     `catalog/offerings/${modelOfferingId}/retire`,
@@ -738,7 +822,7 @@ async function verify(mode: "dev" | "start") {
   await stopServer();
 
   console.log(
-    `${mode}: Bun handler, session restart, catalog/authored/knowledge/personal/model resources, Tenant Gateway grant audit, service revocation and logout passed`,
+    `${mode}: Bun handler, session restart, catalog/authored/knowledge/personal/model/tool resources, Tenant Gateway grant audit, service revocation and logout passed`,
   );
 }
 

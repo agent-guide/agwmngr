@@ -7,10 +7,14 @@ import type {
   OfferingCapabilityDirectory,
 } from "@/packages/platform/ports/offering-capabilities";
 
+const capabilityProbeTimeoutMs = 5_000;
+
 function itemArray(value: unknown): unknown[] {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
-  const items = (value as { items?: unknown }).items;
-  return Array.isArray(items) ? items : [];
+  if (Array.isArray(value)) return value;
+  if (!value || typeof value !== "object") return [];
+  const response = value as { items?: unknown; tools?: unknown };
+  if (Array.isArray(response.items)) return response.items;
+  return Array.isArray(response.tools) ? response.tools : [];
 }
 
 export const offeringCapabilityDirectory: OfferingCapabilityDirectory = {
@@ -29,11 +33,14 @@ export const offeringCapabilityDirectory: OfferingCapabilityDirectory = {
     catch { return { available: false, reason: "source_unavailable" }; }
 
     try {
+      const signal = AbortSignal.timeout(capabilityProbeTimeoutMs);
       if (reference.category === "model") {
         const response = await gatewayRequestJSON(
           "GET",
           `/admin/llm/routes/${encodeURIComponent(reference.upstreamStableId)}`,
           gateway,
+          undefined,
+          { signal },
         );
         if (response.status < 200 || response.status >= 300 || !response.body ||
           typeof response.body !== "object" || Array.isArray(response.body)) {
@@ -45,16 +52,36 @@ export const offeringCapabilityDirectory: OfferingCapabilityDirectory = {
           : { available: false, reason: "upstream_missing" };
       }
 
-      const parts = reference.upstreamStableId.startsWith("mcp:")
-        ? reference.upstreamStableId.slice(4).split(":")
-        : reference.upstreamStableId.split(":");
+      if (!reference.upstreamStableId.startsWith("mcp:")) {
+        return { available: false, reason: "capability_missing" };
+      }
+      const parts = reference.upstreamStableId.slice(4).split(":");
       if (parts.length < 2) return { available: false, reason: "capability_missing" };
       const serviceId = parts.shift()!;
       const toolName = parts.join(":");
+      if (!serviceId || !toolName) return { available: false, reason: "capability_missing" };
+      const serviceResponse = await gatewayRequestJSON(
+        "GET",
+        `/admin/mcp/services/${encodeURIComponent(serviceId)}`,
+        gateway,
+        undefined,
+        { signal },
+      );
+      if (serviceResponse.status < 200 || serviceResponse.status >= 300 ||
+        !serviceResponse.body || typeof serviceResponse.body !== "object" ||
+        Array.isArray(serviceResponse.body)) {
+        return { available: false, reason: "upstream_missing" };
+      }
+      const service = serviceResponse.body as { id?: unknown; disabled?: unknown };
+      if (service.id !== serviceId || service.disabled === true) {
+        return { available: false, reason: "upstream_missing" };
+      }
       const response = await gatewayRequestJSON(
         "GET",
         `/admin/mcp/services/${encodeURIComponent(serviceId)}/tools`,
         gateway,
+        undefined,
+        { signal },
       );
       if (response.status < 200 || response.status >= 300) {
         return { available: false, reason: "upstream_missing" };

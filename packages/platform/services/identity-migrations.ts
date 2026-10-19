@@ -381,6 +381,49 @@ const versionEightStatements = [
   )`,
 ];
 
+const versionNineStatements = [
+  `CREATE TABLE platform_tenant_tool_definitions (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    tenant_authority_epoch BIGINT NOT NULL CHECK (tenant_authority_epoch > 0),
+    status TEXT NOT NULL CHECK (status IN ('active','archived')),
+    current_version BIGINT NOT NULL CHECK (current_version > 0),
+    created_by_principal_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (id, current_version)
+  )`,
+  `CREATE INDEX platform_tenant_tool_definitions_tenant_status
+    ON platform_tenant_tool_definitions (tenant_id, status, id)`,
+  `CREATE TABLE platform_tenant_tool_definition_versions (
+    definition_id TEXT NOT NULL REFERENCES platform_tenant_tool_definitions(id) ON DELETE RESTRICT,
+    version BIGINT NOT NULL CHECK (version > 0),
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    offering_id TEXT NOT NULL,
+    offering_version BIGINT NOT NULL CHECK (offering_version > 0),
+    offering_digest TEXT NOT NULL,
+    digest TEXT NOT NULL,
+    created_by_principal_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (definition_id, version),
+    UNIQUE (definition_id, digest)
+  )`,
+  `CREATE INDEX platform_tenant_tool_definition_versions_offering
+    ON platform_tenant_tool_definition_versions (offering_id, definition_id, version)`,
+  `CREATE TABLE platform_tenant_tool_definition_refs (
+    source_kind TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    definition_id TEXT NOT NULL,
+    definition_version BIGINT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (source_kind, source_id, definition_id, definition_version),
+    FOREIGN KEY (definition_id, definition_version)
+      REFERENCES platform_tenant_tool_definition_versions(definition_id, version)
+      ON DELETE RESTRICT
+  )`,
+];
+
 export interface IdentityMigrationReport {
   from: number;
   to: number;
@@ -391,7 +434,7 @@ export async function migratePlatformIdentityDatabase(
   database: PlatformDatabase,
   dryRun = false,
 ): Promise<IdentityMigrationReport> {
-  let report: IdentityMigrationReport = { from: 0, to: 8, dryRun };
+  let report: IdentityMigrationReport = { from: 0, to: 9, dryRun };
   const rollback = new Error("platform identity migration dry-run rollback");
 
   try {
@@ -410,8 +453,8 @@ export async function migratePlatformIdentityDatabase(
         `SELECT version FROM platform_schema_lock WHERE id = 1${suffix}`,
       );
       const current = Number(row.version);
-      if (current > 8) throw new Error("platform schema is newer than this application");
-      report = { from: current, to: 8, dryRun };
+      if (current > 9) throw new Error("platform schema is newer than this application");
+      report = { from: current, to: 9, dryRun };
 
       if (current === 0) {
         for (const statement of versionOneStatements) await transaction.query(statement);
@@ -451,6 +494,11 @@ export async function migratePlatformIdentityDatabase(
       if (current < 8) {
         for (const statement of versionEightStatements) await transaction.query(statement);
         await transaction.query("UPDATE platform_schema_lock SET version = 8 WHERE id = 1");
+      }
+
+      if (current < 9) {
+        for (const statement of versionNineStatements) await transaction.query(statement);
+        await transaction.query("UPDATE platform_schema_lock SET version = 9 WHERE id = 1");
       }
 
       await validatePlatformIdentityReferences(transaction);
