@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { adminFetch } from "@/lib/api";
 import { clearSession } from "@/lib/auth";
+import { useI18n } from "@/components/i18n-provider";
 
 interface UserPanelProps {
   isOpen: boolean;
@@ -28,6 +29,7 @@ function UserPanelContent({ onClose, username, isAdmin }: Omit<UserPanelProps, "
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const initial = username ? username.charAt(0).toUpperCase() : "?";
+  const { locale, t } = useI18n();
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -53,12 +55,12 @@ function UserPanelContent({ onClose, username, isAdmin }: Omit<UserPanelProps, "
               <div>
                 <div className="flex items-center gap-2">
                   <h2 className="text-lg font-semibold text-slate-100">{username}</h2>
-                  {isAdmin && <span className="rounded-full px-2 py-0.5 text-xs font-medium bg-blue-500/20 text-blue-300 border border-blue-500/30">Admin</span>}
+                  {isAdmin && <span className="rounded-full px-2 py-0.5 text-xs font-medium bg-blue-500/20 text-blue-300 border border-blue-500/30">{t("common.admin")}</span>}
                 </div>
-                <p className="mt-0.5 text-xs text-slate-500">Dashboard Account</p>
+                <p className="mt-0.5 text-xs text-slate-500">{t("account.dashboardAccount")}</p>
               </div>
             </div>
-            <button type="button" onClick={onClose} className="rounded-md p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition-colors" aria-label="Close panel">
+            <button type="button" onClick={onClose} className="rounded-md p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition-colors" aria-label={t("account.closePanel")}>
               <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
           </div>
@@ -66,10 +68,10 @@ function UserPanelContent({ onClose, username, isAdmin }: Omit<UserPanelProps, "
           <div className="mb-6 rounded-md border border-slate-700/50 bg-slate-800/30 px-3 py-2.5">
             <div className="flex items-center gap-2">
               <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse-dot" />
-              <span className="text-xs font-medium text-slate-400">Session active</span>
+              <span className="text-xs font-medium text-slate-400">{t("account.sessionActive")}</span>
             </div>
             <p className="mt-1 text-xs text-slate-500 pl-3.5">
-              {new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+              {new Date().toLocaleDateString(locale, { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
             </p>
           </div>
 
@@ -82,7 +84,7 @@ function UserPanelContent({ onClose, username, isAdmin }: Omit<UserPanelProps, "
                 <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                 </svg>
-                Change Password
+                {t("account.changePassword")}
               </div>
               <svg className={cn("w-4 h-4 text-slate-500 transition-transform duration-200", passwordOpen && "rotate-180")} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
@@ -91,18 +93,18 @@ function UserPanelContent({ onClose, username, isAdmin }: Omit<UserPanelProps, "
             <div className={cn("overflow-hidden transition-all duration-300 ease-out", passwordOpen ? "max-h-96 opacity-100 mt-2" : "max-h-0 opacity-0")}>
               <div className="space-y-3 px-3">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-400">Current Password</label>
+                  <label className="mb-1 block text-xs font-medium text-slate-400">{t("account.currentPassword")}</label>
                   <Input type="password" name="current-password" value={currentPassword} onChange={setCurrentPassword} autoComplete="current-password" />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-400">New Password</label>
-                  <Input type="password" name="new-password" value={newPassword} onChange={setNewPassword} placeholder="Minimum 8 characters" autoComplete="new-password" />
+                  <label className="mb-1 block text-xs font-medium text-slate-400">{t("account.newPassword")}</label>
+                  <Input type="password" name="new-password" value={newPassword} onChange={setNewPassword} placeholder={t("account.minimumCharacters")} autoComplete="new-password" />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-400">Confirm New Password</label>
+                  <label className="mb-1 block text-xs font-medium text-slate-400">{t("account.confirmPassword")}</label>
                   <Input type="password" name="confirm-password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" />
                 </div>
-                <Button type="button" className="w-full">Update Password</Button>
+                <Button type="button" className="w-full">{t("account.updatePassword")}</Button>
               </div>
             </div>
           </div>
@@ -127,7 +129,7 @@ function UserPanelContent({ onClose, username, isAdmin }: Omit<UserPanelProps, "
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                 </svg>
-                Logout
+                {t("account.logout")}
               </span>
             </Button>
           </div>

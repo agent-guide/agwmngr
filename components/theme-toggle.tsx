@@ -1,11 +1,13 @@
 "use client";
 
 import { useTheme } from "@/components/theme-context";
+import { useI18n } from "@/components/i18n-provider";
 
 export function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
+  const { t } = useI18n();
   const isDark = theme === "dark";
-  const label = isDark ? "Switch to light theme" : "Switch to dark theme";
+  const label = isDark ? t("theme.toLight") : t("theme.toDark");
 
   return (
     <button

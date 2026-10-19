@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useCurrentUser } from "@/components/current-user-context";
+import { useI18n } from "@/components/i18n-provider";
+import type { MessageKey } from "@/lib/i18n";
 
 function healthDot(health: string): string {
   if (health === "ok") return "bg-emerald-500";
@@ -9,10 +11,10 @@ function healthDot(health: string): string {
   return "bg-amber-500";
 }
 
-function roleLabel(role: "platform_admin" | "admin" | "member"): string {
-  if (role === "platform_admin") return "Platform Admin";
-  if (role === "admin") return "Gateway Admin";
-  return "Member";
+function roleKey(role: "platform_admin" | "admin" | "member"): MessageKey {
+  if (role === "platform_admin") return "role.platformAdmin";
+  if (role === "admin") return "role.gatewayAdmin";
+  return "role.member";
 }
 
 // Header dropdown to choose the active gateway. Lists the gateways the current
@@ -22,6 +24,7 @@ export function GatewaySwitcher() {
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const { t } = useI18n();
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
@@ -33,7 +36,7 @@ export function GatewaySwitcher() {
 
   if (gateways.length === 0) return null;
 
-  const label = activeGateway?.name ?? "Select gateway";
+  const label = activeGateway?.name ?? t("gateway.select");
 
   const handleSelect = async (id: string) => {
     setOpen(false);
@@ -58,7 +61,7 @@ export function GatewaySwitcher() {
         <span className={`h-2 w-2 rounded-full ${healthDot(activeGateway?.health_status ?? "ok")}`} />
         <span className="max-w-[12rem] truncate font-medium">{label}</span>
         {activeGateway?.status === "disabled" && (
-          <span className="text-[10px] font-semibold uppercase text-amber-400">disabled</span>
+          <span className="text-[10px] font-semibold uppercase text-amber-400">{t("common.disabled")}</span>
         )}
         <svg className="h-3.5 w-3.5 text-slate-400" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
           <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
@@ -71,7 +74,7 @@ export function GatewaySwitcher() {
           className="absolute right-0 z-50 mt-1 w-64 overflow-hidden rounded-md border border-slate-700/70 bg-slate-900/95 shadow-xl backdrop-blur-sm"
         >
           <p className="border-b border-slate-700/60 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-            Active Gateway
+            {t("gateway.active")}
           </p>
           {gateways.map((g) => (
             <button
@@ -87,7 +90,7 @@ export function GatewaySwitcher() {
             >
               <span className={`h-2 w-2 shrink-0 rounded-full ${healthDot(g.health_status)}`} />
               <span className="min-w-0 flex-1 truncate">{g.name}</span>
-              <span className="text-[10px] uppercase text-slate-500">{roleLabel(g.role)}</span>
+              <span className="text-[10px] uppercase text-slate-500">{t(roleKey(g.role))}</span>
               {switching === g.id && (
                 <span className="h-3 w-3 animate-spin rounded-full border-2 border-blue-500 border-t-transparent" />
               )}

@@ -4,11 +4,13 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { isAuthenticated, clearSession } from "@/lib/auth";
 import { adminFetch, ApiError } from "@/lib/api";
+import { useI18n } from "@/components/i18n-provider";
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [ready, setReady] = useState(false);
   const [backendError, setBackendError] = useState(false);
+  const { t } = useI18n();
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -30,7 +32,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   if (backendError) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4">
-        <p className="text-sm text-white/60">Cannot connect to the backend. Please check that the gateway is running.</p>
+        <p className="text-sm text-white/60">{t("auth.backendUnavailable")}</p>
         <button
           className="rounded-md bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-500"
           onClick={() => {
@@ -47,7 +49,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
               });
           }}
         >
-          Retry
+          {t("common.retry")}
         </button>
       </div>
     );

@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { login } from "@/lib/api";
 import { saveSession, isAuthenticated } from "@/lib/auth";
+import { LanguageSelect } from "@/components/language-select";
+import { useI18n } from "@/components/i18n-provider";
 
 export default function LoginPage() {
   const [username, setUsername] = useState("");
@@ -13,6 +15,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const router = useRouter();
+  const { t } = useI18n();
 
   useEffect(() => {
     if (isAuthenticated()) {
@@ -29,13 +32,14 @@ export default function LoginPage() {
       saveSession(data.token, data.username);
       router.push("/dashboard");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
+      setError(err instanceof Error ? err.message : t("auth.loginFailed"));
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
+    <div className="relative flex min-h-screen items-center justify-center px-4">
+      <LanguageSelect className="absolute right-4 top-4" />
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
           <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-blue-600 shadow-lg shadow-blue-600/30">
@@ -45,17 +49,17 @@ export default function LoginPage() {
             </svg>
           </div>
           <h1 className="text-2xl font-semibold tracking-tight text-slate-50">AGW Manager</h1>
-          <p className="mt-1 text-sm text-slate-50/50">Sign in to your dashboard</p>
+          <p className="mt-1 text-sm text-slate-50/50">{t("auth.signInPrompt")}</p>
         </div>
 
         <div className="glass-card rounded-xl p-4 sm:p-6 shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label htmlFor="username" className="mb-2 block text-xs font-medium text-slate-50/70 uppercase tracking-wider">Username</label>
+              <label htmlFor="username" className="mb-2 block text-xs font-medium text-slate-50/70 uppercase tracking-wider">{t("auth.username")}</label>
               <Input id="username" type="text" name="username" value={username} onChange={setUsername} required autoComplete="username" />
             </div>
             <div>
-              <label htmlFor="password" className="mb-2 block text-xs font-medium text-slate-50/70 uppercase tracking-wider">Password</label>
+              <label htmlFor="password" className="mb-2 block text-xs font-medium text-slate-50/70 uppercase tracking-wider">{t("auth.password")}</label>
               <Input id="password" type="password" name="password" value={password} onChange={setPassword} required autoComplete="current-password" />
             </div>
             {error && (
@@ -64,12 +68,12 @@ export default function LoginPage() {
               </p>
             )}
             <Button type="submit" disabled={loading} className="w-full">
-              {loading ? "Signing in..." : "Sign in"}
+              {loading ? t("auth.signingIn") : t("auth.signIn")}
             </Button>
           </form>
         </div>
 
-        <p className="mt-6 text-center text-xs text-slate-50/30">AGW Manager Dashboard</p>
+        <p className="mt-6 text-center text-xs text-slate-50/30">{t("auth.dashboard")}</p>
       </div>
     </div>
   );

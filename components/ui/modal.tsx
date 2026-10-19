@@ -3,6 +3,7 @@
 import { cn } from "@/lib/utils";
 import { type ReactNode, useEffect, useRef } from "react";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
+import { useI18n } from "@/components/i18n-provider";
 
 interface ModalProps {
   isOpen: boolean;
@@ -13,6 +14,7 @@ interface ModalProps {
 
 export function Modal({ isOpen, onClose, children, className }: ModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
+  const { t } = useI18n();
   useFocusTrap(isOpen, modalRef as React.RefObject<HTMLElement | null>);
 
   useEffect(() => {
@@ -44,7 +46,7 @@ export function Modal({ isOpen, onClose, children, className }: ModalProps) {
           type="button"
           onClick={onClose}
           className="absolute right-3 top-3 text-lg font-bold text-slate-50/80 hover:text-slate-50 transition-colors"
-          aria-label="Close"
+          aria-label={t("common.close")}
         >×</button>
         {children}
       </div>

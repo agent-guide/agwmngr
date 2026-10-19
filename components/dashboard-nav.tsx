@@ -6,6 +6,8 @@ import { useEffect, useState, type ComponentType } from "react";
 import { cn } from "@/lib/utils";
 import { useMobileSidebar } from "@/components/mobile-sidebar-context";
 import { useCurrentUser } from "@/components/current-user-context";
+import { useI18n } from "@/components/i18n-provider";
+import type { MessageKey } from "@/lib/i18n";
 
 function IconHome({ className }: { className?: string }) {
   return <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>;
@@ -56,10 +58,10 @@ function IconChevron({ className }: { className?: string }) {
   return <svg className={className} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" /></svg>;
 }
 
-type NavItem = { href: string; label: string; icon: ComponentType<{ className?: string }> };
+type NavItem = { href: string; labelKey: MessageKey; icon: ComponentType<{ className?: string }> };
 type NavGroup = {
   key: string;
-  label: string;
+  labelKey: MessageKey;
   icon: ComponentType<{ className?: string }>;
   adminOnly?: boolean;
   items: NavItem[];
@@ -68,22 +70,22 @@ type NavGroup = {
 // The WORKSPACE zone is the agent-centric focus: the agent itself plus the
 // day-to-day views for working with it. It stays always-visible at the top.
 const WORKSPACE_PRIMARY_ITEMS: NavItem[] = [
-  { href: "/dashboard/general/overview", label: "Overview", icon: IconHome },
-  { href: "/dashboard/agents", label: "Agents", icon: IconAgent },
-  { href: "/dashboard/agents/routes", label: "Agent Routes", icon: IconRoute },
+  { href: "/dashboard/general/overview", labelKey: "nav.overview", icon: IconHome },
+  { href: "/dashboard/agents", labelKey: "nav.agents", icon: IconAgent },
+  { href: "/dashboard/agents/routes", labelKey: "nav.agentRoutes", icon: IconRoute },
 ];
 
 const WORKSPACE_ACTIVITY_ITEMS: NavItem[] = [
-  { href: "/dashboard/agents/interactions", label: "Interactions", icon: IconActivity },
-  { href: "/dashboard/agents/usage", label: "Usage", icon: IconBarChart },
-  { href: "/dashboard/general/virtual-keys", label: "Virtual Keys", icon: IconKey },
+  { href: "/dashboard/agents/interactions", labelKey: "nav.interactions", icon: IconActivity },
+  { href: "/dashboard/agents/usage", labelKey: "nav.usage", icon: IconBarChart },
+  { href: "/dashboard/general/virtual-keys", labelKey: "nav.virtualKeys", icon: IconKey },
 ];
 
 // Credentials are shared by LLM, MCP, and other gateway capabilities, so they
 // live alongside the protocol groups instead of belonging to the LLM group.
 const CREDENTIALS_ITEM: NavItem = {
   href: "/dashboard/llm/credentials",
-  label: "Credentials",
+  labelKey: "nav.credentials",
   icon: IconCredential,
 };
 
@@ -92,51 +94,51 @@ const CREDENTIALS_ITEM: NavItem = {
 const NAV_GROUPS: NavGroup[] = [
   {
     key: "llm",
-    label: "LLM",
+    labelKey: "nav.llm",
     icon: IconLayers,
     items: [
-      { href: "/dashboard/llm/providers", label: "Providers", icon: IconLayers },
-      { href: "/dashboard/llm/models", label: "Models", icon: IconBrain },
-      { href: "/dashboard/llm/routes", label: "Routes", icon: IconRoute },
+      { href: "/dashboard/llm/providers", labelKey: "nav.providers", icon: IconLayers },
+      { href: "/dashboard/llm/models", labelKey: "nav.models", icon: IconBrain },
+      { href: "/dashboard/llm/routes", labelKey: "nav.routes", icon: IconRoute },
     ],
   },
   {
     key: "mcp",
-    label: "MCP",
+    labelKey: "nav.mcp",
     icon: IconPlug,
     items: [
-      { href: "/dashboard/mcp/services", label: "Services", icon: IconPlug },
-      { href: "/dashboard/mcp/routes", label: "Routes", icon: IconRoute },
+      { href: "/dashboard/mcp/services", labelKey: "nav.services", icon: IconPlug },
+      { href: "/dashboard/mcp/routes", labelKey: "nav.routes", icon: IconRoute },
     ],
   },
   {
     key: "runtimes",
-    label: "Runtimes",
+    labelKey: "nav.runtimes",
     icon: IconBot,
     items: [
-      { href: "/dashboard/acp/runtime", label: "ACP Runtime", icon: IconBot },
-      { href: "/dashboard/agents/runtimes/builtin", label: "Builtin Runtime", icon: IconBrain },
+      { href: "/dashboard/acp/runtime", labelKey: "nav.acpRuntime", icon: IconBot },
+      { href: "/dashboard/agents/runtimes/builtin", labelKey: "nav.builtinRuntime", icon: IconBrain },
     ],
   },
   {
     key: "configuration",
-    label: "Configuration",
+    labelKey: "nav.configuration",
     icon: IconServer,
     adminOnly: true,
     items: [
-      { href: "/dashboard/configuration/bundle", label: "Bundle", icon: IconLayers },
-      { href: "/dashboard/configuration/servers", label: "Servers", icon: IconServer },
+      { href: "/dashboard/configuration/bundle", labelKey: "nav.bundle", icon: IconLayers },
+      { href: "/dashboard/configuration/servers", labelKey: "nav.servers", icon: IconServer },
     ],
   },
   {
     key: "platform",
-    label: "Platform",
+    labelKey: "nav.platform",
     icon: IconShield,
     adminOnly: true,
     items: [
-      { href: "/dashboard/platform/users", label: "Users", icon: IconUsers },
-      { href: "/dashboard/platform/gateways", label: "Gateways", icon: IconGateway },
-      { href: "/dashboard/platform/audit", label: "Audit Log", icon: IconActivity },
+      { href: "/dashboard/platform/users", labelKey: "nav.users", icon: IconUsers },
+      { href: "/dashboard/platform/gateways", labelKey: "nav.gateways", icon: IconGateway },
+      { href: "/dashboard/platform/audit", labelKey: "nav.auditLog", icon: IconActivity },
     ],
   },
 ];
@@ -166,6 +168,7 @@ export function DashboardNav() {
   const pathname = usePathname();
   const { isOpen, isCollapsed, toggleCollapsed, close } = useMobileSidebar();
   const { user, activeGateway } = useCurrentUser();
+  const { t } = useI18n();
   const hasGatewayContentAccess = Boolean(
     user?.is_platform_admin || activeGateway?.role === "admin",
   );
@@ -238,10 +241,10 @@ export function DashboardNav() {
             isCollapsed && "lg:justify-center lg:px-0",
             isActive ? "glass-nav-item-active text-slate-100" : "glass-nav-item text-slate-300 hover:text-slate-100"
           )}
-          title={isCollapsed ? item.label : undefined}
+          title={isCollapsed ? t(item.labelKey) : undefined}
         >
           <IconComponent className="h-4 w-4 shrink-0" />
-          <span className={cn(isCollapsed && "lg:hidden")}>{item.label}</span>
+          <span className={cn(isCollapsed && "lg:hidden")}>{t(item.labelKey)}</span>
         </Link>
       </li>
     );
@@ -264,7 +267,7 @@ export function DashboardNav() {
           )}
         >
           <GroupIcon className="h-4 w-4 shrink-0" />
-          <span className="flex-1 text-left">{group.label}</span>
+          <span className="flex-1 text-left">{t(group.labelKey)}</span>
           {hasActive && !groupOpen && <span className="h-1.5 w-1.5 rounded-full bg-blue-400" aria-hidden="true" />}
           <IconChevron className={cn("h-3.5 w-3.5 shrink-0 text-slate-500 transition-transform duration-200", groupOpen && "rotate-90")} />
         </button>
@@ -308,7 +311,7 @@ export function DashboardNav() {
               type="button"
               onClick={toggleCollapsed}
               className="hidden rounded-md border border-slate-700/70 bg-slate-800/60 p-1.5 text-slate-300 transition-colors hover:bg-slate-700/70 hover:text-slate-100 lg:inline-flex"
-              aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-label={isCollapsed ? t("nav.expand") : t("nav.collapse")}
             >
               <svg className={cn("h-4 w-4 transition-transform", isCollapsed && "rotate-180")} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                 <path fillRule="evenodd" d="M12.707 14.707a1 1 0 01-1.414 0L7.293 10.707a1 1 0 010-1.414l4-4a1 1 0 111.414 1.414L9.414 10l3.293 3.293a1 1 0 010 1.414z" clipRule="evenodd" />
