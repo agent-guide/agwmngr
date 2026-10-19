@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useI18n } from "@/components/i18n-provider";
 
 /**
  * Compact "used by N agents" chip for resource list rows. Renders a muted
@@ -11,27 +12,28 @@ import { Tooltip } from "@/components/ui/tooltip";
  */
 export function UsedByAgents({ agentIds, className }: { agentIds?: string[]; className?: string }) {
   const ids = agentIds ?? [];
+  const { t } = useI18n();
 
   if (ids.length === 0) {
-    return <span className={className ?? "text-[10px] uppercase tracking-wide text-slate-600"}>unused</span>;
+    return <span className={className ?? "text-[10px] uppercase tracking-wide text-slate-600"}>{t("attribution.unused")}</span>;
   }
 
   const chip = (
     <span className="inline-flex items-center gap-1 rounded-md border border-blue-500/25 bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-medium text-blue-300">
-      {ids.length} agent{ids.length > 1 ? "s" : ""}
+      {t("attribution.agentCount", { count: ids.length })}
     </span>
   );
 
   if (ids.length === 1) {
     return (
-      <Link href={`/dashboard/agents/${encodeURIComponent(ids[0])}`} className={className} title={`Used by ${ids[0]}`}>
+      <Link href={`/dashboard/agents/${encodeURIComponent(ids[0])}`} className={className} title={t("attribution.usedBy", { agents: ids[0] })}>
         {chip}
       </Link>
     );
   }
 
   return (
-    <Tooltip content={`Used by: ${ids.join(", ")}`} className={className}>
+    <Tooltip content={t("attribution.usedBy", { agents: ids.join(", ") })} className={className}>
       {chip}
     </Tooltip>
   );

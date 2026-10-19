@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { type ReactNode, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
+import { useI18n } from "@/components/i18n-provider";
 
 interface ConfirmDialogProps {
   isOpen: boolean;
@@ -18,9 +19,12 @@ interface ConfirmDialogProps {
 
 export function ConfirmDialog({
   isOpen, onClose, onConfirm, title, message,
-  confirmLabel = "Confirm", cancelLabel = "Cancel", variant = "warning",
+  confirmLabel, cancelLabel, variant = "warning",
 }: ConfirmDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
+  const { t } = useI18n();
+  const resolvedConfirmLabel = confirmLabel ?? t("common.confirm");
+  const resolvedCancelLabel = cancelLabel ?? t("common.cancel");
   useFocusTrap(isOpen, dialogRef as React.RefObject<HTMLElement | null>);
 
   useEffect(() => {
@@ -67,7 +71,7 @@ export function ConfirmDialog({
         <h2 className="text-lg font-semibold text-slate-50 text-center mb-3">{title}</h2>
         <div className="text-sm text-slate-50/80 text-center mb-6">{message}</div>
         <div className="flex gap-3">
-          <Button variant="ghost" onClick={onClose} className="flex-1">{cancelLabel}</Button>
+          <Button variant="ghost" onClick={onClose} className="flex-1">{resolvedCancelLabel}</Button>
           <button
             type="button"
             onClick={() => { onConfirm(); onClose(); }}
@@ -77,7 +81,7 @@ export function ConfirmDialog({
               variant === "warning" && "bg-yellow-500 hover:bg-yellow-600 text-white focus:ring-yellow-500/50",
               variant === "info" && "bg-blue-500 hover:bg-blue-600 text-white focus:ring-blue-500/50"
             )}
-          >{confirmLabel}</button>
+          >{resolvedConfirmLabel}</button>
         </div>
       </div>
     </div>

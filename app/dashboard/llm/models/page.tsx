@@ -16,6 +16,7 @@ import {
   type ManagedModelPayload,
   type ProviderItem,
 } from "@/lib/api";
+import { useI18n } from "@/components/i18n-provider";
 
 export default function ModelsPage() {
   const [models, setModels] = useState<ManagedConcreteModel[]>([]);
@@ -28,6 +29,7 @@ export default function ModelsPage() {
   const [pendingDelete, setPendingDelete] = useState<{ provider_id: string; upstream_model: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const { showToast } = useToast();
+  const { t } = useI18n();
 
   // Form state
   const [formProviderId, setFormProviderId] = useState("");
@@ -42,11 +44,11 @@ export default function ModelsPage() {
       setModels(m);
       setProviders(p);
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : `Failed to load models: ${err instanceof Error ? err.message : String(err)}`, "error");
+      showToast(err instanceof ApiError ? err.message : t("models.loadFailed", { detail: err instanceof Error ? err.message : String(err) }), "error");
     } finally {
       setLoading(false);
     }
-  }, [showToast]);
+  }, [showToast, t]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void loadData(); }, 0);
@@ -71,8 +73,8 @@ export default function ModelsPage() {
   };
 
   const handleCreate = async () => {
-    if (!formProviderId.trim()) { showToast("Provider is required", "error"); return; }
-    if (!formUpstreamModel.trim()) { showToast("Upstream model is required", "error"); return; }
+    if (!formProviderId.trim()) { showToast(t("models.providerRequired"), "error"); return; }
+    if (!formUpstreamModel.trim()) { showToast(t("models.upstreamRequired"), "error"); return; }
     const payload: ManagedModelPayload = {
       provider_id: formProviderId.trim(),
       upstream_model: formUpstreamModel.trim(),
@@ -84,9 +86,9 @@ export default function ModelsPage() {
       const created = await createManagedModel(payload);
       setModels((prev) => [...prev, created]);
       setIsCreateOpen(false);
-      showToast("Model added", "success");
+      showToast(t("models.added"), "success");
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Failed to add model", "error");
+      showToast(err instanceof ApiError ? err.message : t("models.addFailed"), "error");
     } finally {
       setSaving(false);
     }
@@ -108,9 +110,9 @@ export default function ModelsPage() {
       ));
       setIsEditOpen(false);
       setEditingModel(null);
-      showToast("Model updated", "success");
+      showToast(t("models.updated"), "success");
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Failed to update model", "error");
+      showToast(err instanceof ApiError ? err.message : t("models.updateFailed"), "error");
     } finally {
       setSaving(false);
     }
@@ -124,9 +126,9 @@ export default function ModelsPage() {
       setModels((prev) => prev.filter(
         (m) => !(m.provider_id === pendingDelete.provider_id && m.upstream_model === pendingDelete.upstream_model)
       ));
-      showToast("Model removed", "success");
+      showToast(t("models.removed"), "success");
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Failed to remove model", "error");
+      showToast(err instanceof ApiError ? err.message : t("models.removeFailed"), "error");
     } finally {
       setSaving(false);
       setShowConfirm(false);
@@ -142,19 +144,19 @@ export default function ModelsPage() {
       <section className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-slate-100">Models</h1>
-            <p className="mt-1 text-sm text-slate-400">Manage which upstream models are available through the gateway.</p>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-100">{t("models.title")}</h1>
+            <p className="mt-1 text-sm text-slate-400">{t("models.description")}</p>
           </div>
-          <Button onClick={openCreate} className="px-2.5 py-1 text-xs">Add Model</Button>
+          <Button onClick={openCreate} className="px-2.5 py-1 text-xs">{t("models.add")}</Button>
         </div>
       </section>
 
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
         {[
-          { label: "Total Models", value: models.length },
-          { label: "Enabled", value: enabledCount },
-          { label: "Providers", value: providerCount },
-          { label: "Disabled", value: models.length - enabledCount },
+          { label: t("models.total"), value: models.length },
+          { label: t("common.enabledTitle"), value: enabledCount },
+          { label: t("models.providers"), value: providerCount },
+          { label: t("common.disabledTitle"), value: models.length - enabledCount },
         ].map((stat) => (
           <div key={stat.label} className="rounded-lg border border-slate-700/70 bg-slate-900/40 px-2.5 py-2">
             <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">{stat.label}</p>
@@ -165,14 +167,14 @@ export default function ModelsPage() {
 
       <section className="overflow-x-auto rounded-lg border border-slate-700/70 bg-slate-900/40">
         {loading ? (
-          <p className="p-6 text-center text-sm text-slate-400">Loading models…</p>
+          <p className="p-6 text-center text-sm text-slate-400">{t("models.loading")}</p>
         ) : models.length === 0 ? (
-          <p className="p-6 text-center text-sm text-slate-400">No managed models. Add one to get started.</p>
+          <p className="p-6 text-center text-sm text-slate-400">{t("models.empty")}</p>
         ) : (
           <table className="min-w-[700px] w-full text-sm">
             <thead>
               <tr className="border-b border-slate-700/70 bg-slate-900/95">
-                {["Provider", "Upstream Model", "Display Name", "Capabilities", "Snapshot", "Status", ""].map((h) => (
+                {[t("models.provider"), t("models.upstream"), t("models.displayName"), t("models.capabilities"), t("models.snapshot"), t("interactions.status"), ""].map((h) => (
                   <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">{h}</th>
                 ))}
               </tr>
@@ -214,20 +216,20 @@ export default function ModelsPage() {
                     <span className={`inline-flex items-center rounded-sm px-1.5 py-0.5 text-[10px] font-medium ${
                       model.enabled ? "bg-emerald-500/15 text-emerald-300" : "bg-slate-700/40 text-slate-400"
                     }`}>
-                      {model.enabled ? "enabled" : "disabled"}
+                      {model.enabled ? t("common.enabled") : t("common.disabled")}
                     </span>
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex items-center gap-1.5">
                       <Button variant="ghost" className="px-2 py-0.5 text-[10px]" onClick={() => openEdit(model)}>
-                        Edit
+                        {t("common.edit")}
                       </Button>
                       <Button
                         variant="danger"
                         className="px-2 py-0.5 text-[10px]"
                         onClick={() => { setPendingDelete({ provider_id: model.provider_id, upstream_model: model.upstream_model }); setShowConfirm(true); }}
                       >
-                        Remove
+                        {t("common.remove")}
                       </Button>
                     </div>
                   </td>
@@ -240,24 +242,24 @@ export default function ModelsPage() {
 
       {/* Create modal */}
       <Modal isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)}>
-        <ModalHeader><ModalTitle>Add Managed Model</ModalTitle></ModalHeader>
+        <ModalHeader><ModalTitle>{t("models.addManaged")}</ModalTitle></ModalHeader>
         <ModalContent>
           <div className="space-y-4">
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-300">Provider <span className="text-red-400">*</span></label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("models.provider")} <span className="text-red-400">*</span></label>
               <select
                 value={formProviderId}
                 onChange={(e) => setFormProviderId(e.target.value)}
                 className="w-full rounded-md border border-slate-700/70 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 focus:border-blue-500/60 focus:outline-none"
               >
-                <option value="">— select provider —</option>
+                <option value="">{t("models.selectProvider")}</option>
                 {providers.map((p) => (
                   <option key={p.id} value={p.id}>{p.id}</option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-300">Upstream Model <span className="text-red-400">*</span></label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("models.upstream")} <span className="text-red-400">*</span></label>
               <input
                 value={formUpstreamModel}
                 onChange={(e) => setFormUpstreamModel(e.target.value)}
@@ -266,11 +268,11 @@ export default function ModelsPage() {
               />
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-300">Credential Scope</label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("models.credentialScope")}</label>
               <input
                 value={formCredentialScope}
                 onChange={(e) => setFormCredentialScope(e.target.value)}
-                placeholder="Optional — leave blank for provider default"
+                placeholder={t("models.scopePlaceholder")}
                 className="w-full rounded-md border border-slate-700/60 bg-slate-900/70 px-2.5 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none"
               />
             </div>
@@ -281,41 +283,41 @@ export default function ModelsPage() {
                 onChange={(e) => setFormEnabled(e.target.checked)}
                 className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-800 accent-blue-500"
               />
-              <span className="text-sm text-slate-300">Enabled</span>
+              <span className="text-sm text-slate-300">{t("common.enabledTitle")}</span>
             </label>
           </div>
         </ModalContent>
         <ModalFooter>
-          <Button variant="ghost" onClick={() => setIsCreateOpen(false)} disabled={saving}>Cancel</Button>
-          <Button onClick={handleCreate} disabled={saving}>{saving ? "Adding…" : "Add Model"}</Button>
+          <Button variant="ghost" onClick={() => setIsCreateOpen(false)} disabled={saving}>{t("common.cancel")}</Button>
+          <Button onClick={handleCreate} disabled={saving}>{saving ? t("common.adding") : t("models.add")}</Button>
         </ModalFooter>
       </Modal>
 
       {/* Edit modal */}
       <Modal isOpen={isEditOpen} onClose={() => { setIsEditOpen(false); setEditingModel(null); }}>
-        <ModalHeader><ModalTitle>Edit Model — {editingModel?.upstream_model}</ModalTitle></ModalHeader>
+        <ModalHeader><ModalTitle>{t("models.edit", { name: editingModel?.upstream_model ?? "" })}</ModalTitle></ModalHeader>
         <ModalContent>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-400">Provider</label>
+                <label className="mb-1 block text-xs font-medium text-slate-400">{t("models.provider")}</label>
                 <p className="rounded-md border border-slate-700/60 bg-slate-900/70 px-2.5 py-1.5 font-mono text-xs text-slate-400">
                   {editingModel?.provider_id}
                 </p>
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-400">Upstream Model</label>
+                <label className="mb-1 block text-xs font-medium text-slate-400">{t("models.upstream")}</label>
                 <p className="rounded-md border border-slate-700/60 bg-slate-900/70 px-2.5 py-1.5 font-mono text-xs text-slate-400">
                   {editingModel?.upstream_model}
                 </p>
               </div>
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-300">Credential Scope</label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("models.credentialScope")}</label>
               <input
                 value={formCredentialScope}
                 onChange={(e) => setFormCredentialScope(e.target.value)}
-                placeholder="Optional — leave blank for provider default"
+                placeholder={t("models.scopePlaceholder")}
                 className="w-full rounded-md border border-slate-700/60 bg-slate-900/70 px-2.5 py-1.5 text-sm text-slate-200 placeholder-slate-600 focus:outline-none"
               />
             </div>
@@ -326,13 +328,13 @@ export default function ModelsPage() {
                 onChange={(e) => setFormEnabled(e.target.checked)}
                 className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-800 accent-blue-500"
               />
-              <span className="text-sm text-slate-300">Enabled</span>
+              <span className="text-sm text-slate-300">{t("common.enabledTitle")}</span>
             </label>
           </div>
         </ModalContent>
         <ModalFooter>
-          <Button variant="ghost" onClick={() => { setIsEditOpen(false); setEditingModel(null); }} disabled={saving}>Cancel</Button>
-          <Button onClick={handleEdit} disabled={saving}>{saving ? "Saving…" : "Save Changes"}</Button>
+          <Button variant="ghost" onClick={() => { setIsEditOpen(false); setEditingModel(null); }} disabled={saving}>{t("common.cancel")}</Button>
+          <Button onClick={handleEdit} disabled={saving}>{saving ? t("common.saving") : t("common.saveChanges")}</Button>
         </ModalFooter>
       </Modal>
 
@@ -340,9 +342,9 @@ export default function ModelsPage() {
         isOpen={showConfirm}
         onClose={() => { setShowConfirm(false); setPendingDelete(null); }}
         onConfirm={handleDelete}
-        title="Remove Model"
-        message={`Remove ${pendingDelete?.upstream_model} from ${pendingDelete?.provider_id}? This does not delete the model from the provider.`}
-        confirmLabel={saving ? "Removing…" : "Remove"}
+        title={t("models.removeTitle")}
+        message={t("models.removeMessage", { model: pendingDelete?.upstream_model ?? "", provider: pendingDelete?.provider_id ?? "" })}
+        confirmLabel={saving ? t("common.removing") : t("common.remove")}
         variant="danger"
       />
     </div>

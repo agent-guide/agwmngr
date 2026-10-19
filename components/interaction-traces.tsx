@@ -5,6 +5,7 @@ import { Card, CardTitle } from "@/components/ui/card";
 import { Badge, protocolTone } from "@/components/ui/badge";
 import { num } from "@/lib/metrics-util";
 import { type InteractionEvent } from "@/lib/api";
+import { useI18n } from "@/components/i18n-provider";
 
 // ---------------------------------------------------------------------------
 // Span tree model — reconstruct the real parent/child call chain from
@@ -179,6 +180,7 @@ export function TraceList({ traces }: { traces: Trace[] }) {
 function TraceCard({ trace }: { trace: Trace }) {
   const [open, setOpen] = useState(trace.spanCount > 1 || !trace.ok);
   const [selected, setSelected] = useState<string | null>(null);
+  const { locale, t } = useI18n();
 
   return (
     <Card className="p-0">
@@ -188,10 +190,10 @@ function TraceCard({ trace }: { trace: Trace }) {
         {trace.protocols.map((p) => (
           <Badge key={p} tone={protocolTone(p)} className="shrink-0 uppercase">{p}</Badge>
         ))}
-        {!trace.ok && <Badge tone="red" className="shrink-0">{trace.errorCount} error{trace.errorCount === 1 ? "" : "s"}</Badge>}
-        <Badge tone="neutral" className="shrink-0">{trace.spanCount} span{trace.spanCount === 1 ? "" : "s"}</Badge>
+        {!trace.ok && <Badge tone="red" className="shrink-0">{t("trace.errors", { count: trace.errorCount })}</Badge>}
+        <Badge tone="neutral" className="shrink-0">{t("trace.spans", { count: trace.spanCount })}</Badge>
         <span className="ml-auto shrink-0 text-xs tabular-nums text-slate-400">{fmtMs(trace.duration)}</span>
-        <span className="shrink-0 text-xs text-slate-600" suppressHydrationWarning>{new Date(trace.startedAt).toLocaleTimeString()}</span>
+        <span className="shrink-0 text-xs text-slate-600" suppressHydrationWarning>{new Date(trace.startedAt).toLocaleTimeString(locale)}</span>
         <span className="shrink-0 text-slate-500">{open ? "▾" : "▸"}</span>
       </button>
 
@@ -224,6 +226,7 @@ function TraceCard({ trace }: { trace: Trace }) {
 
 function WaterfallRow({ node, trace, selected, onSelect }: { node: SpanNode; trace: Trace; selected: boolean; onSelect: () => void }) {
   const e = node.event;
+  const { t } = useI18n();
   const dur = trace.duration || 1;
   const leftPct = ((node.start - trace.startedAt) / dur) * 100;
   const widthPct = Math.max(((node.end - node.start) / dur) * 100, 1.5);
@@ -243,7 +246,7 @@ function WaterfallRow({ node, trace, selected, onSelect }: { node: SpanNode; tra
             className={`h-1.5 w-1.5 shrink-0 rounded-full ${
               !e.success ? "bg-rose-400" : node.errorInSubtree ? "bg-amber-400" : "bg-emerald-400"
             }`}
-            title={!e.success ? "failed" : node.errorInSubtree ? "error downstream" : "ok"}
+            title={!e.success ? t("trace.failed") : node.errorInSubtree ? t("trace.downstreamError") : t("trace.ok")}
           />
           <Badge tone={protocolTone(e.route_kind)} className="shrink-0">{e.route_protocol ?? e.route_kind}</Badge>
           {e.runtime_type && (

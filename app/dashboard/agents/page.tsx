@@ -10,6 +10,7 @@ import { Select } from "@/components/ui/select";
 import { Badge, protocolTone } from "@/components/ui/badge";
 import { useAdminSWR } from "@/hooks/use-admin-swr";
 import { listAgents } from "@/lib/api";
+import { useI18n } from "@/components/i18n-provider";
 
 function countResources(...lists: (string[] | undefined)[]): number {
   return lists.reduce((sum, l) => sum + (l?.length ?? 0), 0);
@@ -19,6 +20,7 @@ export default function AgentsListPage() {
   const { data, error, isLoading, mutate, isValidating } = useAdminSWR("agents-list", listAgents);
   const [search, setSearch] = useState("");
   const [runtimeFilter, setRuntimeFilter] = useState("all");
+  const { t } = useI18n();
 
   const agents = useMemo(() => {
     let list = data ?? [];
@@ -31,15 +33,15 @@ export default function AgentsListPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Agents"
-        description="First-class agents orchestrating LLM, MCP, and ACP resources. Create, observe, and operate them here."
+        title={t("agents.title")}
+        description={t("agents.description")}
         actions={
           <>
             <Button variant="ghost" className="px-2.5 py-1 text-xs" onClick={() => void mutate()} disabled={isValidating}>
-              {isValidating ? "Refreshing…" : "Refresh"}
+              {isValidating ? t("common.refreshing") : t("common.refresh")}
             </Button>
             <Link href="/dashboard/agents/new">
-              <Button className="px-2.5 py-1 text-xs">+ New Agent</Button>
+              <Button className="px-2.5 py-1 text-xs">{t("agents.new")}</Button>
             </Link>
           </>
         }
@@ -47,31 +49,31 @@ export default function AgentsListPage() {
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="w-full sm:max-w-xs">
-          <Input name="search" value={search} onChange={setSearch} placeholder="Search agents…" />
+          <Input name="search" value={search} onChange={setSearch} placeholder={t("agents.search")} />
         </div>
         <Select
           name="runtime-filter"
           value={runtimeFilter}
           onChange={setRuntimeFilter}
-          options={[{ value: "all", label: "All runtimes" }, { value: "acp", label: "acp" }, { value: "builtin", label: "builtin" }, { value: "http", label: "http" }]}
+          options={[{ value: "all", label: t("agents.allRuntimes") }, { value: "acp", label: "acp" }, { value: "builtin", label: "builtin" }, { value: "http", label: "http" }]}
         />
       </div>
 
       {error ? (
-        <Card className="p-8 text-center text-sm text-rose-300">{error instanceof Error ? error.message : "Failed to load agents"}</Card>
+        <Card className="p-8 text-center text-sm text-rose-300">{error instanceof Error ? error.message : t("agents.loadFailed")}</Card>
       ) : isLoading && !data ? (
-        <Card className="p-8 text-center text-sm text-slate-400">Loading agents…</Card>
+        <Card className="p-8 text-center text-sm text-slate-400">{t("agents.loading")}</Card>
       ) : agents.length === 0 ? (
         <Card className="flex flex-col items-center gap-3 p-10 text-center">
           <p className="text-sm text-slate-400">
-            {data && data.length > 0 ? "No agents match your filter." : "No agents yet."}
+            {data && data.length > 0 ? t("agents.noMatch") : t("agents.empty")}
           </p>
           {(!data || data.length === 0) && (
             <>
               <p className="max-w-md text-xs text-slate-500">
-                An agent owns one runtime configuration (ACP, builtin, or HTTP) plus the resources it may use. Create one to start observing and operating it.
+                {t("agents.emptyHelp")}
               </p>
-              <Link href="/dashboard/agents/new"><Button className="px-3 py-1.5 text-xs">+ Create your first agent</Button></Link>
+              <Link href="/dashboard/agents/new"><Button className="px-3 py-1.5 text-xs">{t("agents.createFirst")}</Button></Link>
             </>
           )}
         </Card>
@@ -93,14 +95,14 @@ export default function AgentsListPage() {
               {a.description && <p className="mt-2 line-clamp-2 text-xs text-slate-400">{a.description}</p>}
               {a.capabilities?.executable === false && !a.disabled && (
                 <div className="mt-3 rounded-md border border-rose-500/60 bg-rose-500/10 px-3 py-2 text-xs text-rose-200" role="alert">
-                  <p className="font-semibold">Runtime not executable</p>
+                  <p className="font-semibold">{t("agents.runtimeNotExecutable")}</p>
                   <p className="mt-0.5 text-[11px] text-rose-300/90">
-                    This Agent and its route can exist, but turns cannot run. POST /turn returns 501 runtime_not_executable.
+                    {t("agents.runtimeNotExecutableHelp")}
                   </p>
                 </div>
               )}
               <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                {a.disabled ? <Badge tone="neutral">disabled</Badge> : <Badge tone="green">enabled</Badge>}
+                {a.disabled ? <Badge tone="neutral">{t("common.disabled")}</Badge> : <Badge tone="green">{t("common.enabled")}</Badge>}
                 {/* Runtime config is inlined on the agent now, so surface the
                     identifying field of whichever backend is bound. */}
                 {a.runtime.acp?.agent_type && <Badge tone="teal" mono>{a.runtime.acp.agent_type}</Badge>}
@@ -108,8 +110,10 @@ export default function AgentsListPage() {
                 {a.runtime.http?.card_url && <Badge tone="teal" mono>{a.runtime.http.card_url}</Badge>}
                 {a.runtime_status?.state && <Badge tone="neutral">{a.runtime_status.state}</Badge>}
                 <span className="text-[11px] text-slate-500">
-                  {countResources(a.routes.llm_route_ids, a.routes.mcp_route_ids)} routes ·{" "}
-                  {countResources(a.resources.provider_ids, a.resources.mcp_service_ids, a.resources.virtual_key_ids)} resources
+                  {t("agents.resourceCounts", {
+                    routes: countResources(a.routes.llm_route_ids, a.routes.mcp_route_ids),
+                    resources: countResources(a.resources.provider_ids, a.resources.mcp_service_ids, a.resources.virtual_key_ids),
+                  })}
                 </span>
               </div>
             </Link>

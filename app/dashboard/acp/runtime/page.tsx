@@ -16,6 +16,7 @@ import {
   getACPRuntime,
   closeACPThread,
 } from "@/lib/api";
+import { useI18n } from "@/components/i18n-provider";
 
 // A pool scope is NUL-separated: ownerID \0 cwd \0 threadID \0 sessionID \0 model
 // (pkg/acp/runtime/manager.go). The admin views already surface the owning
@@ -45,6 +46,7 @@ function formatScope(scope: string): string {
 
 export default function ACPRuntimePage() {
   const { showToast } = useToast();
+  const { locale, t } = useI18n();
   const { data, error, isLoading, isValidating, mutate, lastUpdated } = useAdminSWR(
     "acp-runtime",
     getACPRuntime,
@@ -62,10 +64,10 @@ export default function ACPRuntimePage() {
     setBusyId(key);
     try {
       const res = await closeACPThread(agentId, threadId);
-      showToast(`Closed ${res.closed} instance(s)`, "success");
+      showToast(t("runtime.closed", { count: res.closed }), "success");
       void mutate();
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Failed to close thread", "error");
+      showToast(err instanceof ApiError ? err.message : t("runtime.closeFailed"), "error");
     } finally {
       setBusyId(null);
     }
@@ -74,32 +76,32 @@ export default function ACPRuntimePage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="ACP Runtime"
+        title={t("nav.acpRuntime")}
         description={
           <>
-            Native pool state for ACP agents: pooled processes, in-flight turns, and pending permissions.
-            <HelpTooltip content="This is lower-level process diagnostics, keyed by pool scope. For logical run control use the agent's Runs panel — closing a thread is destructive recovery, not run cancellation." />
+            {t("runtime.acpDescription")}
+            <HelpTooltip content={t("runtime.acpHelp")} />
           </>
         }
         actions={<AutoRefreshControl lastUpdated={lastUpdated} onRefresh={() => void mutate()} refreshing={isValidating} />}
       />
 
       <StatGrid>
-        <StatCard label="In-Flight Turns" value={inFlight.length} />
-        <StatCard label="Pooled Instances" value={instances.length} />
-        <StatCard label="Pending Permissions" value={pending.length} tone={pending.length > 0 ? "text-amber-300" : "text-slate-100"} />
+        <StatCard label={t("runtime.inFlight")} value={inFlight.length} />
+        <StatCard label={t("runtime.pooled")} value={instances.length} />
+        <StatCard label={t("runtime.pending")} value={pending.length} tone={pending.length > 0 ? "text-amber-300" : "text-slate-100"} />
       </StatGrid>
 
       {isLoading && !data ? (
-        <Card className="p-8 text-center text-sm text-slate-400">Loading runtime…</Card>
+        <Card className="p-8 text-center text-sm text-slate-400">{t("runtime.loading")}</Card>
       ) : error ? (
-        <Card className="p-8 text-center text-sm text-rose-300">{error instanceof Error ? error.message : "Failed to load runtime"}</Card>
+        <Card className="p-8 text-center text-sm text-rose-300">{error instanceof Error ? error.message : t("runtime.loadFailed")}</Card>
       ) : (
         <>
           {/* Pending permissions */}
           <Card>
             <CardHeader>
-              <CardTitle>Pending Permissions <HelpTooltip content="Interactive permission requests awaiting a decision. This overview carries identity only, so approving needs the exact option id — the agent Overview tab shows the offered options." /></CardTitle>
+              <CardTitle>{t("runtime.pending")} <HelpTooltip content={t("runtime.pendingHelp")} /></CardTitle>
             </CardHeader>
             <PendingPermissions
               pending={pending.map(normalizeACPRuntimePermission)}
@@ -109,9 +111,9 @@ export default function ACPRuntimePage() {
 
           {/* Pooled instances */}
           <Card>
-            <CardHeader><CardTitle>Pooled Instances</CardTitle></CardHeader>
+            <CardHeader><CardTitle>{t("runtime.pooled")}</CardTitle></CardHeader>
             {instances.length === 0 ? (
-              <p className="text-xs text-slate-500">No pooled instances.</p>
+              <p className="text-xs text-slate-500">{t("runtime.noPooled")}</p>
             ) : (
               <div className="space-y-2">
                 {instances.map((inst, i) => {
@@ -123,19 +125,19 @@ export default function ACPRuntimePage() {
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span className="font-mono text-[11px] text-slate-300">{inst.agent_id}</span>
-                          {inst.alive && <Badge tone="green">alive</Badge>}
-                          {inst.active && <Badge tone="blue">active</Badge>}
-                          {inst.session_id && <span className="font-mono text-[11px] text-slate-400">session: {inst.session_id}</span>}
-                          {inst.last_used && <span className="text-[11px] text-slate-500" suppressHydrationWarning>last used {new Date(inst.last_used).toLocaleString()}</span>}
+                          {inst.alive && <Badge tone="green">{t("runtime.alive")}</Badge>}
+                          {inst.active && <Badge tone="blue">{t("runtime.active")}</Badge>}
+                          {inst.session_id && <span className="font-mono text-[11px] text-slate-400">{t("runtime.session", { id: inst.session_id })}</span>}
+                          {inst.last_used && <span className="text-[11px] text-slate-500" suppressHydrationWarning>{t("runtime.lastUsed", { time: new Date(inst.last_used).toLocaleString(locale) })}</span>}
                         </div>
                         {parsed?.threadId && (
-                          <p className="mt-1 font-mono text-[11px] text-slate-400">thread: {parsed.threadId}</p>
+                          <p className="mt-1 font-mono text-[11px] text-slate-400">{t("runtime.thread", { id: parsed.threadId })}</p>
                         )}
                         <p className="mt-1 break-all font-mono text-[11px] text-slate-500">{formatScope(inst.scope)}</p>
                       </div>
                       {closable && (
                         <Button variant="ghost" className="shrink-0 px-2.5 py-1 text-xs" disabled={busy} onClick={() => void close(closable.agentId, closable.threadId)}>
-                          {busy ? "Closing…" : "Close"}
+                          {busy ? t("runtime.closing") : t("common.close")}
                         </Button>
                       )}
                     </div>
@@ -147,24 +149,24 @@ export default function ACPRuntimePage() {
 
           {/* In-flight turns */}
           <Card>
-            <CardHeader><CardTitle>In-Flight Turns</CardTitle></CardHeader>
+            <CardHeader><CardTitle>{t("runtime.inFlight")}</CardTitle></CardHeader>
             {inFlight.length === 0 ? (
-              <p className="text-xs text-slate-500">No in-flight turns.</p>
+              <p className="text-xs text-slate-500">{t("runtime.noInFlight")}</p>
             ) : (
               <div className="space-y-1.5">
-                {inFlight.map((t, i) => {
-                  const parsed = parseScope(t.scope);
-                  const closable = parsed?.threadId ? { agentId: t.agent_id, threadId: parsed.threadId } : null;
+                {inFlight.map((turn, i) => {
+                  const parsed = parseScope(turn.scope);
+                  const closable = parsed?.threadId ? { agentId: turn.agent_id, threadId: parsed.threadId } : null;
                   const busy = closable ? busyId === `${closable.agentId}:${closable.threadId}` : false;
                   return (
                     <div key={i} className="flex items-center justify-between gap-2 rounded-md border border-slate-700/60 bg-slate-900/50 px-3 py-1.5">
                       <div className="min-w-0">
-                        <span className="font-mono text-[11px] text-slate-300">{t.agent_id}</span>
-                        <span className="ml-2 break-all font-mono text-[11px] text-slate-500">{formatScope(t.scope)}</span>
+                        <span className="font-mono text-[11px] text-slate-300">{turn.agent_id}</span>
+                        <span className="ml-2 break-all font-mono text-[11px] text-slate-500">{formatScope(turn.scope)}</span>
                       </div>
                       {closable && (
                         <Button variant="ghost" className="shrink-0 px-2 py-0.5 text-[11px]" disabled={busy} onClick={() => void close(closable.agentId, closable.threadId)}>
-                          Close
+                          {t("common.close")}
                         </Button>
                       )}
                     </div>

@@ -11,6 +11,7 @@ import {
   type ACPRuntimePermissionView,
   type AgentPendingPermission,
 } from "@/lib/api";
+import { useI18n } from "@/components/i18n-provider";
 
 interface PermissionOption {
   optionId: string;
@@ -108,13 +109,14 @@ function permissionTitle(data: unknown): string | undefined {
 export function PendingPermissions({
   pending,
   onResolved,
-  emptyText = "No pending permission requests.",
+  emptyText,
 }: {
   pending: PendingPermission[];
   onResolved: () => void;
   emptyText?: string;
 }) {
   const { showToast } = useToast();
+  const { t } = useI18n();
   const [busyId, setBusyId] = useState<string | null>(null);
   // Fallback manual-resolve modal for permissions without parseable options.
   const [manual, setManual] = useState<PendingPermission | null>(null);
@@ -128,19 +130,19 @@ export function PendingPermissions({
         outcome,
         ...(outcome === "selected" && optionId ? { option_id: optionId } : {}),
       });
-      showToast(outcome === "selected" ? "Permission approved" : "Permission rejected", "success");
+      showToast(outcome === "selected" ? t("permissions.approved") : t("permissions.rejected"), "success");
       setManual(null);
       setManualOptionId("");
       onResolved();
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Failed to resolve permission", "error");
+      showToast(err instanceof ApiError ? err.message : t("permissions.resolveFailed"), "error");
     } finally {
       setBusyId(null);
     }
   };
 
   if (pending.length === 0) {
-    return <p className="text-xs text-slate-500">{emptyText}</p>;
+    return <p className="text-xs text-slate-500">{emptyText ?? t("permissions.empty")}</p>;
   }
 
   return (
@@ -174,17 +176,17 @@ export function PendingPermissions({
                     ))
                   ) : (
                     <Button variant="secondary" className="px-2.5 py-1 text-xs" disabled={busy} onClick={() => { setManual(p); setManualOptionId(""); }}>
-                      Resolve…
+                      {t("permissions.resolve")}
                     </Button>
                   )}
                   <Button variant="danger" className="px-2.5 py-1 text-xs" disabled={busy} onClick={() => void resolve(p, "cancelled")}>
-                    Reject
+                    {t("common.reject")}
                   </Button>
                 </div>
               </div>
               {p.raw != null && (
                 <details className="mt-2">
-                  <summary className="cursor-pointer text-[11px] text-slate-500 hover:text-slate-300">Raw request</summary>
+                  <summary className="cursor-pointer text-[11px] text-slate-500 hover:text-slate-300">{t("permissions.raw")}</summary>
                   <pre className="mt-1 max-h-40 overflow-auto rounded bg-slate-950/70 p-2 font-mono text-[11px] text-slate-400">{JSON.stringify(p.raw, null, 2)}</pre>
                 </details>
               )}
@@ -196,11 +198,11 @@ export function PendingPermissions({
       {manual && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-modal-overlay" onClick={() => setManual(null)}>
           <div className="w-full max-w-md glass-card animate-modal-card rounded-lg p-4" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-semibold text-slate-100">Resolve Permission</h3>
+            <h3 className="text-sm font-semibold text-slate-100">{t("permissions.resolveTitle")}</h3>
             <p className="mt-1 font-mono text-[11px] text-slate-400">{manual.requestId}</p>
             <label className="mt-3 mb-1.5 block text-sm font-medium text-slate-300">
-              Option ID
-              <HelpTooltip content="Exact option ID from the agent's permission offer (see raw request). Required to approve." />
+              {t("permissions.optionId")}
+              <HelpTooltip content={t("permissions.optionHelp")} />
             </label>
             <input
               value={manualOptionId}
@@ -209,10 +211,10 @@ export function PendingPermissions({
               className="glass-input w-full rounded-md px-3 py-2 text-sm text-slate-100"
             />
             <div className="mt-4 flex justify-end gap-1.5">
-              <Button variant="ghost" onClick={() => setManual(null)} disabled={busyId === manual.requestId}>Cancel</Button>
-              <Button variant="danger" onClick={() => void resolve(manual, "cancelled")} disabled={busyId === manual.requestId}>Reject</Button>
+              <Button variant="ghost" onClick={() => setManual(null)} disabled={busyId === manual.requestId}>{t("common.cancel")}</Button>
+              <Button variant="danger" onClick={() => void resolve(manual, "cancelled")} disabled={busyId === manual.requestId}>{t("common.reject")}</Button>
               <Button onClick={() => void resolve(manual, "selected", manualOptionId.trim())} disabled={busyId === manual.requestId || !manualOptionId.trim()}>
-                {busyId === manual.requestId ? "Resolving…" : "Approve"}
+                {busyId === manual.requestId ? t("permissions.resolving") : t("common.approve")}
               </Button>
             </div>
           </div>

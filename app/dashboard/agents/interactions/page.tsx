@@ -9,17 +9,20 @@ import { AutoRefreshControl } from "@/components/ui/auto-refresh-control";
 import { useAdminSWR } from "@/hooks/use-admin-swr";
 import { groupTraces, TraceList } from "@/components/interaction-traces";
 import { getInteractions, listAgents, type MetricsQuery } from "@/lib/api";
+import { useI18n } from "@/components/i18n-provider";
 
 // useSearchParams must be under a Suspense boundary (Next static-render rule).
 export default function InteractionsPage() {
+  const { t } = useI18n();
   return (
-    <Suspense fallback={<Card className="p-8 text-center text-sm text-slate-400">Loading interactions…</Card>}>
+    <Suspense fallback={<Card className="p-8 text-center text-sm text-slate-400">{t("interactions.loading")}</Card>}>
       <InteractionsView />
     </Suspense>
   );
 }
 
 function InteractionsView() {
+  const { t } = useI18n();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -90,34 +93,34 @@ function InteractionsView() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Interactions"
-        description="Cross-protocol call chains reconstructed from trace/span attribution — the orchestration view of how a request fans out across agents, LLMs, and tools."
+        title={t("interactions.title")}
+        description={t("interactions.description")}
         actions={<AutoRefreshControl lastUpdated={lastUpdated} onRefresh={() => void mutate()} refreshing={isValidating} />}
       />
 
       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-        <span>Agent</span>
+        <span>{t("interactions.agent")}</span>
         <Select
           name="agent"
           value={agent}
           onChange={setAgent}
-          options={[{ value: "all", label: "All agents" }, ...(agents ?? []).map((a) => ({ value: a.id, label: a.name || a.id }))]}
+          options={[{ value: "all", label: t("interactions.allAgents") }, ...(agents ?? []).map((a) => ({ value: a.id, label: a.name || a.id }))]}
         />
-        <span className="ml-2">Protocol</span>
-        <Select name="kind" value={kind} onChange={setKind} options={[{ value: "all", label: "All" }, { value: "llm", label: "LLM" }, { value: "mcp", label: "MCP" }, { value: "agent", label: "Agent" }]} />
-        <span className="ml-2">Status</span>
-        <Select name="status" value={status} onChange={setStatus} options={[{ value: "all", label: "All" }, { value: "ok", label: "Success" }, { value: "err", label: "Failure" }]} />
-        <span className="ml-2">Source</span>
-        <Select name="source" value={source} onChange={setSource} options={[{ value: "data", label: "Data-plane" }, { value: "admin", label: "Admin audit" }, { value: "all", label: "All" }]} />
-        <span className="ml-auto text-slate-500">{traces.length} traces · {multiSpan.length} multi-span</span>
+        <span className="ml-2">{t("interactions.protocol")}</span>
+        <Select name="kind" value={kind} onChange={setKind} options={[{ value: "all", label: t("common.all") }, { value: "llm", label: "LLM" }, { value: "mcp", label: "MCP" }, { value: "agent", label: "Agent" }]} />
+        <span className="ml-2">{t("interactions.status")}</span>
+        <Select name="status" value={status} onChange={setStatus} options={[{ value: "all", label: t("common.all") }, { value: "ok", label: t("common.success") }, { value: "err", label: t("common.failure") }]} />
+        <span className="ml-2">{t("interactions.source")}</span>
+        <Select name="source" value={source} onChange={setSource} options={[{ value: "data", label: t("interactions.dataPlane") }, { value: "admin", label: t("interactions.adminAudit") }, { value: "all", label: t("common.all") }]} />
+        <span className="ml-auto text-slate-500">{t("interactions.counts", { traces: traces.length, multi: multiSpan.length })}</span>
       </div>
 
       {error ? (
-        <Card className="p-8 text-center text-sm text-rose-300">{error instanceof Error ? error.message : "Failed to load interactions"}</Card>
+        <Card className="p-8 text-center text-sm text-rose-300">{error instanceof Error ? error.message : t("interactions.loadFailed")}</Card>
       ) : isLoading && !data ? (
-        <Card className="p-8 text-center text-sm text-slate-400">Loading interactions…</Card>
+        <Card className="p-8 text-center text-sm text-slate-400">{t("interactions.loading")}</Card>
       ) : traces.length === 0 ? (
-        <Card className="p-8 text-center text-sm text-slate-500">No interactions recorded.</Card>
+        <Card className="p-8 text-center text-sm text-slate-500">{t("interactions.empty")}</Card>
       ) : (
         <TraceList traces={traces} />
       )}

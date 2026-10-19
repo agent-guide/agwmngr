@@ -12,10 +12,11 @@ import {
   getBuiltinRuntime,
   type BuiltinPendingPermissionCall,
 } from "@/lib/api";
+import { useI18n } from "@/components/i18n-provider";
 
-function formatTimestamp(value?: string): string {
+function formatTimestamp(value: string | undefined, locale: string): string {
   if (!value || value.startsWith("0001-01-01")) return "—";
-  return new Date(value).toLocaleString();
+  return new Date(value).toLocaleString(locale);
 }
 
 function elapsedSince(value: string): string {
@@ -34,6 +35,7 @@ function formatToolCall(call: BuiltinPendingPermissionCall): string {
 }
 
 export default function BuiltinRuntimePage() {
+  const { locale, t } = useI18n();
   const { data, error, isLoading, isValidating, mutate, lastUpdated } = useAdminSWR(
     "builtin-runtime",
     getBuiltinRuntime,
@@ -48,12 +50,11 @@ export default function BuiltinRuntimePage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Builtin Runtime"
+        title={t("nav.builtinRuntime")}
         description={
           <>
-            Native host diagnostics for in-process ADK agents: materialized graphs, live sessions,
-            active turns, and suspended tool permissions.
-            <HelpTooltip content="Builtin definitions are materialized lazily on the first turn and rebuilt after their agent definition changes. Run control remains on each agent's Runs tab." />
+            {t("runtime.builtinDescription")}
+            <HelpTooltip content={t("runtime.builtinHelp")} />
           </>
         }
         actions={
@@ -66,46 +67,46 @@ export default function BuiltinRuntimePage() {
       />
 
       <StatGrid>
-        <StatCard label="Materialized Agents" value={agents.length} />
-        <StatCard label="In-Flight Turns" value={inFlight.length} />
-        <StatCard label="Live Sessions" value={liveSessions} />
+        <StatCard label={t("runtime.materializedAgents")} value={agents.length} />
+        <StatCard label={t("runtime.inFlight")} value={inFlight.length} />
+        <StatCard label={t("runtime.liveSessions")} value={liveSessions} />
         <StatCard
-          label="Pending Permissions"
+          label={t("runtime.pending")}
           value={pending.length}
           tone={pending.length > 0 ? "text-amber-300" : "text-slate-100"}
         />
       </StatGrid>
 
       {isLoading && !data ? (
-        <Card className="p-8 text-center text-sm text-slate-400">Loading runtime…</Card>
+        <Card className="p-8 text-center text-sm text-slate-400">{t("runtime.loading")}</Card>
       ) : error ? (
         <Card className="p-8 text-center text-sm text-rose-300">
-          {error instanceof Error ? error.message : "Failed to load builtin runtime"}
+          {error instanceof Error ? error.message : t("runtime.builtinLoadFailed")}
         </Card>
       ) : (
         <>
           <Card>
             <CardHeader>
               <CardTitle>
-                Materialized Agents
-                <HelpTooltip content="Only agents whose builtin graph has been built appear here. Configured but never-run builtin agents are intentionally absent." />
+                {t("runtime.materializedAgents")}
+                <HelpTooltip content={t("runtime.materializedHelp")} />
               </CardTitle>
             </CardHeader>
             {agents.length === 0 ? (
               <p className="text-xs text-slate-500">
-                No builtin graphs have been materialized. A graph appears after its first turn.
+                {t("runtime.noMaterialized")}
               </p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-slate-700/60 text-slate-500">
                     <tr>
-                      <th className="pb-2 pr-4 font-medium">Agent</th>
-                      <th className="pb-2 pr-4 font-medium">Topology</th>
-                      <th className="pb-2 pr-4 font-medium">State</th>
-                      <th className="pb-2 pr-4 text-right font-medium">In flight</th>
-                      <th className="pb-2 pr-4 text-right font-medium">Sessions</th>
-                      <th className="pb-2 font-medium">Materialized at</th>
+                      <th className="pb-2 pr-4 font-medium">{t("interactions.agent")}</th>
+                      <th className="pb-2 pr-4 font-medium">{t("runtime.topology")}</th>
+                      <th className="pb-2 pr-4 font-medium">{t("runtime.state")}</th>
+                      <th className="pb-2 pr-4 text-right font-medium">{t("runtime.inFlight")}</th>
+                      <th className="pb-2 pr-4 text-right font-medium">{t("runtime.sessions")}</th>
+                      <th className="pb-2 font-medium">{t("runtime.materializedAt")}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
@@ -116,15 +117,15 @@ export default function BuiltinRuntimePage() {
                             {agentId}
                           </Link>
                         </td>
-                        <td className="py-2.5 pr-4"><Badge tone="violet">{state.topology_kind || "unknown"}</Badge></td>
+                        <td className="py-2.5 pr-4"><Badge tone="violet">{state.topology_kind || t("runtime.unknown")}</Badge></td>
                         <td className="py-2.5 pr-4">
                           <Badge tone={state.materialized ? "green" : "neutral"}>
-                            {state.materialized ? "materialized" : "not materialized"}
+                            {state.materialized ? t("runtime.materialized") : t("runtime.notMaterialized")}
                           </Badge>
                         </td>
                         <td className="py-2.5 pr-4 text-right tabular-nums text-slate-300">{state.inflight_turns}</td>
                         <td className="py-2.5 pr-4 text-right tabular-nums text-slate-300">{state.live_sessions}</td>
-                        <td className="py-2.5 text-slate-400" suppressHydrationWarning>{formatTimestamp(state.materialized_at)}</td>
+                        <td className="py-2.5 text-slate-400" suppressHydrationWarning>{formatTimestamp(state.materialized_at, locale)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -136,12 +137,12 @@ export default function BuiltinRuntimePage() {
           <Card>
             <CardHeader>
               <CardTitle>
-                In-Flight Turns
-                <HelpTooltip content="This is the host execution view. To force or gracefully cancel a logical run, open the owning agent's Runs tab." />
+                {t("runtime.inFlight")}
+                <HelpTooltip content={t("runtime.inFlightHelp")} />
               </CardTitle>
             </CardHeader>
             {inFlight.length === 0 ? (
-              <p className="text-xs text-slate-500">No in-flight builtin turns.</p>
+              <p className="text-xs text-slate-500">{t("runtime.noBuiltinTurns")}</p>
             ) : (
               <div className="space-y-2">
                 {inFlight.map((turn) => (
@@ -153,14 +154,14 @@ export default function BuiltinRuntimePage() {
                       <Badge tone="blue">{turn.operation}</Badge>
                       {turn.topology_kind && <Badge tone="violet">{turn.topology_kind}</Badge>}
                       <span className="text-xs text-slate-500" suppressHydrationWarning>
-                        running {elapsedSince(turn.started_at)}
+                        {t("runtime.running", { elapsed: elapsedSince(turn.started_at) })}
                       </span>
                     </div>
                     <div className="mt-2 grid gap-1 font-mono text-[11px] text-slate-400 sm:grid-cols-2">
-                      <span>run: {turn.run_id}</span>
-                      <span>session: {turn.session_id}</span>
-                      {turn.request_id && <span>request: {turn.request_id}</span>}
-                      <span suppressHydrationWarning>started: {formatTimestamp(turn.started_at)}</span>
+                      <span>{t("runtime.runId", { id: turn.run_id })}</span>
+                      <span>{t("runtime.session", { id: turn.session_id })}</span>
+                      {turn.request_id && <span>{t("runtime.requestId", { id: turn.request_id })}</span>}
+                      <span suppressHydrationWarning>{t("runtime.started", { time: formatTimestamp(turn.started_at, locale) })}</span>
                     </div>
                   </div>
                 ))}
@@ -171,12 +172,12 @@ export default function BuiltinRuntimePage() {
           <Card>
             <CardHeader>
               <CardTitle>
-                Suspended Permissions
-                <HelpTooltip content="Builtin permissions resume on a new Chat turn stream. The side-channel permission endpoint used by ACP active streams is not valid for builtin agents." />
+                {t("runtime.suspended")}
+                <HelpTooltip content={t("runtime.suspendedHelp")} />
               </CardTitle>
             </CardHeader>
             {pending.length === 0 ? (
-              <p className="text-xs text-slate-500">No suspended builtin permission requests.</p>
+              <p className="text-xs text-slate-500">{t("runtime.noSuspended")}</p>
             ) : (
               <div className="space-y-2">
                 {pending.map((permission) => (
@@ -185,11 +186,11 @@ export default function BuiltinRuntimePage() {
                       <div>
                         <p className="font-mono text-xs text-amber-300">{permission.request_id}</p>
                         <p className="mt-1 font-mono text-[11px] text-slate-400">
-                          agent: {permission.agent_id} · run: {permission.run_id} · session: {permission.session_id}
+                          {t("runtime.permissionContext", { agent: permission.agent_id, run: permission.run_id, session: permission.session_id })}
                         </p>
                       </div>
                       <Link className="text-xs font-medium text-blue-300 hover:text-blue-200" href={`/dashboard/agents/${encodeURIComponent(permission.agent_id)}`}>
-                        Open agent
+                        {t("runtime.openAgent")}
                       </Link>
                     </div>
                     <div className="mt-2 flex flex-wrap gap-1.5">
@@ -200,7 +201,10 @@ export default function BuiltinRuntimePage() {
                       ))}
                     </div>
                     <p className="mt-2 text-[11px] text-slate-500" suppressHydrationWarning>
-                      created {formatTimestamp(permission.created_at)} · expires {formatTimestamp(permission.expires_at)}
+                      {t("runtime.permissionTimes", {
+                        created: formatTimestamp(permission.created_at, locale),
+                        expires: formatTimestamp(permission.expires_at, locale),
+                      })}
                     </p>
                   </div>
                 ))}

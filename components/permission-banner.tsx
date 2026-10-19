@@ -10,6 +10,7 @@ import {
   normalizeACPRuntimePermission,
   normalizeBrokerPermission,
 } from "@/components/acp-pending-permissions";
+import { useI18n } from "@/components/i18n-provider";
 
 const EMPTY_PENDING: ACPRuntimePermissionView[] = [];
 
@@ -20,6 +21,7 @@ const EMPTY_PENDING: ACPRuntimePermissionView[] = [];
  * page itself (where the requests are already actionable inline).
  */
 export function PermissionBanner() {
+  const { t } = useI18n();
   const pathname = usePathname();
   const [expanded, setExpanded] = useState(false);
   const { data, mutate: mutateRuntime } = useSWR("global-acp-pending", getACPRuntime, {
@@ -50,7 +52,7 @@ export function PermissionBanner() {
   if (pathname === "/dashboard/acp/runtime") return null;
 
   return (
-    <section className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10" aria-label="Pending agent permissions">
+    <section className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10" aria-label={t("permissions.bannerLabel")}>
       <div className="flex items-center gap-2.5 px-4 py-2.5">
         <span className="h-2 w-2 shrink-0 rounded-full bg-amber-400 animate-pulse-dot" />
         <button
@@ -59,10 +61,10 @@ export function PermissionBanner() {
           className="flex min-w-0 flex-1 items-center text-left text-sm font-medium text-amber-200"
           aria-expanded={expanded}
         >
-          {pending.length} permission request{pending.length === 1 ? "" : "s"} awaiting a decision
-          <span className="ml-auto text-xs font-semibold text-amber-300">{expanded ? "Hide" : "Resolve here"}</span>
+          {t("permissions.bannerCount", { count: pending.length })}
+          <span className="ml-auto text-xs font-semibold text-amber-300">{expanded ? t("common.hide") : t("permissions.resolveHere")}</span>
         </button>
-        <Link href="/dashboard/acp/runtime" className="text-xs text-amber-300 hover:underline">Runtime ↗</Link>
+        <Link href="/dashboard/acp/runtime" className="text-xs text-amber-300 hover:underline">{t("permissions.runtimeLink")}</Link>
       </div>
       {expanded && (
         <div className="border-t border-amber-500/30 p-3">
