@@ -12,6 +12,10 @@ The manager provides a dashboard UI and a thin backend API layer (Next.js Route 
 
 The upstream agent-gateway Admin API reference is in `~/github/agent-guide/agent-gateway/README.md`.
 
+`docs/v0.2.0-release-plan.md` defines the Agent Gateway v0.7.0 compatibility and
+English/Simplified-Chinese UI boundary for the v0.2.0 release. Read it before
+changing HTTP Agent contracts, data-plane forwarding or localization behavior.
+
 The multi-user / multi-gateway design (data model, permission model, request flow, audit) is documented in `docs/multi-tenant-design.md` — read it before changing auth, the access guards, gateway resolution, or credential encryption.
 
 `docs/resource-rbac-design.md` defines the evolution into hierarchical, resource-scoped RBAC. The Gateway-root `admin/member` membership model is implemented; domain/resource grants are not. Gateway Admin may manage ordinary gateway content, while Member has no implicit content access. Caddy, gateway connection credentials, and platform APIs remain Platform Admin-only until dedicated safe handlers exist. Provider/Credential/Virtual Key responses have manager-owned secret redaction, so Gateway Admin manages Virtual Keys too; only recovering an existing key's value stays Platform Admin-only. Read the design before touching `lib/access.ts`, `lib/proxy-action.ts`, the membership schema, or the Caddy/Virtual Key/Chat handlers.
