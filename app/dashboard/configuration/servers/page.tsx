@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Modal, ModalContent, ModalFooter, ModalHeader, ModalTitle } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import { adminFetch, ApiError } from "@/lib/api";
+import { useI18n } from "@/components/i18n-provider";
 
 interface TLSConf {
   auto?: boolean;
@@ -147,12 +148,13 @@ function ServerFormFields({
   onChange: (patch: Partial<ServerFormState>) => void;
   hideId?: boolean;
 }) {
+  const { t } = useI18n();
   return (
     <div className="space-y-4">
       {!hideId && (
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-300">
-            Server ID <span className="text-red-400">*</span>
+            {t("servers.id")} <span className="text-red-400">*</span>
           </label>
           <Input
             name="serverId"
@@ -160,13 +162,13 @@ function ServerFormFields({
             onChange={(value) => onChange({ id: value })}
             placeholder="e.g. main"
           />
-          <p className="mt-1 text-xs text-slate-500">Unique identifier for this server block.</p>
+          <p className="mt-1 text-xs text-slate-500">{t("servers.idHelp")}</p>
         </div>
       )}
 
       <div>
         <label className="mb-1.5 block text-sm font-medium text-slate-300">
-          Listen Addresses <span className="text-red-400">*</span>
+          {t("servers.listenAddresses")} <span className="text-red-400">*</span>
         </label>
         <textarea
           value={form.listen}
@@ -175,26 +177,26 @@ function ServerFormFields({
           placeholder=":8080&#10;:443"
           className="w-full resize-none rounded-md border border-slate-700/70 bg-slate-900/60 px-3 py-2 font-mono text-sm text-slate-100 placeholder-slate-600 focus:border-blue-500/60 focus:outline-none"
         />
-        <p className="mt-1 text-xs text-slate-500">One address per line (e.g. :8080, :443, 0.0.0.0:9000).</p>
+        <p className="mt-1 text-xs text-slate-500">{t("servers.listenHelp")}</p>
       </div>
 
       <div>
-        <label className="mb-1.5 block text-sm font-medium text-slate-300">TLS Mode</label>
+        <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("servers.tlsMode")}</label>
         <select
           value={form.tlsMode}
           onChange={(e) => onChange({ tlsMode: e.target.value as ServerFormState["tlsMode"] })}
           className="w-full rounded-md border border-slate-700/70 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 focus:border-blue-500/60 focus:outline-none"
         >
-          <option value="none">None (HTTP)</option>
-          <option value="auto">Auto (ACME / Let&apos;s Encrypt)</option>
-          <option value="manual">Manual (certificate files)</option>
+          <option value="none">{t("servers.tlsNone")}</option>
+          <option value="auto">{t("servers.tlsAuto")}</option>
+          <option value="manual">{t("servers.tlsManual")}</option>
         </select>
       </div>
 
       {form.tlsMode === "manual" && (
         <>
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-300">Certificate File</label>
+            <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("servers.certFile")}</label>
             <Input
               name="certFile"
               value={form.certFile}
@@ -203,7 +205,7 @@ function ServerFormFields({
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-300">Key File</label>
+            <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("servers.keyFile")}</label>
             <Input
               name="keyFile"
               value={form.keyFile}
@@ -224,6 +226,7 @@ function DispatcherFormFields({
   form: DispatcherFormState;
   onChange: (patch: Partial<DispatcherFormState>) => void;
 }) {
+  const { t } = useI18n();
   const toggleApi = (api: string) =>
     onChange({
       apis: form.apis.includes(api) ? form.apis.filter((value) => value !== api) : [...form.apis, api],
@@ -233,7 +236,7 @@ function DispatcherFormFields({
     <div className="space-y-4">
       <div>
         <label className="mb-1.5 block text-sm font-medium text-slate-300">
-          LLM API Dialects <span className="text-red-400">*</span>
+          {t("servers.apiDialects")} <span className="text-red-400">*</span>
         </label>
         <div className="mt-1.5 space-y-2">
           {LLM_API_OPTIONS.map((option) => (
@@ -250,7 +253,7 @@ function DispatcherFormFields({
           ))}
         </div>
         <p className="mt-2 text-xs text-slate-500">
-          Select which LLM API dialects the dispatcher should handle.
+          {t("servers.apiDialectsHelp")}
         </p>
       </div>
     </div>
@@ -264,6 +267,7 @@ function ServerRow({
   srv: ServerResponse;
   onDelete: (id: string) => void;
 }) {
+  const { t } = useI18n();
   const [dispatcher, setDispatcher] = useState<RouteResponse | undefined>(undefined);
   const [loadingDispatcher, setLoadingDispatcher] = useState(true);
   const { showToast } = useToast();
@@ -299,18 +303,18 @@ function ServerRow({
 
   const handleDispatcherSave = async () => {
     if (!dispatcherForm.apis.length) {
-      showToast("At least one LLM API dialect is required", "error");
+      showToast(t("servers.apiDialectRequired"), "error");
       return;
     }
 
     setDispatcherSaving(true);
     try {
       await addRoute(srv.id, dispatcherForm.apis);
-      showToast("Dispatcher enabled", "success");
+      showToast(t("servers.dispatcherEnabled"), "success");
       await loadDispatcher();
       setIsDispatcherFormOpen(false);
     } catch (error) {
-      showToast(error instanceof ApiError ? error.message : "Failed to save dispatcher", "error");
+      showToast(error instanceof ApiError ? error.message : t("servers.dispatcherSaveFailed"), "error");
     } finally {
       setDispatcherSaving(false);
     }
@@ -320,9 +324,9 @@ function ServerRow({
     try {
       await removeRoute(srv.id);
       setDispatcher(undefined);
-      showToast("Dispatcher removed", "success");
+      showToast(t("servers.dispatcherRemoved"), "success");
     } catch (error) {
-      showToast(error instanceof ApiError ? error.message : "Failed to remove dispatcher", "error");
+      showToast(error instanceof ApiError ? error.message : t("servers.dispatcherRemoveFailed"), "error");
     } finally {
       setConfirmRemoveDispatcher(false);
     }
@@ -341,7 +345,7 @@ function ServerRow({
             <span className="font-mono text-xs font-semibold text-slate-100">{srv.id}</span>
             {srv.readonly && (
               <span className="inline-flex rounded-sm bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-medium text-amber-300">
-                Read-only
+                {t("servers.readOnly")}
               </span>
             )}
             <span className="inline-flex rounded-sm bg-slate-700/40 px-1.5 py-0.5 text-[9px] font-medium text-slate-400">
@@ -358,10 +362,10 @@ function ServerRow({
               </span>
             ))}
           </div>
-          {srv.public_url && <p className="mt-1 font-mono text-[10px] text-slate-500">Public URL: {srv.public_url}</p>}
+          {srv.public_url && <p className="mt-1 font-mono text-[10px] text-slate-500">{t("servers.publicUrl")}: {srv.public_url}</p>}
           {srv.readonly && (
             <p className="mt-1 text-[10px] text-slate-500">
-              This server is managed by system config and cannot be changed from the UI.
+              {t("servers.readOnlyHelp")}
             </p>
           )}
         </div>
@@ -369,7 +373,7 @@ function ServerRow({
         <div className="flex shrink-0 items-center gap-1.5">
           {!srv.readonly && (
             <Button variant="danger" className="px-2 py-1 text-[10px]" onClick={() => onDelete(srv.id)}>
-              Delete
+              {t("common.delete")}
             </Button>
           )}
         </div>
@@ -377,7 +381,7 @@ function ServerRow({
 
       <div className="border-t border-slate-700/50 px-3 py-2.5">
         {loadingDispatcher ? (
-          <p className="text-[10px] text-slate-600">Loading dispatcher...</p>
+          <p className="text-[10px] text-slate-600">{t("servers.loadingDispatcher")}</p>
         ) : (
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-3">
@@ -411,7 +415,7 @@ function ServerRow({
                     ].join(" ")}
                   >
                     {dispatcher && <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />}
-                    {dispatcher ? "Dispatcher enabled" : "Dispatcher disabled"}
+                    {dispatcher ? t("servers.dispatcherEnabled") : t("servers.dispatcherDisabled")}
                   </span>
                   {dispatcherFromCaddyfile && (
                     <span className="inline-flex rounded-sm bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-medium text-amber-300">
@@ -426,7 +430,7 @@ function ServerRow({
               <div className="flex flex-wrap gap-3 pl-0">
                 {paths.length > 0 && (
                   <div className="flex items-center gap-1">
-                    <span className="text-[9px] font-medium uppercase tracking-wide text-slate-500">Paths:</span>
+                    <span className="text-[9px] font-medium uppercase tracking-wide text-slate-500">{t("servers.paths")}</span>
                     {paths.map((path) => (
                       <span
                         key={path}
@@ -440,7 +444,7 @@ function ServerRow({
                 <div className="flex items-center gap-1">
                   <span className="text-[9px] font-medium uppercase tracking-wide text-slate-500">APIs:</span>
                   {apis.length === 0 ? (
-                    <span className="text-[9px] text-slate-500">None</span>
+                    <span className="text-[9px] text-slate-500">{t("servers.none")}</span>
                   ) : (
                     apis.map((api) => (
                       <span
@@ -460,7 +464,7 @@ function ServerRow({
 
       <Modal isOpen={isDispatcherFormOpen} onClose={() => setIsDispatcherFormOpen(false)}>
         <ModalHeader>
-          <ModalTitle>Enable Dispatcher - {srv.id}</ModalTitle>
+          <ModalTitle>{t("servers.enableDispatcher", { id: srv.id })}</ModalTitle>
         </ModalHeader>
         <ModalContent>
           <DispatcherFormFields
@@ -470,10 +474,10 @@ function ServerRow({
         </ModalContent>
         <ModalFooter>
           <Button variant="ghost" onClick={() => setIsDispatcherFormOpen(false)} disabled={dispatcherSaving}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button onClick={handleDispatcherSave} disabled={dispatcherSaving}>
-            {dispatcherSaving ? "Saving..." : "Enable"}
+            {dispatcherSaving ? t("common.saving") : t("llmRoutes.enable")}
           </Button>
         </ModalFooter>
       </Modal>
@@ -482,9 +486,9 @@ function ServerRow({
         isOpen={confirmRemoveDispatcher}
         onClose={() => setConfirmRemoveDispatcher(false)}
         onConfirm={handleDispatcherRemove}
-        title="Remove Dispatcher"
-        message={`Remove agent_route_dispatcher from server "${srv.id}"?`}
-        confirmLabel="Remove"
+        title={t("servers.removeDispatcher")}
+        message={t("servers.removeDispatcherMessage", { id: srv.id })}
+        confirmLabel={t("common.remove")}
         variant="danger"
       />
     </section>
@@ -492,6 +496,7 @@ function ServerRow({
 }
 
 export default function ServersPage() {
+  const { t } = useI18n();
   const [servers, setServers] = useState<ServerResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const { showToast } = useToast();
@@ -507,11 +512,11 @@ export default function ServersPage() {
     try {
       setServers(await fetchServers());
     } catch (error) {
-      showToast(error instanceof ApiError ? error.message : "Failed to load servers", "error");
+      showToast(error instanceof ApiError ? error.message : t("servers.loadFailed"), "error");
     } finally {
       setLoading(false);
     }
-  }, [showToast]);
+  }, [showToast, t]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -524,11 +529,11 @@ export default function ServersPage() {
 
   const handleCreate = async () => {
     if (!createForm.id.trim()) {
-      showToast("Server ID is required", "error");
+      showToast(t("servers.idRequired"), "error");
       return;
     }
     if (!parseLines(createForm.listen).length) {
-      showToast("At least one listen address is required", "error");
+      showToast(t("servers.listenRequired"), "error");
       return;
     }
 
@@ -536,11 +541,11 @@ export default function ServersPage() {
     try {
       const created = await createServer(formToServerReq(createForm));
       setServers((prev) => [...prev, created]);
-      showToast("Server created", "success");
+      showToast(t("servers.created"), "success");
       setIsCreateOpen(false);
       setCreateForm(defaultServerForm());
     } catch (error) {
-      showToast(error instanceof ApiError ? error.message : "Failed to create server", "error");
+      showToast(error instanceof ApiError ? error.message : t("servers.createFailed"), "error");
     } finally {
       setCreateSaving(false);
     }
@@ -551,9 +556,9 @@ export default function ServersPage() {
     try {
       await deleteServer(pendingDeleteId);
       setServers((prev) => prev.filter((server) => server.id !== pendingDeleteId));
-      showToast("Server deleted", "success");
+      showToast(t("servers.deleted"), "success");
     } catch (error) {
-      showToast(error instanceof ApiError ? error.message : "Failed to delete server", "error");
+      showToast(error instanceof ApiError ? error.message : t("servers.deleteFailed"), "error");
     } finally {
       setPendingDeleteId(null);
     }
@@ -564,9 +569,9 @@ export default function ServersPage() {
       <section className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-slate-100">Caddy HTTP Servers</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-100">{t("servers.title")}</h1>
             <p className="mt-1 text-xs text-slate-400">
-              Manage Caddy HTTP server instances, listen addresses, TLS configuration, and dispatcher settings.
+              {t("servers.description")}
             </p>
           </div>
           <Button
@@ -576,15 +581,15 @@ export default function ServersPage() {
             }}
             className="px-2.5 py-1 text-xs"
           >
-            Create Server
+            {t("servers.create")}
           </Button>
         </div>
       </section>
 
       <section className="grid grid-cols-2 gap-2">
         {[
-          { label: "Servers", value: servers.length },
-          { label: "Listen Addresses", value: totalListeners },
+          { label: t("servers.servers"), value: servers.length },
+          { label: t("servers.listenAddresses"), value: totalListeners },
         ].map((stat) => (
           <div key={stat.label} className="rounded-lg border border-slate-700/70 bg-slate-900/40 px-2.5 py-2">
             <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{stat.label}</p>
@@ -595,11 +600,11 @@ export default function ServersPage() {
 
       {loading ? (
         <div className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-8 text-center">
-          <p className="text-sm text-slate-400">Loading servers...</p>
+          <p className="text-sm text-slate-400">{t("servers.loading")}</p>
         </div>
       ) : servers.length === 0 ? (
         <div className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-8 text-center">
-          <p className="text-sm text-slate-400">No servers configured. Create one to start accepting traffic.</p>
+          <p className="text-sm text-slate-400">{t("servers.empty")}</p>
           <Button
             onClick={() => {
               setCreateForm(defaultServerForm());
@@ -607,7 +612,7 @@ export default function ServersPage() {
             }}
             className="mt-4 px-3 py-1.5 text-xs"
           >
-            Create Server
+            {t("servers.create")}
           </Button>
         </div>
       ) : (
@@ -620,17 +625,17 @@ export default function ServersPage() {
 
       <Modal isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)}>
         <ModalHeader>
-          <ModalTitle>Create Server</ModalTitle>
+          <ModalTitle>{t("servers.create")}</ModalTitle>
         </ModalHeader>
         <ModalContent>
           <ServerFormFields form={createForm} onChange={(patch) => setCreateForm((prev) => ({ ...prev, ...patch }))} />
         </ModalContent>
         <ModalFooter>
           <Button variant="ghost" onClick={() => setIsCreateOpen(false)} disabled={createSaving}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button onClick={handleCreate} disabled={createSaving}>
-            {createSaving ? "Creating..." : "Create Server"}
+            {createSaving ? t("common.creating") : t("servers.create")}
           </Button>
         </ModalFooter>
       </Modal>
@@ -639,9 +644,9 @@ export default function ServersPage() {
         isOpen={Boolean(pendingDeleteId)}
         onClose={() => setPendingDeleteId(null)}
         onConfirm={handleDelete}
-        title="Delete Server"
-        message="Are you sure you want to delete this server?"
-        confirmLabel="Delete"
+        title={t("servers.deleteTitle")}
+        message={t("servers.deleteMessage")}
+        confirmLabel={t("common.delete")}
         variant="danger"
       />
     </div>

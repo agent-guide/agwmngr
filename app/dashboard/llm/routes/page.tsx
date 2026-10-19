@@ -9,6 +9,7 @@ import { useAgentAttribution } from "@/hooks/use-agent-attribution";
 import { UsedByAgents } from "@/components/used-by-agents";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { HelpTooltip } from "@/components/ui/tooltip";
+import { useI18n } from "@/components/i18n-provider";
 import {
   ApiError,
   listProviders,
@@ -88,6 +89,7 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 // ── Page component ───────────────────────────────────────────────────────────
 
 export default function RoutesPage() {
+  const { locale, t } = useI18n();
   const [routes, setRoutes] = useState<Route[]>([]);
   const attribution = useAgentAttribution();
   const [loading, setLoading] = useState(true);
@@ -130,11 +132,11 @@ export default function RoutesPage() {
     try {
       setRoutes(await listLLMRoutes());
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Failed to load routes", "error");
+      showToast(err instanceof ApiError ? err.message : t("llmRoutes.loadFailed"), "error");
     } finally {
       setLoading(false);
     }
-  }, [showToast]);
+  }, [showToast, t]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void loadRoutes(); }, 0);
@@ -251,14 +253,14 @@ export default function RoutesPage() {
   };
 
   const validateForm = (): boolean => {
-    if (!formId.trim()) { showToast("Route ID is required", "error"); return false; }
-    if (!formProtocol) { showToast("Protocol is required", "error"); return false; }
+    if (!formId.trim()) { showToast(t("llmRoutes.idRequired"), "error"); return false; }
+    if (!formProtocol) { showToast(t("llmRoutes.protocolRequired"), "error"); return false; }
     if (formTargetKind === "direct-provider" && !formDirectProviderId.trim()) {
-      showToast("Provider is required", "error"); return false;
+      showToast(t("llmRoutes.providerRequired"), "error"); return false;
     }
     if (formTargetKind === "logical-model") {
       const hasCandidate = formModelGroups.some((g) => g.candidates.some((c) => c.provider_id.trim()));
-      if (!hasCandidate) { showToast("At least one candidate is required", "error"); return false; }
+      if (!hasCandidate) { showToast(t("llmRoutes.candidateRequired"), "error"); return false; }
     }
     return true;
   };
@@ -279,9 +281,9 @@ export default function RoutesPage() {
       const created = await createLLMRoute(payload);
       setRoutes((prev) => [...prev, created]);
       setIsCreateOpen(false);
-      showToast("Route created", "success");
+      showToast(t("llmRoutes.created"), "success");
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Failed to create route", "error");
+      showToast(err instanceof ApiError ? err.message : t("llmRoutes.createFailed"), "error");
     } finally {
       setSaving(false);
     }
@@ -290,7 +292,7 @@ export default function RoutesPage() {
   const handleEdit = async () => {
     if (!editingRoute) return;
     if (formTargetKind === "direct-provider" && !formDirectProviderId.trim()) {
-      showToast("Provider is required", "error"); return;
+      showToast(t("llmRoutes.providerRequired"), "error"); return;
     }
     // Build the payload from form state plus the preserved fields the edit form
     // does not expose (id, kind, disabled). Server-managed fields (created_at,
@@ -312,9 +314,9 @@ export default function RoutesPage() {
       setRoutes((prev) => prev.map((r) => r.id === editingRoute.id ? updated : r));
       setIsEditOpen(false);
       setEditingRoute(null);
-      showToast("Route updated", "success");
+      showToast(t("llmRoutes.updated"), "success");
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Failed to update route", "error");
+      showToast(err instanceof ApiError ? err.message : t("llmRoutes.updateFailed"), "error");
     } finally {
       setSaving(false);
     }
@@ -331,9 +333,9 @@ export default function RoutesPage() {
         await enableLLMRoute(id);
       }
       setRoutes((prev) => prev.map((r) => r.id === id ? { ...r, disabled: nextDisabled } : r));
-      showToast(nextDisabled ? "Route disabled" : "Route enabled", "success");
+      showToast(nextDisabled ? t("llmRoutes.routeDisabled") : t("llmRoutes.routeEnabled"), "success");
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Failed to update route", "error");
+      showToast(err instanceof ApiError ? err.message : t("llmRoutes.updateFailed"), "error");
     }
   };
 
@@ -344,9 +346,9 @@ export default function RoutesPage() {
       await deleteLLMRoute(pendingDeleteId);
       setRoutes((prev) => prev.filter((r) => r.id !== pendingDeleteId));
       setExpandedId(null);
-      showToast("Route deleted", "success");
+      showToast(t("llmRoutes.deleted"), "success");
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Failed to delete route", "error");
+      showToast(err instanceof ApiError ? err.message : t("llmRoutes.deleteFailed"), "error");
     } finally {
       setSaving(false);
       setShowConfirm(false);
@@ -372,10 +374,10 @@ export default function RoutesPage() {
 
   const FormBasicInfo = ({ readonlyId }: { readonlyId?: boolean }) => (
     <div className="space-y-3">
-      <SectionHeading>Basic Info</SectionHeading>
+      <SectionHeading>{t("agentRoutes.basic")}</SectionHeading>
       {readonlyId ? (
         <div>
-          <label className="mb-1 block text-xs font-medium text-slate-400">Route ID</label>
+          <label className="mb-1 block text-xs font-medium text-slate-400">{t("llmRoutes.id")}</label>
           <p className="rounded-md border border-slate-700/60 bg-slate-900/70 px-2.5 py-1.5 font-mono text-xs text-slate-400">
             {formId}
           </p>
@@ -383,14 +385,14 @@ export default function RoutesPage() {
       ) : (
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-300">
-            Route ID <span className="text-red-400">*</span>
+            {t("llmRoutes.id")} <span className="text-red-400">*</span>
           </label>
           <Input name="id" value={formId} onChange={setFormId} placeholder="e.g. openai-chat, default" />
         </div>
       )}
       <div>
-        <label className="mb-1.5 block text-sm font-medium text-slate-300">Description</label>
-        <Input name="description" value={formDesc} onChange={setFormDesc} placeholder="Optional description" />
+        <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("common.description")}</label>
+        <Input name="description" value={formDesc} onChange={setFormDesc} placeholder={t("agentRoutes.optionalDescription")} />
       </div>
     </div>
   );
@@ -398,23 +400,23 @@ export default function RoutesPage() {
   const FormMatch = () => (
     <div className="space-y-3">
       <SectionHeading>
-        Match
-        <HelpTooltip content="Restrict this route to a specific host, path prefix, or HTTP methods. Leave blank to match all requests." />
+        {t("agentRoutes.match")}
+        <HelpTooltip content={t("llmRoutes.matchHelp")} />
       </SectionHeading>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-300">Host</label>
+          <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("agentRoutes.host")}</label>
           <Input name="match-host" value={formMatchHost} onChange={setFormMatchHost} placeholder="api.example.com" />
         </div>
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-300">Path Prefix</label>
+          <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("agentRoutes.pathPrefix")}</label>
           <Input name="match-path-prefix" value={formMatchPathPrefix} onChange={setFormMatchPathPrefix} placeholder="/v1/" />
         </div>
       </div>
       <div>
         <label className="mb-1.5 block text-sm font-medium text-slate-300">
-          Methods
-          <HelpTooltip content="Comma or space separated, e.g. GET POST. Leave blank to allow all methods." />
+          {t("agentRoutes.methods")}
+          <HelpTooltip content={t("llmRoutes.methodsHelp")} />
         </label>
         <Input name="match-methods" value={formMatchMethods} onChange={setFormMatchMethods} placeholder="GET POST" />
       </div>
@@ -424,8 +426,8 @@ export default function RoutesPage() {
   const FormProtocol = () => (
     <div className="space-y-2">
       <SectionHeading>
-        Protocol <span className="text-red-400">*</span>
-        <HelpTooltip content="The API protocol this route exposes to callers (e.g. openai, anthropic, cc). Determines the request/response format." />
+        {t("agentRoutes.protocol")} <span className="text-red-400">*</span>
+        <HelpTooltip content={t("llmRoutes.protocolHelp")} />
       </SectionHeading>
       <select
         value={formProtocol}
@@ -434,10 +436,10 @@ export default function RoutesPage() {
         className="w-full rounded-md border border-slate-700/70 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 focus:border-blue-500/60 focus:outline-none disabled:opacity-50"
       >
         {loadingHandlers ? (
-          <option value="">Loading…</option>
+          <option value="">{t("common.loading")}</option>
         ) : (
           <>
-            <option value="">— none —</option>
+            <option value="">{t("mcpServices.none")}</option>
             {llmApiHandlers.map((entry) => (
               <option key={entry.llm_api_handler_type} value={entry.llm_api_handler_type}>
                 {entry.llm_api_handler_type}
@@ -463,8 +465,8 @@ export default function RoutesPage() {
     return (
     <div className="space-y-3">
       <SectionHeading>
-        Target Policy <span className="text-red-400">*</span>
-        <HelpTooltip content="direct-provider: route to one fixed provider. logical-model: route through named model slots with candidates." />
+        {t("llmRoutes.targetPolicy")} <span className="text-red-400">*</span>
+        <HelpTooltip content={t("llmRoutes.targetHelp")} />
       </SectionHeading>
 
       <div className="flex gap-3">
@@ -485,13 +487,13 @@ export default function RoutesPage() {
 
       {formTargetKind === "direct-provider" ? (
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-300">Provider</label>
+          <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("llmRoutes.provider")}</label>
           <select
             value={formDirectProviderId}
             onChange={(e) => setFormDirectProviderId(e.target.value)}
             className="w-full rounded-md border border-slate-700/70 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 focus:border-blue-500/60 focus:outline-none"
           >
-            <option value="">— select provider —</option>
+            <option value="">{t("llmRoutes.selectProvider")}</option>
             {providerOptions.map((p) => (
               <option key={p.id} value={p.id}>{p.id}</option>
             ))}
@@ -503,8 +505,8 @@ export default function RoutesPage() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1.5 block text-sm font-medium text-slate-300">
-                Selection Strategy
-                <HelpTooltip content="auto: let the gateway decide; weighted: distribute by weight; priority: prefer lower priority number." />
+                {t("llmRoutes.selectionStrategy")}
+                <HelpTooltip content={t("llmRoutes.strategyHelp")} />
               </label>
               <select
                 value={formModelStrategy}
@@ -518,15 +520,15 @@ export default function RoutesPage() {
             </div>
             <div>
               <label className="mb-1.5 block text-sm font-medium text-slate-300">
-                Default Model
-                <HelpTooltip content="Which model target to use when a request does not specify a model. Pick one of the targets defined below." />
+                {t("llmRoutes.defaultModel")}
+                <HelpTooltip content={t("llmRoutes.defaultModelHelp")} />
               </label>
               <select
                 value={formDefaultModel}
                 onChange={(e) => setFormDefaultModel(e.target.value)}
                 className="w-full rounded-md border border-slate-700/70 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 focus:border-blue-500/60 focus:outline-none"
               >
-                <option value="">— none —</option>
+                <option value="">{t("mcpServices.none")}</option>
                 {defaultModelOptions.map((name) => (
                   <option key={name} value={name}>{name}</option>
                 ))}
@@ -542,11 +544,11 @@ export default function RoutesPage() {
                 onChange={(e) => setFormFallbackEnabled(e.target.checked)}
                 className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-800 accent-blue-500"
               />
-              <span className="text-xs text-slate-300">Enable fallback</span>
+              <span className="text-xs text-slate-300">{t("llmRoutes.enableFallback")}</span>
             </label>
             {formFallbackEnabled && (
               <div className="flex items-center gap-2">
-                <label className="text-xs text-slate-400">Max fallbacks</label>
+                <label className="text-xs text-slate-400">{t("llmRoutes.maxFallbacks")}</label>
                 <input
                   type="number"
                   min={1}
@@ -561,13 +563,13 @@ export default function RoutesPage() {
           {/* Model targets */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-slate-400">Model Targets</span>
+              <span className="text-xs font-medium text-slate-400">{t("llmRoutes.modelTargets")}</span>
               <button
                 type="button"
                 onClick={() => setFormModelGroups((prev) => [...prev, defaultModelGroup()])}
                 className="rounded border border-slate-600/60 bg-slate-800/60 px-2 py-0.5 text-[10px] text-slate-300 hover:border-blue-500/40 hover:text-blue-300"
               >
-                + Add Target
+                {t("llmRoutes.addTarget")}
               </button>
             </div>
 
@@ -578,7 +580,7 @@ export default function RoutesPage() {
                     <input
                       value={group.name}
                       onChange={(e) => updateGroup(gIdx, { name: e.target.value })}
-                      placeholder="Target name (e.g. default, vision)"
+                      placeholder={t("llmRoutes.targetPlaceholder")}
                       className="w-full rounded-md border border-slate-700/60 bg-slate-900/70 px-2.5 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none"
                     />
                   </div>
@@ -601,7 +603,7 @@ export default function RoutesPage() {
                         onChange={(e) => updateCandidate(gIdx, cIdx, { provider_id: e.target.value })}
                         className="rounded-md border border-slate-700/60 bg-slate-900/70 px-2 py-1 text-xs text-slate-100 focus:outline-none"
                       >
-                        <option value="">— provider —</option>
+                        <option value="">{t("llmRoutes.providerPlaceholder")}</option>
                         {providerOptions.map((p) => (
                           <option key={p.id} value={p.id}>{p.id}</option>
                         ))}
@@ -609,7 +611,7 @@ export default function RoutesPage() {
                       <input
                         value={c.upstream_model}
                         onChange={(e) => updateCandidate(gIdx, cIdx, { upstream_model: e.target.value })}
-                        placeholder="upstream model"
+                        placeholder={t("llmRoutes.upstreamModel")}
                         className="flex-1 rounded-md border border-slate-700/60 bg-slate-900/70 px-2 py-1 text-xs text-slate-200 placeholder-slate-600 focus:outline-none"
                       />
                       {formModelStrategy === "weighted" && (
@@ -654,7 +656,7 @@ export default function RoutesPage() {
                     onClick={() => updateGroup(gIdx, { candidates: [...group.candidates, defaultCandidate()] })}
                     className="text-[10px] text-slate-500 hover:text-blue-400"
                   >
-                    + Add Candidate
+                    {t("llmRoutes.addCandidate")}
                   </button>
                 </div>
               </div>
@@ -668,7 +670,7 @@ export default function RoutesPage() {
 
   const FormAuthPolicy = () => (
     <div className="space-y-2">
-      <SectionHeading>Auth Policy</SectionHeading>
+      <SectionHeading>{t("llmRoutes.authPolicy")}</SectionHeading>
       <label className="flex cursor-pointer items-center gap-2.5">
         <input
           type="checkbox"
@@ -677,8 +679,8 @@ export default function RoutesPage() {
           className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-800 accent-blue-500"
         />
         <span className="text-sm text-slate-300">
-          Require virtual key
-          <HelpTooltip content="When enabled, callers must present a gateway virtual key in the Authorization header." />
+          {t("llmRoutes.requireKey")}
+          <HelpTooltip content={t("llmRoutes.requireKeyHelp")} />
         </span>
       </label>
     </div>
@@ -690,23 +692,23 @@ export default function RoutesPage() {
       <section className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-slate-100">Routes</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-100">{t("llmRoutes.title")}</h1>
             <p className="mt-1 text-xs text-slate-400">
-              Define routing rules that map incoming requests to upstream LLM providers.
-              <HelpTooltip content="Each route owns a protocol, target policy, auth policy, and match rules." />
+              {t("llmRoutes.description")}
+              <HelpTooltip content={t("llmRoutes.descriptionHelp")} />
             </p>
           </div>
-          <Button onClick={openCreate} className="px-2.5 py-1 text-xs">Create Route</Button>
+          <Button onClick={openCreate} className="px-2.5 py-1 text-xs">{t("llmRoutes.create")}</Button>
         </div>
       </section>
 
       {/* Stats */}
       <section className="grid grid-cols-2 gap-2 lg:grid-cols-4">
         {[
-          { label: "Total Routes", value: routes.length },
-          { label: "Active", value: activeCount },
-          { label: "Direct Provider", value: directCount },
-          { label: "Logical Model", value: logicalCount },
+          { label: t("llmRoutes.total"), value: routes.length },
+          { label: t("common.active"), value: activeCount },
+          { label: t("llmRoutes.directProvider"), value: directCount },
+          { label: t("llmRoutes.logicalModel"), value: logicalCount },
         ].map((stat) => (
           <div key={stat.label} className="rounded-lg border border-slate-700/70 bg-slate-900/40 px-2.5 py-2">
             <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{stat.label}</p>
@@ -718,12 +720,12 @@ export default function RoutesPage() {
       {/* Route list */}
       {loading ? (
         <div className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-8 text-center">
-          <p className="text-sm text-slate-400">Loading routes…</p>
+          <p className="text-sm text-slate-400">{t("llmRoutes.loading")}</p>
         </div>
       ) : routes.length === 0 ? (
         <div className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-8 text-center">
-          <p className="text-sm text-slate-400">No routes yet. Create one to start routing traffic.</p>
-          <Button onClick={openCreate} className="mt-4 px-3 py-1.5 text-xs">Create Route</Button>
+          <p className="text-sm text-slate-400">{t("llmRoutes.empty")}</p>
+          <Button onClick={openCreate} className="mt-4 px-3 py-1.5 text-xs">{t("llmRoutes.create")}</Button>
         </div>
       ) : (
         <div className="space-y-2">
@@ -757,7 +759,7 @@ export default function RoutesPage() {
                       )}
                       {route.disabled && (
                         <span className="inline-flex rounded-sm bg-slate-700/40 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">
-                          disabled
+                          {t("common.disabled")}
                         </span>
                       )}
                     </div>
@@ -809,30 +811,30 @@ export default function RoutesPage() {
                           ? "border-slate-600/60 bg-slate-800/40 text-slate-400 hover:border-emerald-500/40 hover:text-emerald-300"
                           : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:border-slate-600/60 hover:bg-slate-800/40 hover:text-slate-400"
                       }`}
-                      title={route.read_only ? "Read-only route" : route.disabled ? "Enable route" : "Disable route"}
+                      title={route.read_only ? t("llmRoutes.readOnly") : route.disabled ? t("llmRoutes.enableTitle") : t("llmRoutes.disableTitle")}
                     >
-                      {route.disabled ? "Enable" : "Active"}
+                      {route.disabled ? t("llmRoutes.enable") : t("common.active")}
                     </button>
-                    <span title={route.read_only ? "Read-only route" : undefined}>
+                    <span title={route.read_only ? t("llmRoutes.readOnly") : undefined}>
                       <Button variant="ghost" className="px-2 py-1 text-[10px]" disabled={!!route.read_only} onClick={() => openEdit(route)}>
-                        Edit
+                        {t("common.edit")}
                       </Button>
                     </span>
-                    <span title={route.read_only ? "Read-only route" : undefined}>
+                    <span title={route.read_only ? t("llmRoutes.readOnly") : undefined}>
                       <Button
                         variant="danger"
                         className="px-2 py-1 text-[10px]"
                         disabled={!!route.read_only}
                         onClick={() => { setPendingDeleteId(route.id); setShowConfirm(true); }}
                       >
-                        Delete
+                        {t("common.delete")}
                       </Button>
                     </span>
                     <button
                       type="button"
                       onClick={() => setExpandedId(isExpanded ? null : route.id)}
                       className="rounded-md border border-slate-700/60 bg-slate-800/40 p-1 text-slate-400 transition-colors hover:bg-slate-700/60 hover:text-slate-200"
-                      aria-label={isExpanded ? "Collapse" : "Expand"}
+                      aria-label={isExpanded ? t("llmRoutes.collapse") : t("llmRoutes.expand")}
                     >
                       <svg className={`h-3.5 w-3.5 transition-transform ${isExpanded ? "rotate-180" : ""}`} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
@@ -847,17 +849,17 @@ export default function RoutesPage() {
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                       {/* Auth */}
                       <div>
-                        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Auth Policy</p>
+                        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{t("llmRoutes.authPolicy")}</p>
                         <div className="space-y-1 text-[11px] text-slate-300">
                           <div className="flex justify-between">
-                            <span className="text-slate-500">Require virtual key</span>
+                            <span className="text-slate-500">{t("llmRoutes.requireKey")}</span>
                             <span className={route.auth_policy?.require_virtual_key ? "text-emerald-300" : "text-slate-400"}>
-                              {route.auth_policy?.require_virtual_key ? "Yes" : "No"}
+                              {route.auth_policy?.require_virtual_key ? t("llmRoutes.yes") : t("llmRoutes.no")}
                             </span>
                           </div>
                           {route.protocol && (
                             <div className="flex justify-between">
-                              <span className="text-slate-500">Protocol</span>
+                              <span className="text-slate-500">{t("agentRoutes.protocol")}</span>
                               <span className="font-mono text-slate-200">{route.protocol}</span>
                             </div>
                           )}
@@ -866,11 +868,11 @@ export default function RoutesPage() {
 
                       {/* Target policy detail */}
                       <div>
-                        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Target Policy</p>
+                        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{t("llmRoutes.targetPolicy")}</p>
                         <div className="space-y-1 text-[11px]">
                           {kind === "direct-provider" ? (
                             <div className="flex justify-between">
-                              <span className="text-slate-500">Provider</span>
+                              <span className="text-slate-500">{t("llmRoutes.provider")}</span>
                               <span className="font-mono text-slate-200">
                                 {route.target_policy?.provider_target?.provider_id ?? route.target_policy?.provider_id ?? "—"}
                               </span>
@@ -878,20 +880,20 @@ export default function RoutesPage() {
                           ) : (
                             <>
                               <div className="flex justify-between">
-                                <span className="text-slate-500">Strategy</span>
+                                <span className="text-slate-500">{t("llmRoutes.strategy")}</span>
                                 <span className={`rounded-sm px-1 py-px text-[10px] ${STRATEGY_COLORS[strategy ?? ""] ?? ""}`}>
                                   {strategy ?? "auto"}
                                 </span>
                               </div>
                               {route.target_policy?.default_model && (
                                 <div className="flex justify-between">
-                                  <span className="text-slate-500">Default model</span>
+                                  <span className="text-slate-500">{t("llmRoutes.defaultModel")}</span>
                                   <span className="font-mono text-slate-200">{route.target_policy.default_model}</span>
                                 </div>
                               )}
                               {route.target_policy?.fallback?.enabled && (
                                 <div className="flex justify-between">
-                                  <span className="text-slate-500">Fallback max</span>
+                                  <span className="text-slate-500">{t("llmRoutes.fallbackMax")}</span>
                                   <span>{route.target_policy.fallback.max_num ?? 1}</span>
                                 </div>
                               )}
@@ -915,26 +917,26 @@ export default function RoutesPage() {
 
                       {/* Match */}
                       <div>
-                        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Match</p>
+                        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{t("agentRoutes.match")}</p>
                         {(!route.match_policy?.host && !route.match_policy?.path_prefix && !route.match_policy?.methods?.length) ? (
-                          <p className="text-[11px] text-slate-600">Match all requests.</p>
+                          <p className="text-[11px] text-slate-600">{t("llmRoutes.matchAll")}</p>
                         ) : (
                           <div className="space-y-1 text-[11px]">
                             {route.match_policy?.host && (
                               <div className="flex justify-between">
-                                <span className="text-slate-500">Host</span>
+                                <span className="text-slate-500">{t("agentRoutes.host")}</span>
                                 <span className="font-mono text-slate-200">{route.match_policy.host}</span>
                               </div>
                             )}
                             {route.match_policy?.path_prefix && (
                               <div className="flex justify-between">
-                                <span className="text-slate-500">Path Prefix</span>
+                                <span className="text-slate-500">{t("agentRoutes.pathPrefix")}</span>
                                 <span className="font-mono text-slate-200">{route.match_policy.path_prefix}</span>
                               </div>
                             )}
                             {route.match_policy?.methods?.length ? (
                               <div className="flex justify-between">
-                                <span className="text-slate-500">Methods</span>
+                                <span className="text-slate-500">{t("agentRoutes.methods")}</span>
                                 <span className="flex gap-1">
                                   {route.match_policy.methods.map((m, i) => (
                                     <span key={i} className="rounded-sm bg-slate-800/60 px-1.5 py-px font-mono text-[10px] text-slate-300">{m}</span>
@@ -950,8 +952,8 @@ export default function RoutesPage() {
                     <div className="mt-3 flex items-center justify-between border-t border-slate-700/50 pt-2">
                       <span className="text-[10px] text-slate-600">
                         ID: <span className="font-mono text-slate-500">{route.id}</span>
-                        {" · "}Created {new Date(route.created_at).toLocaleDateString()}
-                        {" · "}Updated {new Date(route.updated_at).toLocaleDateString()}
+                        {" · "}{t("common.created")} {new Date(route.created_at).toLocaleDateString(locale)}
+                        {" · "}{t("common.updated")} {new Date(route.updated_at).toLocaleDateString(locale)}
                       </span>
                       <UsedByAgents agentIds={attribution?.llmRoute[route.id]} />
                     </div>
@@ -965,7 +967,7 @@ export default function RoutesPage() {
 
       {/* Create modal */}
       <Modal isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)}>
-        <ModalHeader><ModalTitle>Create Route</ModalTitle></ModalHeader>
+        <ModalHeader><ModalTitle>{t("llmRoutes.create")}</ModalTitle></ModalHeader>
         <ModalContent>
           <div className="space-y-5">
             {FormBasicInfo({ readonlyId: false })}
@@ -976,14 +978,14 @@ export default function RoutesPage() {
           </div>
         </ModalContent>
         <ModalFooter>
-          <Button variant="ghost" onClick={() => setIsCreateOpen(false)} disabled={saving}>Cancel</Button>
-          <Button onClick={handleCreate} disabled={saving}>{saving ? "Creating…" : "Create Route"}</Button>
+          <Button variant="ghost" onClick={() => setIsCreateOpen(false)} disabled={saving}>{t("common.cancel")}</Button>
+          <Button onClick={handleCreate} disabled={saving}>{saving ? t("common.creating") : t("llmRoutes.create")}</Button>
         </ModalFooter>
       </Modal>
 
       {/* Edit modal */}
       <Modal isOpen={isEditOpen} onClose={() => { setIsEditOpen(false); setEditingRoute(null); }}>
-        <ModalHeader><ModalTitle>Edit Route — {editingRoute?.id}</ModalTitle></ModalHeader>
+        <ModalHeader><ModalTitle>{t("llmRoutes.editTitle", { id: editingRoute?.id ?? "" })}</ModalTitle></ModalHeader>
         <ModalContent>
           <div className="space-y-5">
             {FormBasicInfo({ readonlyId: true })}
@@ -994,8 +996,8 @@ export default function RoutesPage() {
           </div>
         </ModalContent>
         <ModalFooter>
-          <Button variant="ghost" onClick={() => { setIsEditOpen(false); setEditingRoute(null); }} disabled={saving}>Cancel</Button>
-          <Button onClick={handleEdit} disabled={saving}>{saving ? "Saving…" : "Save Changes"}</Button>
+          <Button variant="ghost" onClick={() => { setIsEditOpen(false); setEditingRoute(null); }} disabled={saving}>{t("common.cancel")}</Button>
+          <Button onClick={handleEdit} disabled={saving}>{saving ? t("common.saving") : t("common.saveChanges")}</Button>
         </ModalFooter>
       </Modal>
 
@@ -1003,9 +1005,9 @@ export default function RoutesPage() {
         isOpen={showConfirm}
         onClose={() => { setShowConfirm(false); setPendingDeleteId(null); }}
         onConfirm={handleDelete}
-        title="Delete Route"
-        message="Are you sure you want to delete this route? This action cannot be undone."
-        confirmLabel={saving ? "Deleting…" : "Delete"}
+        title={t("llmRoutes.deleteTitle")}
+        message={t("llmRoutes.deleteMessage")}
+        confirmLabel={saving ? t("common.deleting") : t("common.delete")}
         variant="danger"
       />
     </div>

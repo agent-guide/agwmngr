@@ -9,6 +9,7 @@ import { useAgentAttribution } from "@/hooks/use-agent-attribution";
 import { UsedByAgents } from "@/components/used-by-agents";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { HelpTooltip } from "@/components/ui/tooltip";
+import { useI18n } from "@/components/i18n-provider";
 import {
   ApiError,
   listMCPServices,
@@ -45,6 +46,7 @@ const TRANSPORT_COLORS: Record<string, string> = {
 type InspectTab = "capabilities" | "tools" | "resources" | "prompts" | "session";
 
 export default function MCPServicesPage() {
+  const { locale, t } = useI18n();
   const [services, setServices] = useState<MCPService[]>([]);
   const attribution = useAgentAttribution();
   const [loading, setLoading] = useState(true);
@@ -94,11 +96,11 @@ export default function MCPServicesPage() {
     try {
       setServices(await listMCPServices());
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Failed to load MCP services", "error");
+      showToast(err instanceof ApiError ? err.message : t("mcpServices.loadFailed"), "error");
     } finally {
       setLoading(false);
     }
-  }, [showToast]);
+  }, [showToast, t]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void load(); }, 0);
@@ -172,10 +174,10 @@ export default function MCPServicesPage() {
   };
 
   const validate = (): boolean => {
-    if (!formId.trim()) { showToast("Service ID is required", "error"); return false; }
-    if (!formName.trim()) { showToast("Name is required", "error"); return false; }
-    if (formTransport === "stdio" && !formCommand.trim()) { showToast("Command is required for stdio", "error"); return false; }
-    if (formTransport !== "stdio" && !formUrl.trim()) { showToast("URL is required for HTTP transports", "error"); return false; }
+    if (!formId.trim()) { showToast(t("mcpServices.idRequired"), "error"); return false; }
+    if (!formName.trim()) { showToast(t("mcpServices.nameRequired"), "error"); return false; }
+    if (formTransport === "stdio" && !formCommand.trim()) { showToast(t("mcpServices.commandRequired"), "error"); return false; }
+    if (formTransport !== "stdio" && !formUrl.trim()) { showToast(t("mcpServices.urlRequired"), "error"); return false; }
     return true;
   };
 
@@ -186,9 +188,9 @@ export default function MCPServicesPage() {
       const created = await createMCPService(buildPayload());
       setServices((prev) => [...prev, created]);
       setIsCreateOpen(false);
-      showToast("MCP service created", "success");
+      showToast(t("mcpServices.created"), "success");
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Failed to create service", "error");
+      showToast(err instanceof ApiError ? err.message : t("mcpServices.createFailed"), "error");
     } finally {
       setSaving(false);
     }
@@ -203,9 +205,9 @@ export default function MCPServicesPage() {
       setServices((prev) => prev.map((s) => (s.id === editing.id ? updated : s)));
       setIsEditOpen(false);
       setEditing(null);
-      showToast("MCP service updated", "success");
+      showToast(t("mcpServices.updated"), "success");
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Failed to update service", "error");
+      showToast(err instanceof ApiError ? err.message : t("mcpServices.updateFailed"), "error");
     } finally {
       setSaving(false);
     }
@@ -217,9 +219,9 @@ export default function MCPServicesPage() {
     try {
       await deleteMCPService(pendingDeleteId);
       setServices((prev) => prev.filter((s) => s.id !== pendingDeleteId));
-      showToast("MCP service deleted", "success");
+      showToast(t("mcpServices.deleted"), "success");
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Failed to delete service", "error");
+      showToast(err instanceof ApiError ? err.message : t("mcpServices.deleteFailed"), "error");
     } finally {
       setSaving(false);
       setShowConfirm(false);
@@ -239,11 +241,11 @@ export default function MCPServicesPage() {
       else if (tab === "prompts") setPrompts(await listMCPPrompts(svc.id));
       else if (tab === "session") setSession(await getMCPServiceSession(svc.id));
     } catch (err) {
-      setInspectError(err instanceof ApiError ? err.message : "Failed to load");
+      setInspectError(err instanceof ApiError ? err.message : t("mcpServices.inspectLoadFailed"));
     } finally {
       setInspectLoading(false);
     }
-  }, []);
+  }, [t]);
 
   const openInspect = (svc: MCPService) => {
     setInspectService(svc);
@@ -269,7 +271,7 @@ export default function MCPServicesPage() {
       try {
         parsed = JSON.parse(toolArgs);
       } catch {
-        showToast("Arguments must be valid JSON", "error");
+        showToast(t("mcpServices.argumentsJson"), "error");
         return;
       }
     }
@@ -279,7 +281,7 @@ export default function MCPServicesPage() {
       const res = await callMCPTool(inspectService.id, { name, arguments: parsed });
       setToolResult(JSON.stringify(res, null, 2));
     } catch (err) {
-      setToolResult(err instanceof ApiError ? `Error: ${err.message}` : "Error calling tool");
+      setToolResult(err instanceof ApiError ? t("mcpServices.errorPrefix", { detail: err.message }) : t("mcpServices.callFailed"));
     } finally {
       setToolCalling(false);
     }
@@ -291,41 +293,41 @@ export default function MCPServicesPage() {
       const res = await readMCPResource(inspectService.id, uri);
       setResourceContent((prev) => ({ ...prev, [uri]: JSON.stringify(res.contents, null, 2) }));
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Failed to read resource", "error");
+      showToast(err instanceof ApiError ? err.message : t("mcpServices.readFailed"), "error");
     }
   };
 
   const renderFormBody = (readonlyId: boolean) => (
     <div className="space-y-5">
       <div className="space-y-3">
-        <SectionHeading>Basic Info</SectionHeading>
+        <SectionHeading>{t("agentRoutes.basic")}</SectionHeading>
         <div className="grid grid-cols-2 gap-3">
           {readonlyId ? (
             <div>
-              <label className="mb-1 block text-xs font-medium text-slate-400">Service ID</label>
+              <label className="mb-1 block text-xs font-medium text-slate-400">{t("mcpServices.serviceId")}</label>
               <p className="rounded-md border border-slate-700/60 bg-slate-900/70 px-2.5 py-1.5 font-mono text-xs text-slate-400">{formId}</p>
             </div>
           ) : (
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-300">Service ID <span className="text-red-400">*</span></label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("mcpServices.serviceId")} <span className="text-red-400">*</span></label>
               <Input name="id" value={formId} onChange={setFormId} placeholder="e.g. mcp-main" />
             </div>
           )}
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-300">Name <span className="text-red-400">*</span></label>
-            <Input name="name" value={formName} onChange={setFormName} placeholder="Main MCP Service" />
+            <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("common.name")} <span className="text-red-400">*</span></label>
+            <Input name="name" value={formName} onChange={setFormName} placeholder={t("mcpServices.namePlaceholder")} />
           </div>
         </div>
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-300">Description</label>
-          <Input name="description" value={formDescription} onChange={setFormDescription} placeholder="Optional description" />
+          <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("common.description")}</label>
+          <Input name="description" value={formDescription} onChange={setFormDescription} placeholder={t("agentRoutes.optionalDescription")} />
         </div>
       </div>
 
       <div className="space-y-3">
         <SectionHeading>
-          Transport <span className="text-red-400">*</span>
-          <HelpTooltip content="stdio launches a local subprocess; sse and streamable_http connect to a remote MCP server over HTTP." />
+          {t("mcpServices.transport")} <span className="text-red-400">*</span>
+          <HelpTooltip content={t("mcpServices.transportHelp")} />
         </SectionHeading>
         <div className="flex flex-wrap gap-3">
           {(["streamable_http", "sse", "stdio"] as MCPTransport[]).map((t) => (
@@ -339,13 +341,13 @@ export default function MCPServicesPage() {
         {formTransport === "stdio" ? (
           <>
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-300">Command <span className="text-red-400">*</span></label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("mcpServices.command")} <span className="text-red-400">*</span></label>
               <Input name="command" value={formCommand} onChange={setFormCommand} placeholder="npx" />
             </div>
             <div>
               <label className="mb-1.5 block text-sm font-medium text-slate-300">
-                Args
-                <HelpTooltip content="One argument per line." />
+                {t("mcpServices.args")}
+                <HelpTooltip content={t("mcpServices.argsHelp")} />
               </label>
               <textarea
                 value={formArgs}
@@ -366,9 +368,9 @@ export default function MCPServicesPage() {
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-slate-300">
                   POST URL
-                  <HelpTooltip content="SSE only. If empty, derived from the URL." />
+                  <HelpTooltip content={t("mcpServices.postUrlHelp")} />
                 </label>
-                <Input name="post-url" value={formPostUrl} onChange={setFormPostUrl} placeholder="optional" />
+                <Input name="post-url" value={formPostUrl} onChange={setFormPostUrl} placeholder={t("common.optional")} />
               </div>
             )}
           </>
@@ -376,8 +378,8 @@ export default function MCPServicesPage() {
 
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-300">
-            Environment
-            <HelpTooltip content="One KEY=VALUE per line. Passed to stdio subprocesses." />
+            {t("mcpServices.environment")}
+            <HelpTooltip content={t("mcpServices.environmentHelp")} />
           </label>
           <textarea
             value={formEnv}
@@ -390,16 +392,16 @@ export default function MCPServicesPage() {
       </div>
 
       <div className="space-y-3">
-        <SectionHeading>Auth</SectionHeading>
+        <SectionHeading>{t("mcpServices.auth")}</SectionHeading>
         <div className="flex items-center gap-4">
           <div className="flex-1">
-            <label className="mb-1.5 block text-sm font-medium text-slate-300">Type</label>
+            <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("mcpServices.type")}</label>
             <select
               value={formAuthType}
               onChange={(e) => setFormAuthType(e.target.value as MCPAuthType)}
               className="w-full rounded-md border border-slate-700/70 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 focus:border-blue-500/60 focus:outline-none"
             >
-              <option value="">— none —</option>
+              <option value="">{t("mcpServices.none")}</option>
               <option value="api_key">api_key</option>
               <option value="bearer">bearer</option>
               <option value="basic">basic</option>
@@ -409,25 +411,25 @@ export default function MCPServicesPage() {
           <label className="flex cursor-pointer items-center gap-2 pt-5">
             <input type="checkbox" checked={formAutoAuth} onChange={(e) => setFormAutoAuth(e.target.checked)} className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-800 accent-blue-500" />
             <span className="text-xs text-slate-300">
-              Auto auth
-              <HelpTooltip content="Let the gateway negotiate authentication automatically when supported." />
+              {t("mcpServices.autoAuth")}
+              <HelpTooltip content={t("mcpServices.autoAuthHelp")} />
             </span>
           </label>
         </div>
         {(formAuthType === "api_key" || formAuthType === "bearer" || formAuthType === "oauth2") && (
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-300">{formAuthType === "api_key" ? "API Key" : "Token"}</label>
-            <Input name="auth-api-key" value={formAuthApiKey} onChange={setFormAuthApiKey} placeholder="secret value" />
+            <label className="mb-1.5 block text-sm font-medium text-slate-300">{formAuthType === "api_key" ? "API Key" : t("mcpServices.token")}</label>
+            <Input name="auth-api-key" value={formAuthApiKey} onChange={setFormAuthApiKey} placeholder={t("mcpServices.secretValue")} />
           </div>
         )}
         {formAuthType === "basic" && (
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-300">Username</label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("mcpServices.username")}</label>
               <Input name="auth-username" value={formAuthUsername} onChange={setFormAuthUsername} placeholder="user" />
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-300">Password</label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("mcpServices.password")}</label>
               <Input name="auth-password" value={formAuthPassword} onChange={setFormAuthPassword} placeholder="password" />
             </div>
           </div>
@@ -435,10 +437,10 @@ export default function MCPServicesPage() {
       </div>
 
       <div className="space-y-2">
-        <SectionHeading>Status</SectionHeading>
+        <SectionHeading>{t("mcpServices.status")}</SectionHeading>
         <label className="flex cursor-pointer items-center gap-2.5">
           <input type="checkbox" checked={formDisabled} onChange={(e) => setFormDisabled(e.target.checked)} className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-800 accent-blue-500" />
-          <span className="text-sm text-slate-300">Disabled</span>
+          <span className="text-sm text-slate-300">{t("common.disabledTitle")}</span>
         </label>
       </div>
     </div>
@@ -451,24 +453,24 @@ export default function MCPServicesPage() {
       <section className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-slate-100">MCP Services</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-100">{t("mcpServices.title")}</h1>
             <p className="mt-1 text-xs text-slate-400">
-              Register upstream MCP servers the gateway can route to and inspect.
-              <HelpTooltip content="A service is a connection to an MCP server over stdio or HTTP. Inspect tools, resources, and prompts here." />
+              {t("mcpServices.description")}
+              <HelpTooltip content={t("mcpServices.descriptionHelp")} />
             </p>
           </div>
-          <Button onClick={openCreate} className="px-2.5 py-1 text-xs">Create Service</Button>
+          <Button onClick={openCreate} className="px-2.5 py-1 text-xs">{t("mcpServices.create")}</Button>
         </div>
       </section>
 
       {loading ? (
         <div className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-8 text-center">
-          <p className="text-sm text-slate-400">Loading services…</p>
+          <p className="text-sm text-slate-400">{t("mcpServices.loading")}</p>
         </div>
       ) : services.length === 0 ? (
         <div className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-8 text-center">
-          <p className="text-sm text-slate-400">No MCP services yet. Create one to connect an MCP server.</p>
-          <Button onClick={openCreate} className="mt-4 px-3 py-1.5 text-xs">Create Service</Button>
+          <p className="text-sm text-slate-400">{t("mcpServices.empty")}</p>
+          <Button onClick={openCreate} className="mt-4 px-3 py-1.5 text-xs">{t("mcpServices.create")}</Button>
         </div>
       ) : (
         <div className="space-y-2">
@@ -481,8 +483,8 @@ export default function MCPServicesPage() {
                     <span className="font-mono text-[10px] text-slate-500">{svc.id}</span>
                     <span className={`inline-flex rounded-sm px-1.5 py-0.5 text-[10px] font-medium ${TRANSPORT_COLORS[svc.transport] ?? "bg-slate-700/40 text-slate-400"}`}>{svc.transport}</span>
                     <UsedByAgents agentIds={attribution?.mcpService[svc.id]} />
-                    {svc.disabled && <span className="inline-flex rounded-sm bg-slate-700/40 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">disabled</span>}
-                    {svc.read_only && <span className="inline-flex rounded-sm bg-slate-700/40 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">read-only</span>}
+                    {svc.disabled && <span className="inline-flex rounded-sm bg-slate-700/40 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">{t("common.disabled")}</span>}
+                    {svc.read_only && <span className="inline-flex rounded-sm bg-slate-700/40 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">{t("agentRoutes.readOnly")}</span>}
                   </div>
                   {svc.description && <p className="mt-0.5 truncate text-[11px] text-slate-500">{svc.description}</p>}
                   <div className="mt-1 font-mono text-[10px] text-slate-500">
@@ -492,12 +494,12 @@ export default function MCPServicesPage() {
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
-                  <Button variant="ghost" className="px-2 py-1 text-[10px]" onClick={() => openInspect(svc)}>Inspect</Button>
-                  <span title={svc.read_only ? "Read-only service" : undefined}>
-                    <Button variant="ghost" className="px-2 py-1 text-[10px]" disabled={!!svc.read_only} onClick={() => openEdit(svc)}>Edit</Button>
+                  <Button variant="ghost" className="px-2 py-1 text-[10px]" onClick={() => openInspect(svc)}>{t("mcpServices.inspect")}</Button>
+                  <span title={svc.read_only ? t("mcpServices.readOnly") : undefined}>
+                    <Button variant="ghost" className="px-2 py-1 text-[10px]" disabled={!!svc.read_only} onClick={() => openEdit(svc)}>{t("common.edit")}</Button>
                   </span>
-                  <span title={svc.read_only ? "Read-only service" : undefined}>
-                    <Button variant="danger" className="px-2 py-1 text-[10px]" disabled={!!svc.read_only} onClick={() => { setPendingDeleteId(svc.id); setShowConfirm(true); }}>Delete</Button>
+                  <span title={svc.read_only ? t("mcpServices.readOnly") : undefined}>
+                    <Button variant="danger" className="px-2 py-1 text-[10px]" disabled={!!svc.read_only} onClick={() => { setPendingDeleteId(svc.id); setShowConfirm(true); }}>{t("common.delete")}</Button>
                   </span>
                 </div>
               </div>
@@ -508,27 +510,27 @@ export default function MCPServicesPage() {
 
       {/* Create modal */}
       <Modal isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)}>
-        <ModalHeader><ModalTitle>Create MCP Service</ModalTitle></ModalHeader>
+        <ModalHeader><ModalTitle>{t("mcpServices.createTitle")}</ModalTitle></ModalHeader>
         <ModalContent>{renderFormBody(false)}</ModalContent>
         <ModalFooter>
-          <Button variant="ghost" onClick={() => setIsCreateOpen(false)} disabled={saving}>Cancel</Button>
-          <Button onClick={handleCreate} disabled={saving}>{saving ? "Creating…" : "Create Service"}</Button>
+          <Button variant="ghost" onClick={() => setIsCreateOpen(false)} disabled={saving}>{t("common.cancel")}</Button>
+          <Button onClick={handleCreate} disabled={saving}>{saving ? t("common.creating") : t("mcpServices.create")}</Button>
         </ModalFooter>
       </Modal>
 
       {/* Edit modal */}
       <Modal isOpen={isEditOpen} onClose={() => { setIsEditOpen(false); setEditing(null); }}>
-        <ModalHeader><ModalTitle>Edit MCP Service — {editing?.name}</ModalTitle></ModalHeader>
+        <ModalHeader><ModalTitle>{t("mcpServices.editTitle", { name: editing?.name ?? "" })}</ModalTitle></ModalHeader>
         <ModalContent>{renderFormBody(true)}</ModalContent>
         <ModalFooter>
-          <Button variant="ghost" onClick={() => { setIsEditOpen(false); setEditing(null); }} disabled={saving}>Cancel</Button>
-          <Button onClick={handleEdit} disabled={saving}>{saving ? "Saving…" : "Save Changes"}</Button>
+          <Button variant="ghost" onClick={() => { setIsEditOpen(false); setEditing(null); }} disabled={saving}>{t("common.cancel")}</Button>
+          <Button onClick={handleEdit} disabled={saving}>{saving ? t("common.saving") : t("common.saveChanges")}</Button>
         </ModalFooter>
       </Modal>
 
       {/* Inspect modal */}
       <Modal isOpen={!!inspectService} onClose={() => setInspectService(null)}>
-        <ModalHeader><ModalTitle>Inspect — {inspectService?.name}</ModalTitle></ModalHeader>
+        <ModalHeader><ModalTitle>{t("mcpServices.inspectTitle", { name: inspectService?.name ?? "" })}</ModalTitle></ModalHeader>
         <ModalContent>
           <div className="mb-3 flex flex-wrap gap-1.5 border-b border-slate-700/60 pb-2">
             {INSPECT_TABS.map((tab) => (
@@ -540,18 +542,18 @@ export default function MCPServicesPage() {
                   inspectTab === tab ? "bg-blue-600/20 text-blue-300" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
                 }`}
               >
-                {tab}
+                {t(`mcpServices.tab${tab[0].toUpperCase()}${tab.slice(1)}` as Parameters<typeof t>[0])}
               </button>
             ))}
           </div>
 
           {inspectLoading ? (
-            <p className="py-6 text-center text-sm text-slate-400">Loading…</p>
+            <p className="py-6 text-center text-sm text-slate-400">{t("common.loading")}</p>
           ) : inspectError ? (
             <p className="py-6 text-center text-sm text-red-400">{inspectError}</p>
           ) : inspectTab === "tools" ? (
             tools.length === 0 ? (
-              <p className="py-6 text-center text-sm text-slate-500">No tools exposed.</p>
+              <p className="py-6 text-center text-sm text-slate-500">{t("mcpServices.noTools")}</p>
             ) : (
               <div className="space-y-2">
                 {tools.map((tool) => (
@@ -571,12 +573,12 @@ export default function MCPServicesPage() {
                       <div className="border-t border-slate-700/60 px-3 py-2 space-y-2">
                         {tool.input_schema != null && (
                           <div>
-                            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Input Schema</p>
+                            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{t("mcpServices.inputSchema")}</p>
                             <pre className="max-h-40 overflow-auto rounded bg-slate-950/70 p-2 font-mono text-[10px] text-slate-400">{JSON.stringify(tool.input_schema, null, 2)}</pre>
                           </div>
                         )}
                         <div>
-                          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Arguments (JSON)</p>
+                          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{t("mcpServices.arguments")}</p>
                           <textarea
                             value={toolArgs}
                             onChange={(e) => setToolArgs(e.target.value)}
@@ -585,7 +587,7 @@ export default function MCPServicesPage() {
                           />
                         </div>
                         <Button className="px-2.5 py-1 text-[11px]" disabled={toolCalling} onClick={() => handleCallTool(tool.name)}>
-                          {toolCalling ? "Calling…" : "Call Tool"}
+                          {toolCalling ? t("mcpServices.calling") : t("mcpServices.callTool")}
                         </Button>
                         {toolResult && (
                           <pre className="max-h-48 overflow-auto rounded bg-slate-950/70 p-2 font-mono text-[10px] text-slate-300">{toolResult}</pre>
@@ -598,7 +600,7 @@ export default function MCPServicesPage() {
             )
           ) : inspectTab === "resources" ? (
             resources.length === 0 ? (
-              <p className="py-6 text-center text-sm text-slate-500">No resources exposed.</p>
+              <p className="py-6 text-center text-sm text-slate-500">{t("mcpServices.noResources")}</p>
             ) : (
               <div className="space-y-2">
                 {resources.map((r) => (
@@ -609,7 +611,7 @@ export default function MCPServicesPage() {
                         <p className="truncate font-mono text-[10px] text-slate-500">{r.uri}</p>
                         {r.description && <p className="mt-0.5 text-[11px] text-slate-500">{r.description}</p>}
                       </div>
-                      <Button variant="ghost" className="shrink-0 px-2 py-1 text-[10px]" onClick={() => handleReadResource(r.uri)}>Read</Button>
+                      <Button variant="ghost" className="shrink-0 px-2 py-1 text-[10px]" onClick={() => handleReadResource(r.uri)}>{t("mcpServices.read")}</Button>
                     </div>
                     {resourceContent[r.uri] && (
                       <pre className="mt-2 max-h-48 overflow-auto rounded bg-slate-950/70 p-2 font-mono text-[10px] text-slate-300">{resourceContent[r.uri]}</pre>
@@ -620,7 +622,7 @@ export default function MCPServicesPage() {
             )
           ) : inspectTab === "prompts" ? (
             prompts.length === 0 ? (
-              <p className="py-6 text-center text-sm text-slate-500">No prompts exposed.</p>
+              <p className="py-6 text-center text-sm text-slate-500">{t("mcpServices.noPrompts")}</p>
             ) : (
               <div className="space-y-2">
                 {prompts.map((p) => (
@@ -632,17 +634,17 @@ export default function MCPServicesPage() {
               </div>
             )
           ) : inspectTab === "capabilities" ? (
-            <pre className="max-h-80 overflow-auto rounded bg-slate-950/70 p-3 font-mono text-[10px] text-slate-300">{capabilities ? JSON.stringify(capabilities, null, 2) : "No data."}</pre>
+            <pre className="max-h-80 overflow-auto rounded bg-slate-950/70 p-3 font-mono text-[10px] text-slate-300">{capabilities ? JSON.stringify(capabilities, null, 2) : t("mcpServices.noData")}</pre>
           ) : (
             session ? (
               <div className="space-y-1.5 text-[11px]">
                 {[
-                  ["Session ID", session.id],
-                  ["State", session.state],
-                  ["Transport", session.transport],
-                  ["Upstream session", session.upstream_session_id ?? "—"],
-                  ["Created", session.created_at ? new Date(session.created_at).toLocaleString() : "—"],
-                  ["Last used", session.last_used_at ? new Date(session.last_used_at).toLocaleString() : "—"],
+                  [t("mcpServices.sessionId"), session.id],
+                  [t("mcpServices.state"), session.state],
+                  [t("mcpServices.transport"), session.transport],
+                  [t("mcpServices.upstreamSession"), session.upstream_session_id ?? "—"],
+                  [t("common.created"), session.created_at ? new Date(session.created_at).toLocaleString(locale) : "—"],
+                  [t("mcpServices.lastUsed"), session.last_used_at ? new Date(session.last_used_at).toLocaleString(locale) : "—"],
                 ].map(([k, v]) => (
                   <div key={k} className="flex justify-between gap-3">
                     <span className="text-slate-500">{k}</span>
@@ -651,12 +653,12 @@ export default function MCPServicesPage() {
                 ))}
               </div>
             ) : (
-              <p className="py-6 text-center text-sm text-slate-500">No active session.</p>
+              <p className="py-6 text-center text-sm text-slate-500">{t("mcpServices.noSession")}</p>
             )
           )}
         </ModalContent>
         <ModalFooter>
-          <Button variant="ghost" onClick={() => setInspectService(null)}>Close</Button>
+          <Button variant="ghost" onClick={() => setInspectService(null)}>{t("common.close")}</Button>
         </ModalFooter>
       </Modal>
 
@@ -664,9 +666,9 @@ export default function MCPServicesPage() {
         isOpen={showConfirm}
         onClose={() => { setShowConfirm(false); setPendingDeleteId(null); }}
         onConfirm={handleDelete}
-        title="Delete MCP Service"
-        message="Are you sure you want to delete this service? Routes pointing to it will stop working."
-        confirmLabel={saving ? "Deleting…" : "Delete"}
+        title={t("mcpServices.deleteTitle")}
+        message={t("mcpServices.deleteMessage")}
+        confirmLabel={saving ? t("common.deleting") : t("common.delete")}
         variant="danger"
       />
     </div>

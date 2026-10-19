@@ -7,6 +7,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { PageHeader } from "@/components/ui/page-header";
 import { useToast } from "@/components/ui/toast";
+import { useI18n } from "@/components/i18n-provider";
 import {
   applyBundlePlanItem,
   bundleFromSnapshot,
@@ -37,6 +38,7 @@ function downloadText(text: string) {
 }
 
 export default function BundlePage() {
+  const { t } = useI18n();
   const { showToast } = useToast();
   const [exportYaml, setExportYaml] = useState("");
   const [importYaml, setImportYaml] = useState("");
@@ -47,6 +49,22 @@ export default function BundlePage() {
   const [applying, setApplying] = useState(false);
   const [confirmApply, setConfirmApply] = useState(false);
   const [results, setResults] = useState<Record<string, { ok: boolean; message?: string }>>({});
+
+  const actionLabel = (action: BundlePlanAction) => ({
+    create: t("bundle.actionCreate"),
+    update: t("bundle.actionUpdate"),
+    skip: t("bundle.actionSkip"),
+    conflict: t("bundle.actionConflict"),
+  })[action];
+
+  const reasonLabel = (reason?: string) => {
+    if (!reason) return "—";
+    if (reason === "Bundle object is marked read-only or Caddyfile-owned") return t("bundle.reasonBundleReadonly");
+    if (reason === "Unchanged") return t("bundle.reasonUnchanged");
+    if (reason === "Existing object is read-only or Caddyfile-owned") return t("bundle.reasonExistingReadonly");
+    const missing = reason.match(/^Missing or unavailable: (.+)$/);
+    return missing ? t("bundle.reasonMissing", { detail: missing[1] }) : reason;
+  };
 
   const counts = useMemo(() => {
     const out: Record<BundlePlanAction, number> = { create: 0, update: 0, skip: 0, conflict: 0 };
@@ -59,9 +77,9 @@ export default function BundlePage() {
     try {
       const snapshot = await loadBundleSnapshot();
       setExportYaml(serializeGatewayBundle(bundleFromSnapshot(snapshot)));
-      showToast("Gateway bundle generated", "success");
+      showToast(t("bundle.generated"), "success");
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Failed to export bundle", "error");
+      showToast(err instanceof Error ? err.message : t("bundle.exportFailed"), "error");
     } finally {
       setExporting(false);
     }
@@ -77,7 +95,7 @@ export default function BundlePage() {
       const snapshot = await loadBundleSnapshot();
       setPlan(planGatewayBundle(bundle, snapshot));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Invalid gateway bundle");
+      setError(err instanceof Error ? err.message : t("bundle.invalid"));
     } finally {
       setPlanning(false);
     }
@@ -95,13 +113,13 @@ export default function BundlePage() {
         await applyBundlePlanItem(item);
         nextResults[key] = { ok: true };
       } catch (err) {
-        nextResults[key] = { ok: false, message: err instanceof Error ? err.message : "Apply failed" };
+        nextResults[key] = { ok: false, message: err instanceof Error ? err.message : t("bundle.applyFailed") };
       }
       setResults({ ...nextResults });
     }
     setApplying(false);
     const failures = Object.values(nextResults).filter((result) => !result.ok).length;
-    showToast(failures ? `Bundle applied with ${failures} error${failures === 1 ? "" : "s"}` : "Bundle applied successfully", failures ? "error" : "success");
+    showToast(failures ? t("bundle.appliedErrors", { count: failures }) : t("bundle.appliedSuccess"), failures ? "error" : "success");
     try {
       const bundle = parseGatewayBundle(importYaml);
       setPlan(planGatewayBundle(bundle, await loadBundleSnapshot()));
@@ -115,17 +133,17 @@ export default function BundlePage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Bundle Import / Export"
-        description="Move declarative gateway configuration through the same per-object Admin APIs used by the manager."
+        title={t("bundle.title")}
+        description={t("bundle.description")}
       />
 
       <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4" role="note">
-        <p className="text-sm font-semibold text-amber-200">Credentials are not included</p>
+        <p className="text-sm font-semibold text-amber-200">{t("bundle.noCredentials")}</p>
         <p className="mt-1 text-xs leading-5 text-amber-300/80">
-          Bundle export does not contain credential records or generated Virtual Key secrets. Configure credentials separately after import. Import is create-or-update only: it never prunes objects missing from the bundle.
+          {t("bundle.noCredentialsHelp")}
         </p>
         <p className="mt-1 text-xs leading-5 text-amber-300/80">
-          Provider and MCP service configuration may contain inline authentication fields. Treat exported YAML as sensitive data.
+          {t("bundle.sensitiveHelp")}
         </p>
       </div>
 
@@ -133,8 +151,8 @@ export default function BundlePage() {
         <CardHeader>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <CardTitle>Export</CardTitle>
-              <p className="mt-1 text-xs text-slate-500">Reads all supported object families from the active gateway and emits GatewayBundle YAML.</p>
+              <CardTitle>{t("bundle.export")}</CardTitle>
+              <p className="mt-1 text-xs text-slate-500">{t("bundle.exportHelp")}</p>
             </div>
             <div className="flex gap-2">
               <Button
@@ -142,18 +160,18 @@ export default function BundlePage() {
                 className="px-2.5 py-1 text-xs"
                 disabled={!exportYaml}
                 onClick={() => void navigator.clipboard.writeText(exportYaml)
-                  .then(() => showToast("Bundle YAML copied", "success"))
-                  .catch(() => showToast("Failed to copy Bundle YAML", "error"))}
-              >Copy</Button>
-              <Button variant="secondary" className="px-2.5 py-1 text-xs" disabled={!exportYaml} onClick={() => downloadText(exportYaml)}>Download</Button>
-              <Button className="px-2.5 py-1 text-xs" disabled={exporting} onClick={() => void generateExport()}>{exporting ? "Generating…" : "Generate Export"}</Button>
+                  .then(() => showToast(t("bundle.copied"), "success"))
+                  .catch(() => showToast(t("bundle.copyFailed"), "error"))}
+              >{t("bundle.copy")}</Button>
+              <Button variant="secondary" className="px-2.5 py-1 text-xs" disabled={!exportYaml} onClick={() => downloadText(exportYaml)}>{t("bundle.download")}</Button>
+              <Button className="px-2.5 py-1 text-xs" disabled={exporting} onClick={() => void generateExport()}>{exporting ? t("bundle.generating") : t("bundle.generate")}</Button>
             </div>
           </div>
         </CardHeader>
         {exportYaml ? (
           <pre className="max-h-[28rem] overflow-auto rounded-md border border-slate-700/70 bg-slate-950/70 p-4 font-mono text-[11px] leading-5 text-slate-300" tabIndex={0}>{exportYaml}</pre>
         ) : (
-          <p className="py-8 text-center text-sm text-slate-500">Generate an export to preview or download the active gateway configuration.</p>
+          <p className="py-8 text-center text-sm text-slate-500">{t("bundle.exportEmpty")}</p>
         )}
       </Card>
 
@@ -161,11 +179,11 @@ export default function BundlePage() {
         <CardHeader>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <CardTitle>Import</CardTitle>
-              <p className="mt-1 text-xs text-slate-500">Paste or load YAML, then preview the create/update/skip/conflict plan before applying.</p>
+              <CardTitle>{t("bundle.import")}</CardTitle>
+              <p className="mt-1 text-xs text-slate-500">{t("bundle.importHelp")}</p>
             </div>
             <label className="cursor-pointer rounded-md border border-slate-700/70 bg-slate-800/60 px-2.5 py-1 text-xs font-medium text-slate-200 hover:bg-slate-700/70">
-              Load file
+              {t("bundle.loadFile")}
               <input
                 type="file"
                 accept=".yaml,.yml,application/yaml,text/yaml,text/plain"
@@ -184,12 +202,12 @@ export default function BundlePage() {
           onChange={(event) => { setImportYaml(event.target.value); setPlan(null); setError(""); setResults({}); }}
           className={TEXTAREA_CLASS}
           spellCheck={false}
-          aria-label="GatewayBundle YAML to import"
+          aria-label={t("bundle.importLabel")}
           placeholder={"apiVersion: gateway.agw/v1alpha1\nkind: GatewayBundle\n\nagents:\n  - id: assistant\n    ..."}
         />
         {error && <div className="mt-3 rounded-md border border-rose-500/40 bg-rose-500/10 p-3 text-xs leading-5 text-rose-300" role="alert">{error}</div>}
         <div className="mt-3 flex justify-end">
-          <Button disabled={!importYaml.trim() || planning || applying} onClick={() => void previewImport()}>{planning ? "Planning…" : "Validate & Preview"}</Button>
+          <Button disabled={!importYaml.trim() || planning || applying} onClick={() => void previewImport()}>{planning ? t("bundle.planning") : t("bundle.preview")}</Button>
         </div>
       </Card>
 
@@ -198,28 +216,28 @@ export default function BundlePage() {
           <CardHeader>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <CardTitle>Dry-run Preview</CardTitle>
+                <CardTitle>{t("bundle.dryRun")}</CardTitle>
                 <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                  {(["create", "update", "skip", "conflict"] as const).map((action) => <Badge key={action} tone={actionTone(action)}>{action} {counts[action]}</Badge>)}
+                  {(["create", "update", "skip", "conflict"] as const).map((action) => <Badge key={action} tone={actionTone(action)}>{actionLabel(action)} {counts[action]}</Badge>)}
                 </div>
               </div>
               <Button
                 variant={counts.conflict ? "secondary" : "primary"}
                 disabled={applying || counts.conflict > 0 || mutatingCount === 0}
-                title={counts.conflict ? "Resolve conflicts before applying" : undefined}
+                title={counts.conflict ? t("bundle.resolveConflicts") : undefined}
                 onClick={() => setConfirmApply(true)}
               >
-                {applying ? "Applying…" : `Apply ${mutatingCount} Change${mutatingCount === 1 ? "" : "s"}`}
+                {applying ? t("bundle.applying") : t("bundle.applyCount", { count: mutatingCount })}
               </Button>
             </div>
           </CardHeader>
           {plan.length === 0 ? (
-            <p className="py-8 text-center text-sm text-slate-500">The bundle contains no supported objects.</p>
+            <p className="py-8 text-center text-sm text-slate-500">{t("bundle.noObjects")}</p>
           ) : (
             <div className="overflow-x-auto">
               <div className="min-w-[720px]">
                 <div className="grid grid-cols-[160px_minmax(180px,1fr)_100px_minmax(220px,1.2fr)] border-b border-slate-700/70 px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                  <span>Family</span><span>ID</span><span>Action</span><span>Reason / Result</span>
+                  <span>{t("bundle.family")}</span><span>ID</span><span>{t("bundle.action")}</span><span>{t("bundle.reasonResult")}</span>
                 </div>
                 {plan.map((item) => {
                   const result = results[`${item.family}:${item.id}`];
@@ -227,9 +245,9 @@ export default function BundlePage() {
                     <div key={`${item.family}:${item.id}`} className="grid grid-cols-[160px_minmax(180px,1fr)_100px_minmax(220px,1.2fr)] items-center border-b border-slate-700/50 px-3 py-2.5 text-xs last:border-b-0">
                       <span className="text-slate-400">{item.family}</span>
                       <span className="truncate font-mono text-slate-200" title={item.id}>{item.id}</span>
-                      <span><Badge tone={actionTone(item.action)}>{item.action}</Badge></span>
+                      <span><Badge tone={actionTone(item.action)}>{actionLabel(item.action)}</Badge></span>
                       <span className={result && !result.ok ? "text-rose-300" : result?.ok ? "text-emerald-300" : "text-slate-500"}>
-                        {result ? (result.ok ? "Applied" : result.message) : item.reason ?? "—"}
+                        {result ? (result.ok ? t("bundle.applied") : result.message) : reasonLabel(item.reason)}
                       </span>
                     </div>
                   );
@@ -244,9 +262,9 @@ export default function BundlePage() {
         isOpen={confirmApply}
         onClose={() => setConfirmApply(false)}
         onConfirm={() => void applyPlan()}
-        title="Apply gateway bundle?"
-        message={`This will issue ${mutatingCount} audited Admin API write${mutatingCount === 1 ? "" : "s"} against the active gateway. Existing objects not present in the bundle will remain unchanged.`}
-        confirmLabel="Apply changes"
+        title={t("bundle.applyTitle")}
+        message={t("bundle.applyMessage", { count: mutatingCount })}
+        confirmLabel={t("bundle.applyChanges")}
         variant="warning"
       />
     </div>

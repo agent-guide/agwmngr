@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { useToast } from "@/components/ui/toast";
 import { useCurrentUser } from "@/components/current-user-context";
+import { useI18n } from "@/components/i18n-provider";
 import { groupTraces } from "@/components/interaction-traces";
 import { useAdminSWR } from "@/hooks/use-admin-swr";
 import { errorRate, num, pct, pivotTimeseries } from "@/lib/metrics-util";
@@ -57,8 +58,10 @@ function slice<T>(r: PromiseSettledResult<T>): Slice<T> {
   return { status: denied ? "denied" : "error" };
 }
 
-function unavailableLabel(status?: SliceStatus): string {
-  return status === "denied" ? "no access" : "unavailable";
+type Translate = ReturnType<typeof useI18n>["t"];
+
+function unavailableLabel(status: SliceStatus | undefined, t: Translate): string {
+  return status === "denied" ? t("overview.noAccess") : t("overview.unavailable");
 }
 
 const ACP_RUNTIME_HREF = "/dashboard/acp/runtime";
@@ -83,15 +86,15 @@ function runtimeStateTone(state?: string): "green" | "amber" | "red" | "neutral"
   return "neutral";
 }
 
-function relTime(iso?: string): string {
-  if (!iso) return "never";
-  const t = new Date(iso).getTime();
-  if (!Number.isFinite(t)) return "—";
-  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.round(s / 60)}m ago`;
-  if (s < 86400) return `${Math.round(s / 3600)}h ago`;
-  return `${Math.round(s / 86400)}d ago`;
+function relTime(iso: string | undefined, t: Translate): string {
+  if (!iso) return t("overview.never");
+  const timestamp = new Date(iso).getTime();
+  if (!Number.isFinite(timestamp)) return "—";
+  const s = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+  if (s < 60) return t("overview.secondsAgo", { count: s });
+  if (s < 3600) return t("overview.minutesAgo", { count: Math.round(s / 60) });
+  if (s < 86400) return t("overview.hoursAgo", { count: Math.round(s / 3600) });
+  return t("overview.daysAgo", { count: Math.round(s / 86400) });
 }
 
 function fmtMs(ms: number): string {
@@ -113,6 +116,7 @@ function summarize(ts?: TimeseriesResponse): { requests: number; errRate: number
 // ── Page ────────────────────────────────────────────────────────────────────
 
 export default function OverviewPage() {
+  const { locale, t } = useI18n();
   const { user, activeGateway } = useCurrentUser();
   const { showToast } = useToast();
   const [snippetTab, setSnippetTab] = useState<"agent" | "cc" | "openai" | "anthropic" | "python">("agent");
@@ -251,15 +255,15 @@ export default function OverviewPage() {
       const routes = byAgent.get(a.id) ?? [];
       const issues: string[] = [];
       let severity = 0;
-      if (a.disabled) { issues.push("disabled"); severity = 2; }
-      if (st && !st.executable) { issues.push("not executable"); severity = 2; }
+      if (a.disabled) { issues.push(t("overview.disabledIssue")); severity = 2; }
+      if (st && !st.executable) { issues.push(t("overview.notExecutable")); severity = 2; }
       if (routesAvailable) {
-        if (routes.length === 0) { issues.push("no ingress route"); severity = Math.max(severity, 2); }
-        else if (routes.every((r) => r.disabled)) { issues.push("all routes disabled"); severity = Math.max(severity, 2); }
+        if (routes.length === 0) { issues.push(t("overview.noIngress")); severity = Math.max(severity, 2); }
+        else if (routes.every((r) => r.disabled)) { issues.push(t("overview.allRoutesDisabled")); severity = Math.max(severity, 2); }
       }
-      if (st?.state === "unhealthy") { issues.push("unhealthy"); severity = 2; }
-      else if (st?.state === "degraded") { issues.push("degraded"); severity = Math.max(severity, 1); }
-      if (num(st?.pending_permissions) > 0) { issues.push(`${st?.pending_permissions} pending permission(s)`); severity = Math.max(severity, 1); }
+      if (st?.state === "unhealthy") { issues.push(t("overview.unhealthy")); severity = 2; }
+      else if (st?.state === "degraded") { issues.push(t("overview.degraded")); severity = Math.max(severity, 1); }
+      if (num(st?.pending_permissions) > 0) { issues.push(t("overview.pendingIssue", { count: st?.pending_permissions ?? 0 })); severity = Math.max(severity, 1); }
       return { agent: a, routes, issues, severity };
     });
 
@@ -277,7 +281,7 @@ export default function OverviewPage() {
       activeRuns: agents.reduce((n, a) => n + num(a.runtime_status?.active_runs), 0),
       danglingRoutes,
     };
-  }, [agents, agentRoutes, agentsStatus, routesStatus]);
+  }, [agents, agentRoutes, agentsStatus, routesStatus, t]);
 
   const acp = runtime.data?.acp.value;
   const builtin = runtime.data?.builtin.value;
@@ -291,8 +295,8 @@ export default function OverviewPage() {
   const acpInflight = acp?.in_flight?.length ?? 0;
   const builtinInflight = builtin?.in_flight?.length ?? 0;
   const runtimeUnavailable = runtime.data?.acp.status === "denied" || runtime.data?.builtin.status === "denied"
-    ? "no access"
-    : "unavailable";
+    ? t("overview.noAccess")
+    : t("overview.unavailable");
 
   const llmTraffic = summarize(traffic.data?.llm.value);
   const mcpTraffic = summarize(traffic.data?.mcp.value);
@@ -335,7 +339,7 @@ export default function OverviewPage() {
     python: `from openai import OpenAI\n\nclient = OpenAI(\n    base_url="${baseUrl}/v1",\n    api_key="AGW_API_KEY",\n)\nresp = client.chat.completions.create(\n    model="gpt-4.1",\n    messages=[{"role": "user", "content": "hello"}],\n)\nprint(resp.choices[0].message.content)`,
   };
   const snippetTabs: { key: typeof snippetTab; label: string }[] = [
-    { key: "agent", label: "Agent turn" },
+    { key: "agent", label: t("overview.agentTurn") },
     { key: "cc", label: "Claude Code" },
     { key: "openai", label: "OpenAI" },
     { key: "anthropic", label: "Anthropic" },
@@ -346,7 +350,7 @@ export default function OverviewPage() {
     if (snippetTab === "agent" && !primaryRoute) return;
     void navigator.clipboard.writeText(snippets[snippetTab]).then(() => {
       setCopied(true);
-      showToast("Snippet copied", "success");
+      showToast(t("overview.snippetCopied"), "success");
       window.setTimeout(() => setCopied(false), 1500);
     });
   };
@@ -357,16 +361,16 @@ export default function OverviewPage() {
   const llmRoutes = infra.data?.llmRoutes.value ?? [];
 
   const agentSteps = [
-    { known: agentsStatus === "ok", done: agents.length > 0, text: "Create an agent", hint: "Pick a runtime: pooled ACP process, in-process builtin, or HTTP.", href: "/dashboard/agents/new" },
-    { known: routesStatus === "ok", done: agentRoutes.length > 0, text: "Expose an agent route", hint: "Bind a public path prefix to the agent.", href: "/dashboard/agents/routes" },
-    { known: infra.data?.vkeys.status === "ok", done: vkeys.length > 0, text: "Issue a virtual key", hint: "Callers authenticate with it; scope it to the agent route.", href: "/dashboard/general/virtual-keys" },
-    { known: traffic.data?.agent.status === "ok", done: agentTraffic.requests > 0, text: "Run a turn", hint: "Use the snippet on the right, or the agent's Chat tab.", href: primaryAgent ? `/dashboard/agents/${encodeURIComponent(primaryAgent.id)}` : "/dashboard/agents" },
+    { known: agentsStatus === "ok", done: agents.length > 0, text: t("overview.createAgent"), hint: t("overview.createAgentHint"), href: "/dashboard/agents/new" },
+    { known: routesStatus === "ok", done: agentRoutes.length > 0, text: t("overview.exposeAgent"), hint: t("overview.exposeAgentHint"), href: "/dashboard/agents/routes" },
+    { known: infra.data?.vkeys.status === "ok", done: vkeys.length > 0, text: t("overview.issueKey"), hint: t("overview.issueAgentKeyHint"), href: "/dashboard/general/virtual-keys" },
+    { known: traffic.data?.agent.status === "ok", done: agentTraffic.requests > 0, text: t("overview.runTurn"), hint: t("overview.runTurnHint"), href: primaryAgent ? `/dashboard/agents/${encodeURIComponent(primaryAgent.id)}` : "/dashboard/agents" },
   ];
   const llmSteps = [
-    { known: infra.data?.providers.status === "ok", done: providers.length > 0, text: "Add an LLM provider", hint: "Connect OpenAI, Anthropic, or another backend.", href: "/dashboard/llm/providers" },
-    { known: infra.data?.llmRoutes.status === "ok", done: llmRoutes.length > 0, text: "Create an LLM route", hint: "Map incoming requests to a provider or logical model.", href: "/dashboard/llm/routes" },
-    { known: infra.data?.vkeys.status === "ok", done: vkeys.length > 0, text: "Issue a virtual key", hint: "Generate an auth token for callers.", href: "/dashboard/general/virtual-keys" },
-    { known: traffic.data?.llm.status === "ok", done: llmTraffic.requests > 0, text: "Send your first request", hint: "Use an OpenAI/Anthropic-compatible snippet.", href: null as string | null },
+    { known: infra.data?.providers.status === "ok", done: providers.length > 0, text: t("overview.addProvider"), hint: t("overview.addProviderHint"), href: "/dashboard/llm/providers" },
+    { known: infra.data?.llmRoutes.status === "ok", done: llmRoutes.length > 0, text: t("overview.createLlmRoute"), hint: t("overview.createLlmRouteHint"), href: "/dashboard/llm/routes" },
+    { known: infra.data?.vkeys.status === "ok", done: vkeys.length > 0, text: t("overview.issueKey"), hint: t("overview.issueLlmKeyHint"), href: "/dashboard/general/virtual-keys" },
+    { known: traffic.data?.llm.status === "ok", done: llmTraffic.requests > 0, text: t("overview.firstRequest"), hint: t("overview.firstRequestHint"), href: null as string | null },
   ];
   const steps = pathTab === "agent" ? agentSteps : llmSteps;
   const completed = steps.filter((s) => s.known && s.done).length;
@@ -374,36 +378,36 @@ export default function OverviewPage() {
   // ── Explore, grouped like the sidebar ─────────────────────────────────────
   const sections = [
     {
-      title: "Workspace", items: [
-        { label: "Agents", href: "/dashboard/agents", desc: "ACP / builtin / HTTP runtimes" },
-        { label: "Agent Routes", href: "/dashboard/agents/routes", desc: "Public paths that reach an agent" },
-        { label: "Interactions", href: "/dashboard/agents/interactions", desc: "Cross-protocol call chains" },
-        { label: "Usage", href: "/dashboard/agents/usage", desc: "LLM / MCP / Agent metrics" },
-        { label: "Virtual Keys", href: "/dashboard/general/virtual-keys", desc: "Caller auth tokens" },
+      title: t("overview.workspace"), items: [
+        { label: t("nav.agents"), href: "/dashboard/agents", desc: t("overview.agentRuntimeDesc") },
+        { label: t("nav.agentRoutes"), href: "/dashboard/agents/routes", desc: t("overview.agentRoutesDesc") },
+        { label: t("nav.interactions"), href: "/dashboard/agents/interactions", desc: t("overview.interactionsDesc") },
+        { label: t("nav.usage"), href: "/dashboard/agents/usage", desc: t("overview.usageDesc") },
+        { label: t("nav.virtualKeys"), href: "/dashboard/general/virtual-keys", desc: t("overview.keysDesc") },
       ],
     },
     {
       title: "LLM", items: [
-        { label: "Providers", href: "/dashboard/llm/providers", desc: "Upstream LLM backends" },
-        { label: "Models", href: "/dashboard/llm/models", desc: "Managed model catalog" },
-        { label: "Routes", href: "/dashboard/llm/routes", desc: "Request routing rules" },
-        { label: "Credentials", href: "/dashboard/llm/credentials", desc: "Shared upstream authentication" },
+        { label: t("nav.providers"), href: "/dashboard/llm/providers", desc: t("overview.providersDesc") },
+        { label: t("nav.models"), href: "/dashboard/llm/models", desc: t("overview.modelsDesc") },
+        { label: t("nav.routes"), href: "/dashboard/llm/routes", desc: t("overview.routesDesc") },
+        { label: t("nav.credentials"), href: "/dashboard/llm/credentials", desc: t("overview.credentialsDesc") },
       ],
     },
     {
       title: "MCP", items: [
-        { label: "Services", href: "/dashboard/mcp/services", desc: "MCP servers & tools" },
-        { label: "Routes", href: "/dashboard/mcp/routes", desc: "Expose MCP over paths" },
+        { label: t("nav.services"), href: "/dashboard/mcp/services", desc: t("overview.mcpServicesDesc") },
+        { label: t("nav.routes"), href: "/dashboard/mcp/routes", desc: t("overview.mcpRoutesDesc") },
       ],
     },
     {
-      title: "Runtimes & Operations", items: [
-        { label: "ACP Runtime", href: ACP_RUNTIME_HREF, desc: "Pooled process diagnostics" },
-        { label: "Builtin Runtime", href: BUILTIN_RUNTIME_HREF, desc: "Host-wide materialization state" },
+      title: t("overview.runtimeOps"), items: [
+        { label: t("nav.acpRuntime"), href: ACP_RUNTIME_HREF, desc: t("overview.acpDesc") },
+        { label: t("nav.builtinRuntime"), href: BUILTIN_RUNTIME_HREF, desc: t("overview.builtinDesc") },
         ...(user?.is_platform_admin
           ? [
-              { label: "Bundle", href: "/dashboard/configuration/bundle", desc: "Import / export gateway config" },
-              { label: "Servers", href: "/dashboard/configuration/servers", desc: "HTTP listeners & TLS" },
+              { label: t("nav.bundle"), href: "/dashboard/configuration/bundle", desc: t("overview.bundleDesc") },
+              { label: t("nav.servers"), href: "/dashboard/configuration/servers", desc: t("overview.serversDesc") },
             ]
           : []),
       ],
@@ -411,10 +415,10 @@ export default function OverviewPage() {
   ];
 
   const statusPill =
-    status === "online" ? { dot: "bg-emerald-400", text: "Gateway online", cls: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" }
-    : status === "restricted" ? { dot: "bg-amber-400", text: "Limited access", cls: "border-amber-500/30 bg-amber-500/10 text-amber-300" }
-    : status === "unreachable" ? { dot: "bg-red-400", text: "Gateway unreachable", cls: "border-red-500/30 bg-red-500/10 text-red-300" }
-    : { dot: "bg-slate-400 animate-pulse", text: "Checking…", cls: "border-slate-600/50 bg-slate-800/40 text-slate-300" };
+    status === "online" ? { dot: "bg-emerald-400", text: t("overview.online"), cls: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" }
+    : status === "restricted" ? { dot: "bg-amber-400", text: t("overview.limited"), cls: "border-amber-500/30 bg-amber-500/10 text-amber-300" }
+    : status === "unreachable" ? { dot: "bg-red-400", text: t("overview.unreachable"), cls: "border-red-500/30 bg-red-500/10 text-red-300" }
+    : { dot: "bg-slate-400 animate-pulse", text: t("overview.checking"), cls: "border-slate-600/50 bg-slate-800/40 text-slate-300" };
 
   const refreshAll = () => {
     void fleet.mutate();
@@ -428,14 +432,8 @@ export default function OverviewPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Overview"
-        description={
-          <>
-            Operate agents on <span className="font-semibold text-slate-300">{activeGateway?.name ?? "this gateway"}</span> — every
-            agent runs on one runtime backend, is reached through its own ingress route, and draws on the shared LLM and MCP
-            infrastructure below.
-          </>
-        }
+        title={t("nav.overview")}
+        description={t("overview.description", { gateway: activeGateway?.name ?? t("overview.thisGateway") })}
         actions={
           <>
             <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${statusPill.cls}`}>
@@ -450,8 +448,7 @@ export default function OverviewPage() {
       {status === "unreachable" && (
         <Card className="border-red-500/30 bg-red-500/5">
           <p className="text-xs text-red-300">
-            Could not reach the active gateway&apos;s Admin API. Connection details live in the manager database, not the
-            environment — check the gateway is running, then re-test it under Platform → Gateways.
+            {t("overview.unreachableHelp")}
           </p>
         </Card>
       )}
@@ -460,8 +457,8 @@ export default function OverviewPage() {
         <Card className="border-amber-500/30 bg-amber-500/5">
           <p className="text-xs text-amber-300">
             {access.ok > 0
-              ? `Your role on this gateway hides ${access.denied} of ${access.total} sections; the figures below cover only what you may read.`
-              : "Your role on this gateway grants no content access yet. Ask a platform admin for a Gateway Admin membership."}
+              ? t("overview.hiddenSections", { denied: access.denied, total: access.total })
+              : t("overview.noContentAccess")}
           </p>
         </Card>
       )}
@@ -470,36 +467,36 @@ export default function OverviewPage() {
       <StatGrid>
         <Link href="/dashboard/agents" className="block">
           <StatCard
-            label="Agents"
-            value={agentsStatus === "ok" ? agents.length : unavailableLabel(agentsStatus)}
+            label={t("nav.agents")}
+            value={agentsStatus === "ok" ? agents.length : unavailableLabel(agentsStatus, t)}
             loading={fleet.isLoading}
-            sub={agentsStatus === "ok" ? `${health.ready} ready · ${health.attention} need attention` : "agent inventory could not be read"}
+            sub={agentsStatus === "ok" ? t("overview.readyAttention", { ready: health.ready, attention: health.attention }) : t("overview.agentInventoryUnreadable")}
             tone={health.attention > 0 ? "text-amber-300" : "text-slate-100"}
             className="transition-colors hover:border-blue-500/40"
           />
         </Link>
         <Link href="/dashboard/agents/routes" className="block">
           <StatCard
-            label="Agent Routes"
-            value={routesStatus === "ok" ? agentRoutes.length : unavailableLabel(routesStatus)}
+            label={t("nav.agentRoutes")}
+            value={routesStatus === "ok" ? agentRoutes.length : unavailableLabel(routesStatus, t)}
             loading={fleet.isLoading}
-            sub={routesStatus === "ok" ? (health.danglingRoutes.length > 0 ? `${health.danglingRoutes.length} dangling` : "public entry points") : "route inventory could not be read"}
+            sub={routesStatus === "ok" ? (health.danglingRoutes.length > 0 ? t("overview.dangling", { count: health.danglingRoutes.length }) : t("overview.publicEntryPoints")) : t("overview.routeInventoryUnreadable")}
             tone={health.danglingRoutes.length > 0 ? "text-rose-300" : "text-slate-100"}
             className="transition-colors hover:border-blue-500/40"
           />
         </Link>
         <StatCard
-          label="Active Runs"
-          value={agentsStatus === "ok" ? health.activeRuns : unavailableLabel(agentsStatus)}
+          label={t("overview.activeRuns")}
+          value={agentsStatus === "ok" ? health.activeRuns : unavailableLabel(agentsStatus, t)}
           loading={fleet.isLoading}
-          sub={runtimeComplete ? `acp ${acpInflight} · builtin ${builtinInflight} in-flight` : `runtime diagnostics ${runtimeUnavailable}`}
+          sub={runtimeComplete ? t("overview.inflight", { acp: acpInflight, builtin: builtinInflight }) : t("overview.runtimeDiagnostics", { status: runtimeUnavailable })}
         />
         <Link href={pendingHref} className="block">
           <StatCard
-            label="Pending Permissions"
+            label={t("overview.pendingPermissions")}
             value={pending ?? runtimeUnavailable}
             loading={runtime.isLoading}
-            sub={runtimeComplete ? `acp ${acpPending} · builtin ${builtinPending}` : "one or more runtime views could not be read"}
+            sub={runtimeComplete ? `acp ${acpPending} · builtin ${builtinPending}` : t("overview.runtimeViewsUnreadable")}
             tone={pending !== null && pending > 0 ? "text-amber-300" : "text-slate-100"}
             className="transition-colors hover:border-amber-500/40"
           />
@@ -509,15 +506,15 @@ export default function OverviewPage() {
       {/* Traffic across all three data planes, last 24h */}
       <Card>
         <div className="mb-3 flex items-center justify-between">
-          <CardTitle>Traffic</CardTitle>
-          <span className="text-xs text-slate-500">last 24h</span>
+          <CardTitle>{t("overview.traffic")}</CardTitle>
+          <span className="text-xs text-slate-500">{t("overview.last24h")}</span>
         </div>
         <div className="grid gap-2 sm:grid-cols-3">
           {[
             { kind: "agent", label: "Agent", t: agentTraffic, slice: traffic.data?.agent, href: "/dashboard/agents/usage" },
             { kind: "llm", label: "LLM", t: llmTraffic, slice: traffic.data?.llm, href: "/dashboard/agents/usage" },
             { kind: "mcp", label: "MCP", t: mcpTraffic, slice: traffic.data?.mcp, href: "/dashboard/agents/usage" },
-          ].map(({ kind, label, t, slice: trafficSlice, href }) => (
+          ].map(({ kind, label, t: metric, slice: trafficSlice, href }) => (
             <Link
               key={kind}
               href={href}
@@ -525,34 +522,34 @@ export default function OverviewPage() {
             >
               <div className="flex items-center justify-between">
                 <Badge tone={protocolTone(kind)} className="uppercase">{label}</Badge>
-                <span className={`text-xs tabular-nums ${trafficSlice?.status === "ok" && t.errRate > 0 ? "text-amber-300" : "text-slate-500"}`}>
-                  {trafficSlice?.status === "ok" ? `${pct(t.errRate)} err` : "—"}
+                <span className={`text-xs tabular-nums ${trafficSlice?.status === "ok" && metric.errRate > 0 ? "text-amber-300" : "text-slate-500"}`}>
+                  {trafficSlice?.status === "ok" ? t("overview.errorRate", { value: pct(metric.errRate) }) : "—"}
                 </span>
               </div>
               <p className="mt-1 text-xl font-semibold tabular-nums text-slate-100">
-                {traffic.isLoading ? "…" : trafficSlice?.status === "ok" ? t.requests.toLocaleString() : unavailableLabel(trafficSlice?.status)}
+                {traffic.isLoading ? "…" : trafficSlice?.status === "ok" ? metric.requests.toLocaleString(locale) : unavailableLabel(trafficSlice?.status, t)}
               </p>
-              <div className="mt-1"><Sparkline data={trafficSlice?.status === "ok" ? t.spark : []} dataKey="requests" /></div>
+              <div className="mt-1"><Sparkline data={trafficSlice?.status === "ok" ? metric.spark : []} dataKey="requests" /></div>
             </Link>
           ))}
         </div>
         <p className="mt-2 text-xs text-slate-500">
-          Deep health (upstream reachability, circuit-break, credential expiry) is not exposed by the gateway yet.
+          {t("overview.deepHealth")}
         </p>
       </Card>
 
       {/* Agent fleet health */}
       <Card>
         <div className="mb-3 flex items-center justify-between">
-          <CardTitle>Agent Fleet</CardTitle>
+          <CardTitle>{t("overview.agentFleet")}</CardTitle>
           <Link href="/dashboard/agents" className="text-xs text-blue-300 hover:text-blue-200">
-            {agentsStatus === "ok" ? `View all ${agents.length} →` : "Open Agents →"}
+            {agentsStatus === "ok" ? t("overview.viewAll", { count: agents.length }) : t("overview.openAgents")}
           </Link>
         </div>
 
         {health.danglingRoutes.length > 0 && (
           <p className="mb-2 rounded-md border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-xs text-rose-300">
-            {health.danglingRoutes.length} agent route(s) target an agent that no longer exists:{" "}
+            {t("overview.danglingRoutes", { count: health.danglingRoutes.length })}
             <span className="font-mono">{health.danglingRoutes.slice(0, 3).map((r) => r.agent_id).join(", ")}</span>
           </p>
         )}
@@ -560,10 +557,10 @@ export default function OverviewPage() {
         {health.rows.length === 0 ? (
           <p className="py-4 text-center text-xs text-slate-500">
             {agentsStatus === "denied"
-              ? "You do not have access to this gateway's agents."
+              ? t("overview.agentsDenied")
               : agentsStatus === "error"
-                ? "Agent inventory is unavailable. Refresh to try again."
-                : "No agents yet — create one to get started."}
+                ? t("overview.agentsUnavailable")
+                : t("overview.noAgents")}
           </p>
         ) : (
           <div className="space-y-1.5">
@@ -578,10 +575,10 @@ export default function OverviewPage() {
                 <Badge tone={runtimeStateTone(agent.runtime_status?.state)}>{agent.runtime_status?.state ?? "unknown"}</Badge>
                 {issues.length > 0 && <Badge tone="amber">{issues[0]}</Badge>}
                 <span className="text-xs tabular-nums text-slate-500">
-                  {routesStatus === "ok" ? `${routes.length} route${routes.length === 1 ? "" : "s"}` : `routes ${unavailableLabel(routesStatus)}`}
+                  {routesStatus === "ok" ? t("overview.routeCount", { count: routes.length }) : t("overview.routesStatus", { status: unavailableLabel(routesStatus, t) })}
                 </span>
-                <span className="text-xs tabular-nums text-slate-500">{num(agent.runtime_status?.active_runs)} running</span>
-                <span className="w-20 text-right text-xs text-slate-600">{relTime(agent.runtime_status?.last_activity_at)}</span>
+                <span className="text-xs tabular-nums text-slate-500">{t("overview.running", { count: num(agent.runtime_status?.active_runs) })}</span>
+                <span className="w-20 text-right text-xs text-slate-600">{relTime(agent.runtime_status?.last_activity_at, t)}</span>
               </Link>
             ))}
           </div>
@@ -591,39 +588,39 @@ export default function OverviewPage() {
       {/* Recent orchestration */}
       <Card>
         <div className="mb-3 flex items-center justify-between">
-          <CardTitle>Recent Activity</CardTitle>
-          <Link href="/dashboard/agents/interactions" className="text-xs text-blue-300 hover:text-blue-200">All interactions →</Link>
+          <CardTitle>{t("overview.recentActivity")}</CardTitle>
+          <Link href="/dashboard/agents/interactions" className="text-xs text-blue-300 hover:text-blue-200">{t("overview.allInteractions")}</Link>
         </div>
         {recent.isLoading ? (
-          <p className="py-4 text-center text-xs text-slate-500">Loading recent activity…</p>
+          <p className="py-4 text-center text-xs text-slate-500">{t("overview.loadingActivity")}</p>
         ) : recentTraces.length === 0 ? (
           <p className="py-4 text-center text-xs text-slate-500">
             {recentFailed.length === 3
-              ? recentFailed.every((s) => s.status === "denied") ? "You do not have access to interaction data." : "Recent activity is unavailable. Refresh to try again."
-              : recentFailed.length > 0 ? "Some interaction data is unavailable; no activity was returned by the remaining sources." : "No data-plane traffic recorded yet."}
+              ? recentFailed.every((s) => s.status === "denied") ? t("overview.interactionsDenied") : t("overview.activityUnavailable")
+              : recentFailed.length > 0 ? t("overview.partialNoActivity") : t("overview.noTraffic")}
           </p>
         ) : (
           <div className="space-y-1.5">
             {recentFailed.length > 0 && (
               <p className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">
-                Showing partial activity; {recentFailed.length} of 3 protocol sources are unavailable.
+                {t("overview.partialActivity", { count: recentFailed.length })}
               </p>
             )}
-            {recentTraces.map((t) => (
+            {recentTraces.map((trace) => (
               <Link
-                key={t.traceId}
+                key={trace.traceId}
                 href="/dashboard/agents/interactions"
                 className="flex flex-wrap items-center gap-2 rounded-md border border-slate-700/60 bg-slate-900/30 px-3 py-2 transition-colors hover:border-blue-500/40 hover:bg-blue-500/5"
               >
-                <span className={`h-2 w-2 shrink-0 rounded-full ${t.ok ? "bg-emerald-400" : "bg-rose-400"}`} />
-                <span className="min-w-0 flex-1 truncate text-xs text-slate-200">{t.rootLabel}</span>
-                {t.protocols.map((p) => (
+                <span className={`h-2 w-2 shrink-0 rounded-full ${trace.ok ? "bg-emerald-400" : "bg-rose-400"}`} />
+                <span className="min-w-0 flex-1 truncate text-xs text-slate-200">{trace.rootLabel}</span>
+                {trace.protocols.map((p) => (
                   <Badge key={p} tone={protocolTone(p)} className="uppercase">{p}</Badge>
                 ))}
-                <span className="text-xs tabular-nums text-slate-500">{t.spanCount} span{t.spanCount === 1 ? "" : "s"}</span>
-                <span className="w-16 text-right text-xs tabular-nums text-slate-400">{fmtMs(t.duration)}</span>
+                <span className="text-xs tabular-nums text-slate-500">{t("overview.spanCount", { count: trace.spanCount })}</span>
+                <span className="w-16 text-right text-xs tabular-nums text-slate-400">{fmtMs(trace.duration)}</span>
                 <span className="w-20 text-right text-xs text-slate-600" suppressHydrationWarning>
-                  {new Date(t.startedAt).toLocaleTimeString()}
+                  {new Date(trace.startedAt).toLocaleTimeString(locale)}
                 </span>
               </Link>
             ))}
@@ -635,20 +632,20 @@ export default function OverviewPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <div className="mb-3 flex items-center justify-between gap-2">
-            <CardTitle>Get Started</CardTitle>
-            <span className="text-xs text-slate-500">{completed}/{steps.length} done</span>
+            <CardTitle>{t("overview.getStarted")}</CardTitle>
+            <span className="text-xs text-slate-500">{t("overview.done", { done: completed, total: steps.length })}</span>
           </div>
           <div className="mb-2 flex flex-wrap gap-1.5">
-            {([{ key: "agent", label: "Run an agent" }, { key: "llm", label: "Proxy an LLM" }] as const).map((t) => (
+            {([{ key: "agent", label: t("overview.runAgent") }, { key: "llm", label: t("overview.proxyLlm") }] as const).map((tab) => (
               <button
-                key={t.key}
+                key={tab.key}
                 type="button"
-                onClick={() => setPathTab(t.key)}
+                onClick={() => setPathTab(tab.key)}
                 className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                  pathTab === t.key ? "bg-blue-600/20 text-blue-300" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
+                  pathTab === tab.key ? "bg-blue-600/20 text-blue-300" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
                 }`}
               >
-                {t.label}
+                {tab.label}
               </button>
             ))}
           </div>
@@ -663,7 +660,7 @@ export default function OverviewPage() {
                   </span>
                   <span className="min-w-0">
                     <span className={`block text-xs font-medium ${step.known && step.done ? "text-slate-400 line-through" : "text-slate-200"}`}>{step.text}</span>
-                    <span className="block text-xs text-slate-500">{step.known ? step.hint : "Status unavailable; refresh to try again."}</span>
+                    <span className="block text-xs text-slate-500">{step.known ? step.hint : t("overview.statusUnavailable")}</span>
                   </span>
                 </>
               );
@@ -679,7 +676,7 @@ export default function OverviewPage() {
 
         <Card>
           <div className="mb-3 flex items-center justify-between gap-2">
-            <CardTitle>Integration</CardTitle>
+            <CardTitle>{t("overview.integration")}</CardTitle>
             <button
               type="button"
               onClick={copySnippet}
@@ -687,7 +684,7 @@ export default function OverviewPage() {
               className="inline-flex items-center gap-1.5 rounded-md border border-slate-600/70 bg-slate-800/60 px-2.5 py-1 text-xs font-semibold text-slate-300 transition-colors hover:bg-slate-700/70 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-slate-800/60"
             >
               <Icon path={copied ? P_CHECK : P_COPY} className="h-3 w-3" />
-              {copied ? "Copied" : "Copy"}
+              {copied ? t("overview.copied") : t("overview.copy")}
             </button>
           </div>
           <div className="mb-2 flex flex-wrap gap-1.5">
@@ -706,16 +703,14 @@ export default function OverviewPage() {
           </div>
           <pre className="overflow-auto rounded-md border border-slate-700/70 bg-slate-950/60 p-3 font-mono text-xs leading-relaxed text-slate-300">{snippets[snippetTab]}</pre>
           <p className="mt-2 text-xs text-slate-500">
-            Base URL <span className="font-mono text-slate-400">{baseUrl}</span>
-            {publicBase === null && <span className="text-slate-500"> (assumed — the public listener is only readable by a platform admin)</span>}
-            {" · "}replace <span className="font-mono text-slate-400">$AGW_API_KEY</span> with a virtual key.
+            {t("overview.baseUrl")} <span className="font-mono text-slate-400">{baseUrl}</span>
+            {publicBase === null && <span className="text-slate-500">{t("overview.assumedUrl")}</span>}
+            {" · "}{t("overview.replaceKey")}
           </p>
           {snippetTab === "agent" && (
             <p className="mt-1 text-xs text-slate-500">
-              <span className="font-mono">options.version</span> is required, and{" "}
-              <span className="font-mono">options.runtime</span> is decoded by the selected backend: ACP requires a non-empty{" "}
-              <span className="font-mono">thread_id</span>, builtin rejects every key.
-              {!primaryRoute && " No enabled route targeting an executable agent is available — the path above is a placeholder and copying is disabled."}
+              {t("overview.runtimeOptions")}
+              {!primaryRoute && t("overview.noPrimaryRoute")}
             </p>
           )}
         </Card>
@@ -723,7 +718,7 @@ export default function OverviewPage() {
 
       {/* Explore */}
       <Card>
-        <CardTitle className="mb-3">Explore</CardTitle>
+        <CardTitle className="mb-3">{t("overview.explore")}</CardTitle>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {sections.map((sec) => (
             <div key={sec.title}>
@@ -747,15 +742,15 @@ export default function OverviewPage() {
 
       {/* Shared infrastructure — secondary to the agents above */}
       <Card>
-        <CardTitle className="mb-3">Shared Infrastructure</CardTitle>
+        <CardTitle className="mb-3">{t("overview.sharedInfra")}</CardTitle>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
           {[
-            { label: "Providers", value: providers.length, sub: "LLM backends", href: "/dashboard/llm/providers", status: infra.data?.providers.status },
-            { label: "Models", value: (infra.data?.models.value ?? []).length, sub: "managed", href: "/dashboard/llm/models", status: infra.data?.models.status },
-            { label: "LLM Routes", value: llmRoutes.length, sub: `${llmRoutes.filter((r) => !r.disabled).length} active`, href: "/dashboard/llm/routes", status: infra.data?.llmRoutes.status },
-            { label: "MCP Services", value: (infra.data?.mcpServices.value ?? []).length, sub: infra.data?.mcpRoutes.status === "ok" ? `${(infra.data?.mcpRoutes.value ?? []).length} routes` : `routes ${unavailableLabel(infra.data?.mcpRoutes.status)}`, href: "/dashboard/mcp/services", status: infra.data?.mcpServices.status },
-            { label: "Virtual Keys", value: vkeys.length, sub: `${vkeys.filter((k) => !k.disabled).length} active`, href: "/dashboard/general/virtual-keys", status: infra.data?.vkeys.status },
-            { label: "Credentials", value: null, sub: "upstream auth", href: "/dashboard/llm/credentials", status: "ok" as SliceStatus },
+            { label: t("nav.providers"), value: providers.length, sub: t("overview.llmBackends"), href: "/dashboard/llm/providers", status: infra.data?.providers.status },
+            { label: t("nav.models"), value: (infra.data?.models.value ?? []).length, sub: t("overview.managed"), href: "/dashboard/llm/models", status: infra.data?.models.status },
+            { label: "LLM Routes", value: llmRoutes.length, sub: t("overview.activeCount", { count: llmRoutes.filter((r) => !r.disabled).length }), href: "/dashboard/llm/routes", status: infra.data?.llmRoutes.status },
+            { label: t("mcpServices.title"), value: (infra.data?.mcpServices.value ?? []).length, sub: infra.data?.mcpRoutes.status === "ok" ? t("overview.routesCount", { count: (infra.data?.mcpRoutes.value ?? []).length }) : t("overview.routesStatus", { status: unavailableLabel(infra.data?.mcpRoutes.status, t) }), href: "/dashboard/mcp/services", status: infra.data?.mcpServices.status },
+            { label: t("nav.virtualKeys"), value: vkeys.length, sub: t("overview.activeCount", { count: vkeys.filter((k) => !k.disabled).length }), href: "/dashboard/general/virtual-keys", status: infra.data?.vkeys.status },
+            { label: t("nav.credentials"), value: null, sub: t("overview.upstreamAuth"), href: "/dashboard/llm/credentials", status: "ok" as SliceStatus },
           ].map((s) => (
             <Link
               key={s.label}
@@ -765,8 +760,8 @@ export default function OverviewPage() {
               <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">{s.label}</p>
               <p className="mt-0.5 text-lg font-semibold tabular-nums text-slate-100">
                 {infra.isLoading ? <span className="inline-block h-5 w-8 animate-pulse rounded bg-slate-700/50" />
-                  : s.status !== "ok" ? <span className="text-xs font-normal text-slate-500">{unavailableLabel(s.status)}</span>
-                  : s.value === null ? <span className="text-xs font-normal text-slate-400">manage →</span>
+                  : s.status !== "ok" ? <span className="text-xs font-normal text-slate-500">{unavailableLabel(s.status, t)}</span>
+                  : s.value === null ? <span className="text-xs font-normal text-slate-400">{t("overview.manage")}</span>
                   : s.value}
               </p>
               <p className="mt-0.5 text-xs text-slate-500">{s.sub}</p>
