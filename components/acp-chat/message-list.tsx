@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 import type { ChatMessage } from "./types";
 import { MessageBubble } from "./message-bubble";
+import { useI18n } from "@/components/i18n-provider";
 
 interface MessageListProps {
   messages: ChatMessage[];
@@ -15,6 +16,7 @@ interface MessageListProps {
 }
 
 export function MessageList({ messages, onResolvePermission }: MessageListProps) {
+  const { t } = useI18n();
   const endRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -30,7 +32,7 @@ export function MessageList({ messages, onResolvePermission }: MessageListProps)
   if (messages.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-slate-500">Send a message to start the conversation.</p>
+        <p className="text-sm text-slate-500">{t("chat.empty")}</p>
       </div>
     );
   }

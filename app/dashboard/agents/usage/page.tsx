@@ -9,6 +9,7 @@ import { Select } from "@/components/ui/select";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { Badge, protocolTone } from "@/components/ui/badge";
 import { AutoRefreshControl } from "@/components/ui/auto-refresh-control";
+import { useI18n } from "@/components/i18n-provider";
 import { TimeLineChart, DonutChart, useChartPalette, useChartTones } from "@/components/ui/charts";
 import { useAdminSWR } from "@/hooks/use-admin-swr";
 import {
@@ -51,10 +52,10 @@ function groupName(it: BreakdownItem, groupBy: string): string | null {
 
 /** Donut slices from a breakdown: empty group values fold into a single
  *  `(none)` bucket with summed requests, then ranked desc and capped at 8. */
-function shareData(items: BreakdownItem[], groupBy: string): { name: string; value: number }[] {
+function shareData(items: BreakdownItem[], groupBy: string, emptyName: string): { name: string; value: number }[] {
   const byName = new Map<string, number>();
   for (const it of items) {
-    const name = groupName(it, groupBy) ?? "(none)";
+    const name = groupName(it, groupBy) ?? emptyName;
     byName.set(name, (byName.get(name) ?? 0) + num(it.request_count));
   }
   return [...byName.entries()]
@@ -66,14 +67,16 @@ function shareData(items: BreakdownItem[], groupBy: string): { name: string; val
 
 // useSearchParams must be under a Suspense boundary (Next static-render rule).
 export default function UsagePage() {
+  const { t } = useI18n();
   return (
-    <Suspense fallback={<Card className="p-8 text-center text-sm text-slate-400">Loading usage…</Card>}>
+    <Suspense fallback={<Card className="p-8 text-center text-sm text-slate-400">{t("usage.loading")}</Card>}>
       <UsageView />
     </Suspense>
   );
 }
 
 function UsageView() {
+  const { t } = useI18n();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -99,11 +102,11 @@ function UsageView() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Usage Statistics"
+        title={t("usage.title")}
         description={
           agentId
-            ? "Live LLM, MCP, and Agent traffic scoped to the selected agent (durable agent_id tag or its owned routes)."
-            : "Live LLM, MCP, and ACP traffic across all agents. Filter by Agent to scope every stat to one agent."
+            ? t("usage.scopedDescription")
+            : t("usage.allDescription")
         }
       />
 
@@ -113,7 +116,7 @@ function UsageView() {
           name="agent"
           value={agent}
           onChange={setAgent}
-          options={[{ value: "all", label: "All agents" }, ...(agents ?? []).map((a) => ({ value: a.id, label: a.name || a.id }))]}
+          options={[{ value: "all", label: t("usage.allAgents") }, ...(agents ?? []).map((a) => ({ value: a.id, label: a.name || a.id }))]}
         />
       </div>
 
@@ -166,15 +169,15 @@ function ControlBar({ range, setRange, children }: TabProps & { children?: React
 // LLM tab
 // ──────────────────────────────────────────────────────────────────────────
 
-const LLM_GROUP_OPTIONS = [
-  { value: "route_id", label: "Route" },
-  { value: "virtual_key_id", label: "Virtual Key" },
-  { value: "provider_id", label: "Provider" },
-  { value: "upstream_model", label: "Model" },
-  { value: "llm_api", label: "API" },
-];
-
 function LLMTab({ range, setRange, agentId }: TabProps) {
+  const { t } = useI18n();
+  const groupOptions = [
+    { value: "route_id", label: t("usage.route") },
+    { value: "virtual_key_id", label: t("usage.virtualKey") },
+    { value: "provider_id", label: t("usage.provider") },
+    { value: "upstream_model", label: t("usage.model") },
+    { value: "llm_api", label: "API" },
+  ];
   const [groupBy, setGroupBy] = useState("route_id");
   const q = useMemo(() => rangeToQuery(range), [range]);
 
@@ -197,10 +200,10 @@ function LLMTab({ range, setRange, agentId }: TabProps) {
   const items: BreakdownItem[] = useMemo(() => breakdown.data?.items ?? [], [breakdown.data]);
   const totals = useMemo(() => rollupUsage(items), [items]);
   const lineData = useMemo(() => pivotTimeseries(timeseries.data?.items ?? []), [timeseries.data]);
-  const donutData = useMemo(() => shareData(items, groupBy), [items, groupBy]);
+  const donutData = useMemo(() => shareData(items, groupBy, t("usage.none")), [items, groupBy, t]);
 
   const loading = breakdown.isLoading && !breakdown.data;
-  const groupLabel = LLM_GROUP_OPTIONS.find((g) => g.value === groupBy)?.label ?? groupBy;
+  const groupLabel = groupOptions.find((g) => g.value === groupBy)?.label ?? groupBy;
   const refresh = () => {
     void breakdown.mutate();
     void timeseries.mutate();
@@ -208,23 +211,23 @@ function LLMTab({ range, setRange, agentId }: TabProps) {
   };
 
   if (breakdown.error)
-    return <Card className="p-6 text-center text-sm text-rose-300">{breakdown.error instanceof Error ? breakdown.error.message : "Failed to load metrics"}</Card>;
+    return <Card className="p-6 text-center text-sm text-rose-300">{breakdown.error instanceof Error ? breakdown.error.message : t("usage.loadFailed")}</Card>;
 
   return (
     <div className="space-y-4">
       <ControlBar range={range} setRange={setRange}>
-        <span>Group by</span>
-        <Select name="llm-group-by" value={groupBy} onChange={setGroupBy} options={LLM_GROUP_OPTIONS} />
+        <span>{t("usage.groupBy")}</span>
+        <Select name="llm-group-by" value={groupBy} onChange={setGroupBy} options={groupOptions} />
         <AutoRefreshControl lastUpdated={breakdown.lastUpdated} onRefresh={refresh} refreshing={breakdown.isValidating} />
       </ControlBar>
 
       <StatGrid>
-        <StatCard label="Requests" value={fmt(totals.requests)} loading={loading} />
-        <StatCard label="Successful" value={fmt(totals.success)} tone="text-emerald-300" loading={loading} />
-        <StatCard label="Failed" value={fmt(totals.failure)} tone="text-rose-300" loading={loading} />
-        <StatCard label="Error Rate" value={pct(errorRate(totals.success, totals.failure))} tone={totals.failure > 0 ? "text-amber-300" : "text-slate-100"} loading={loading} />
-        <StatCard label="Total Tokens" value={fmt(totals.tokens)} sub={`${fmt(totals.input)} in · ${fmt(totals.output)} out`} loading={loading} />
-        <StatCard label="Avg Latency" value={`${fmt(totals.avgLatency)} ms`} loading={loading} />
+        <StatCard label={t("usage.requests")} value={fmt(totals.requests)} loading={loading} />
+        <StatCard label={t("usage.successful")} value={fmt(totals.success)} tone="text-emerald-300" loading={loading} />
+        <StatCard label={t("usage.failed")} value={fmt(totals.failure)} tone="text-rose-300" loading={loading} />
+        <StatCard label={t("usage.errorRate")} value={pct(errorRate(totals.success, totals.failure))} tone={totals.failure > 0 ? "text-amber-300" : "text-slate-100"} loading={loading} />
+        <StatCard label={t("usage.totalTokens")} value={fmt(totals.tokens)} sub={t("usage.tokenDirection", { input: fmt(totals.input), output: fmt(totals.output) })} loading={loading} />
+        <StatCard label={t("usage.avgLatency")} value={`${fmt(totals.avgLatency)} ms`} loading={loading} />
       </StatGrid>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -234,7 +237,7 @@ function LLMTab({ range, setRange, agentId }: TabProps) {
         <ShareCard groupLabel={groupLabel} data={donutData} />
       </div>
 
-      <BreakdownCard title={`Breakdown by ${groupLabel}`} items={items} groupBy={groupBy} groupLabel={groupLabel} tokens emptyText="No usage recorded in this range." />
+      <BreakdownCard title={t("usage.breakdownBy", { group: groupLabel })} items={items} groupBy={groupBy} groupLabel={groupLabel} tokens emptyText={t("usage.empty")} />
       <EventsCard events={events.data?.items ?? []} />
     </div>
   );
@@ -244,15 +247,15 @@ function LLMTab({ range, setRange, agentId }: TabProps) {
 // MCP tab
 // ──────────────────────────────────────────────────────────────────────────
 
-const MCP_GROUP_OPTIONS = [
-  { value: "tool_name", label: "Tool" },
-  { value: "method", label: "Method" },
-  { value: "route_id", label: "Route" },
-  { value: "service_id", label: "Service" },
-  { value: "virtual_key_id", label: "Virtual Key" },
-];
-
 function MCPTab({ range, setRange, agentId }: TabProps) {
+  const { t } = useI18n();
+  const groupOptions = [
+    { value: "tool_name", label: t("usage.tool") },
+    { value: "method", label: t("usage.method") },
+    { value: "route_id", label: t("usage.route") },
+    { value: "service_id", label: t("usage.service") },
+    { value: "virtual_key_id", label: t("usage.virtualKey") },
+  ];
   const [groupBy, setGroupBy] = useState("tool_name");
   const q = useMemo(() => rangeToQuery(range), [range]);
 
@@ -276,28 +279,28 @@ function MCPTab({ range, setRange, agentId }: TabProps) {
   const totals = useMemo(() => rollupUsage(items), [items]);
   const lineData = useMemo(() => pivotTimeseries(timeseries.data?.items ?? []), [timeseries.data]);
   const effectiveGroupBy = breakdown.data?.group_by ?? groupBy;
-  const groupLabel = MCP_GROUP_OPTIONS.find((g) => g.value === effectiveGroupBy)?.label ?? effectiveGroupBy;
-  const donutData = useMemo(() => shareData(items, effectiveGroupBy), [items, effectiveGroupBy]);
+  const groupLabel = groupOptions.find((g) => g.value === effectiveGroupBy)?.label ?? effectiveGroupBy;
+  const donutData = useMemo(() => shareData(items, effectiveGroupBy, t("usage.none")), [items, effectiveGroupBy, t]);
   const loading = breakdown.isLoading && !breakdown.data;
 
   if (breakdown.error)
-    return <Card className="p-6 text-center text-sm text-rose-300">{breakdown.error instanceof Error ? breakdown.error.message : "Failed to load metrics"}</Card>;
+    return <Card className="p-6 text-center text-sm text-rose-300">{breakdown.error instanceof Error ? breakdown.error.message : t("usage.loadFailed")}</Card>;
 
   return (
     <div className="space-y-4">
       <ControlBar range={range} setRange={setRange}>
-        <span>Group by</span>
-        <Select name="mcp-group-by" value={groupBy} onChange={setGroupBy} options={MCP_GROUP_OPTIONS} />
+        <span>{t("usage.groupBy")}</span>
+        <Select name="mcp-group-by" value={groupBy} onChange={setGroupBy} options={groupOptions} />
         <AutoRefreshControl lastUpdated={breakdown.lastUpdated} onRefresh={() => { void breakdown.mutate(); void timeseries.mutate(); void events.mutate(); }} refreshing={breakdown.isValidating} />
       </ControlBar>
 
       <StatGrid>
-        <StatCard label="Requests" value={fmt(totals.requests)} loading={loading} />
-        <StatCard label="Successful" value={fmt(totals.success)} tone="text-emerald-300" loading={loading} />
-        <StatCard label="Failed" value={fmt(totals.failure)} tone="text-rose-300" loading={loading} />
-        <StatCard label="Error Rate" value={pct(errorRate(totals.success, totals.failure))} tone={totals.failure > 0 ? "text-amber-300" : "text-slate-100"} loading={loading} />
-        <StatCard label="Tool Calls" value={fmt(totals.tools)} loading={loading} />
-        <StatCard label="Avg Latency" value={`${fmt(totals.avgLatency)} ms`} loading={loading} />
+        <StatCard label={t("usage.requests")} value={fmt(totals.requests)} loading={loading} />
+        <StatCard label={t("usage.successful")} value={fmt(totals.success)} tone="text-emerald-300" loading={loading} />
+        <StatCard label={t("usage.failed")} value={fmt(totals.failure)} tone="text-rose-300" loading={loading} />
+        <StatCard label={t("usage.errorRate")} value={pct(errorRate(totals.success, totals.failure))} tone={totals.failure > 0 ? "text-amber-300" : "text-slate-100"} loading={loading} />
+        <StatCard label={t("usage.toolCalls")} value={fmt(totals.tools)} loading={loading} />
+        <StatCard label={t("usage.avgLatency")} value={`${fmt(totals.avgLatency)} ms`} loading={loading} />
       </StatGrid>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -307,7 +310,7 @@ function MCPTab({ range, setRange, agentId }: TabProps) {
         <ShareCard groupLabel={groupLabel} data={donutData} />
       </div>
 
-      <BreakdownCard title={`Breakdown by ${groupLabel}`} items={items} groupBy={effectiveGroupBy} groupLabel={groupLabel} emptyText="No MCP usage recorded in this range." />
+      <BreakdownCard title={t("usage.breakdownBy", { group: groupLabel })} items={items} groupBy={effectiveGroupBy} groupLabel={groupLabel} emptyText={t("usage.emptyMcp")} />
       <EventsCard events={events.data?.items ?? []} />
     </div>
   );
@@ -317,12 +320,6 @@ function MCPTab({ range, setRange, agentId }: TabProps) {
 // Agent tab (backed by the /metrics/acp/* family, which still stores ACP-typed
 // runtime events; the route dimensions are what became runtime-neutral)
 // ──────────────────────────────────────────────────────────────────────────
-
-const ACP_GROUP_OPTIONS = [
-  { value: "route_id", label: "Route" },
-  { value: "agent_type", label: "Agent Type" },
-  { value: "operation", label: "Operation" },
-];
 
 // Source selector for the Agent tab. The manager's own Admin API polling of
 // `/admin/acp` is recorded into the same usage table with route_protocol="admin".
@@ -334,12 +331,6 @@ const ACP_GROUP_OPTIONS = [
 // v0.5.0 cutover: unified agent ingress records route_protocol="agent", not
 // "acp" (unified-agent-runtime.md §6.10). Filtering on "acp" now silently
 // matches nothing, which reads as "no traffic" rather than as a broken filter.
-const AGENT_SOURCE_OPTIONS = [
-  { value: "data", label: "Data-plane" },
-  { value: "admin", label: "Admin audit" },
-  { value: "all", label: "All" },
-];
-
 function sourceProtocol(source: string): string | undefined {
   if (source === "data") return "agent";
   if (source === "admin") return "admin";
@@ -347,6 +338,17 @@ function sourceProtocol(source: string): string | undefined {
 }
 
 function AgentTab({ range, setRange, agentId }: TabProps) {
+  const { t } = useI18n();
+  const groupOptions = [
+    { value: "route_id", label: t("usage.route") },
+    { value: "agent_type", label: t("usage.agentType") },
+    { value: "operation", label: t("usage.operation") },
+  ];
+  const sourceOptions = [
+    { value: "data", label: t("usage.dataPlane") },
+    { value: "admin", label: t("usage.adminAudit") },
+    { value: "all", label: t("common.all") },
+  ];
   const [groupBy, setGroupBy] = useState("route_id");
   const [source, setSource] = useState("data");
   const q = useMemo(() => rangeToQuery(range), [range]);
@@ -372,30 +374,30 @@ function AgentTab({ range, setRange, agentId }: TabProps) {
   const totals = useMemo(() => rollupUsage(items), [items]);
   const lineData = useMemo(() => pivotTimeseries(timeseries.data?.items ?? []), [timeseries.data]);
   const effectiveGroupBy = breakdown.data?.group_by ?? groupBy;
-  const groupLabel = ACP_GROUP_OPTIONS.find((g) => g.value === effectiveGroupBy)?.label ?? effectiveGroupBy;
-  const donutData = useMemo(() => shareData(items, effectiveGroupBy), [items, effectiveGroupBy]);
+  const groupLabel = groupOptions.find((g) => g.value === effectiveGroupBy)?.label ?? effectiveGroupBy;
+  const donutData = useMemo(() => shareData(items, effectiveGroupBy, t("usage.none")), [items, effectiveGroupBy, t]);
   const loading = breakdown.isLoading && !breakdown.data;
 
   if (breakdown.error)
-    return <Card className="p-6 text-center text-sm text-rose-300">{breakdown.error instanceof Error ? breakdown.error.message : "Failed to load metrics"}</Card>;
+    return <Card className="p-6 text-center text-sm text-rose-300">{breakdown.error instanceof Error ? breakdown.error.message : t("usage.loadFailed")}</Card>;
 
   return (
     <div className="space-y-4">
       <ControlBar range={range} setRange={setRange}>
-        <span>Source</span>
-        <Select name="agent-source" value={source} onChange={setSource} options={AGENT_SOURCE_OPTIONS} />
-        <span className="ml-2">Group by</span>
-        <Select name="acp-group-by" value={groupBy} onChange={setGroupBy} options={ACP_GROUP_OPTIONS} />
+        <span>{t("usage.source")}</span>
+        <Select name="agent-source" value={source} onChange={setSource} options={sourceOptions} />
+        <span className="ml-2">{t("usage.groupBy")}</span>
+        <Select name="acp-group-by" value={groupBy} onChange={setGroupBy} options={groupOptions} />
         <AutoRefreshControl lastUpdated={breakdown.lastUpdated} onRefresh={() => { void breakdown.mutate(); void timeseries.mutate(); void events.mutate(); }} refreshing={breakdown.isValidating} />
       </ControlBar>
 
       <StatGrid>
-        <StatCard label="Requests" value={fmt(totals.requests)} loading={loading} />
-        <StatCard label="Successful" value={fmt(totals.success)} tone="text-emerald-300" loading={loading} />
-        <StatCard label="Failed" value={fmt(totals.failure)} tone="text-rose-300" loading={loading} />
-        <StatCard label="Error Rate" value={pct(errorRate(totals.success, totals.failure))} tone={totals.failure > 0 ? "text-amber-300" : "text-slate-100"} loading={loading} />
-        <StatCard label="Turns" value={fmt(totals.turns)} loading={loading} />
-        <StatCard label="Avg Latency" value={`${fmt(totals.avgLatency)} ms`} loading={loading} />
+        <StatCard label={t("usage.requests")} value={fmt(totals.requests)} loading={loading} />
+        <StatCard label={t("usage.successful")} value={fmt(totals.success)} tone="text-emerald-300" loading={loading} />
+        <StatCard label={t("usage.failed")} value={fmt(totals.failure)} tone="text-rose-300" loading={loading} />
+        <StatCard label={t("usage.errorRate")} value={pct(errorRate(totals.success, totals.failure))} tone={totals.failure > 0 ? "text-amber-300" : "text-slate-100"} loading={loading} />
+        <StatCard label={t("usage.turns")} value={fmt(totals.turns)} loading={loading} />
+        <StatCard label={t("usage.avgLatency")} value={`${fmt(totals.avgLatency)} ms`} loading={loading} />
       </StatGrid>
 
       <div className="grid gap-4 lg:grid-cols-3">
@@ -405,7 +407,7 @@ function AgentTab({ range, setRange, agentId }: TabProps) {
         <ShareCard groupLabel={groupLabel} data={donutData} />
       </div>
 
-      <BreakdownCard title={`Breakdown by ${groupLabel}`} items={items} groupBy={effectiveGroupBy} groupLabel={groupLabel} emptyText="No ACP usage recorded in this range." />
+      <BreakdownCard title={t("usage.breakdownBy", { group: groupLabel })} items={items} groupBy={effectiveGroupBy} groupLabel={groupLabel} emptyText={t("usage.emptyAgent")} />
       <EventsCard events={events.data?.items ?? []} />
     </div>
   );
@@ -417,17 +419,18 @@ function AgentTab({ range, setRange, agentId }: TabProps) {
 
 function TimeChartCard({ data }: { data: ReturnType<typeof pivotTimeseries> }) {
   const tones = useChartTones();
+  const { t } = useI18n();
   return (
     <Card>
-      <CardHeader><CardTitle>Requests Over Time</CardTitle></CardHeader>
+      <CardHeader><CardTitle>{t("usage.overTime")}</CardTitle></CardHeader>
       {data.length === 0 ? (
-        <p className="py-12 text-center text-sm text-slate-500">No data in this range.</p>
+        <p className="py-12 text-center text-sm text-slate-500">{t("usage.noRangeData")}</p>
       ) : (
         <TimeLineChart
           data={data}
           series={[
-            { key: "success", label: "Success", color: tones.success },
-            { key: "failure", label: "Failure", color: tones.danger },
+            { key: "success", label: t("usage.success"), color: tones.success },
+            { key: "failure", label: t("usage.failure"), color: tones.danger },
           ]}
         />
       )}
@@ -437,11 +440,12 @@ function TimeChartCard({ data }: { data: ReturnType<typeof pivotTimeseries> }) {
 
 function ShareCard({ groupLabel, data }: { groupLabel: string; data: { name: string; value: number }[] }) {
   const palette = useChartPalette();
+  const { t } = useI18n();
   return (
     <Card>
-      <CardHeader><CardTitle>Share by {groupLabel}</CardTitle></CardHeader>
+      <CardHeader><CardTitle>{t("usage.shareBy", { group: groupLabel })}</CardTitle></CardHeader>
       {data.length === 0 ? (
-        <p className="py-12 text-center text-sm text-slate-500">No data.</p>
+        <p className="py-12 text-center text-sm text-slate-500">{t("usage.noData")}</p>
       ) : (
         <>
           <DonutChart data={data} dataKey="value" nameKey="name" />
@@ -463,6 +467,7 @@ function ShareCard({ groupLabel, data }: { groupLabel: string; data: { name: str
 }
 
 function BreakdownCard({ title, items, groupBy, groupLabel, tokens, emptyText }: { title: string; items: BreakdownItem[]; groupBy: string; groupLabel: string; tokens?: boolean; emptyText: string }) {
+  const { t } = useI18n();
   return (
     <Card className="overflow-hidden p-0">
       <div className="border-b border-slate-700/70 px-4 py-2.5">
@@ -473,11 +478,11 @@ function BreakdownCard({ title, items, groupBy, groupLabel, tokens, emptyText }:
           <thead>
             <tr className="border-b border-slate-700/70 bg-slate-900/50 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">
               <th className="px-4 py-2">{groupLabel}</th>
-              <th className="px-4 py-2 text-right">Requests</th>
-              <th className="px-4 py-2 text-right">Success</th>
-              <th className="px-4 py-2 text-right">Failed</th>
-              {tokens && <th className="px-4 py-2 text-right">Tokens</th>}
-              <th className="px-4 py-2 text-right">Avg ms</th>
+              <th className="px-4 py-2 text-right">{t("usage.requests")}</th>
+              <th className="px-4 py-2 text-right">{t("usage.success")}</th>
+              <th className="px-4 py-2 text-right">{t("usage.failed")}</th>
+              {tokens && <th className="px-4 py-2 text-right">{t("usage.tokens")}</th>}
+              <th className="px-4 py-2 text-right">{t("usage.avgMs")}</th>
             </tr>
           </thead>
           <tbody>
@@ -514,14 +519,15 @@ function eventPrimary(e: InteractionEvent): string {
 }
 
 function EventsCard({ events }: { events: InteractionEvent[] }) {
+  const { locale, t } = useI18n();
   return (
     <Card className="overflow-hidden p-0">
       <div className="border-b border-slate-700/70 px-4 py-2.5">
-        <CardTitle>Recent Requests</CardTitle>
+        <CardTitle>{t("usage.recent")}</CardTitle>
       </div>
       <div className="divide-y divide-slate-700/50">
         {events.length === 0 ? (
-          <p className="px-4 py-8 text-center text-sm text-slate-500">No recent events.</p>
+          <p className="px-4 py-8 text-center text-sm text-slate-500">{t("usage.noRecent")}</p>
         ) : (
           events.map((e) => (
             <div key={e.event_id} className="flex items-center gap-3 px-4 py-2 text-xs hover:bg-slate-800/30">
@@ -529,7 +535,7 @@ function EventsCard({ events }: { events: InteractionEvent[] }) {
               <Badge tone={protocolTone(e.route_kind)} className="shrink-0">{e.route_kind}</Badge>
               <span className="truncate font-mono text-slate-300">{eventPrimary(e)}</span>
               <span className="ml-auto shrink-0 tabular-nums text-slate-500">{num(e.total_tokens) > 0 ? `${fmt(num(e.total_tokens))} tok · ` : ""}{fmt(num(e.latency_ms))} ms</span>
-              <span className="shrink-0 text-slate-500" suppressHydrationWarning>{new Date(e.started_at).toLocaleTimeString()}</span>
+              <span className="shrink-0 text-slate-500" suppressHydrationWarning>{new Date(e.started_at).toLocaleTimeString(locale)}</span>
             </div>
           ))
         )}

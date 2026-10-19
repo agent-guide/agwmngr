@@ -8,6 +8,7 @@ import { Modal, ModalHeader, ModalTitle, ModalContent, ModalFooter } from "@/com
 import { useToast } from "@/components/ui/toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { HelpTooltip } from "@/components/ui/tooltip";
+import { useI18n } from "@/components/i18n-provider";
 import {
   ApiError,
   listAgentRoutes,
@@ -44,6 +45,7 @@ export default function AgentRoutesPage() {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const { showToast } = useToast();
+  const { t } = useI18n();
 
   const [formId, setFormId] = useState("");
   const [formDesc, setFormDesc] = useState("");
@@ -69,17 +71,17 @@ export default function AgentRoutesPage() {
       setRoutesError(null);
     } else {
       const err = routesResult.reason;
-      setRoutesError(err instanceof ApiError ? err.message : "Failed to load agent routes");
+      setRoutesError(err instanceof ApiError ? err.message : t("agentRoutes.loadFailed"));
     }
     if (agentsResult.status === "fulfilled") {
       setAgents(agentsResult.value);
       setAgentsError(null);
     } else {
       const err = agentsResult.reason;
-      setAgentsError(err instanceof ApiError ? err.message : "Failed to load agents");
+      setAgentsError(err instanceof ApiError ? err.message : t("agents.loadFailed"));
     }
     setLoading(false);
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void load(); }, 0);
@@ -120,7 +122,7 @@ export default function AgentRoutesPage() {
   };
 
   const handleCreate = async () => {
-    if (!formAgentId.trim()) { showToast("Agent is required", "error"); return; }
+    if (!formAgentId.trim()) { showToast(t("agentRoutes.agentRequired"), "error"); return; }
     const payload = {
       ...(formId.trim() && { id: formId.trim() }),
       ...(formDesc.trim() && { description: formDesc.trim() }),
@@ -135,9 +137,9 @@ export default function AgentRoutesPage() {
       const created = await createAgentRoute(payload);
       setRoutes((prev) => [...prev, created]);
       setIsCreateOpen(false);
-      showToast("Agent route created", "success");
+      showToast(t("agentRoutes.created"), "success");
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Failed to create route", "error");
+      showToast(err instanceof ApiError ? err.message : t("agentRoutes.createFailed"), "error");
     } finally {
       setSaving(false);
     }
@@ -145,7 +147,7 @@ export default function AgentRoutesPage() {
 
   const handleEdit = async () => {
     if (!editing) return;
-    if (!formAgentId.trim()) { showToast("Agent is required", "error"); return; }
+    if (!formAgentId.trim()) { showToast(t("agentRoutes.agentRequired"), "error"); return; }
     const payload: AgentRoutePayload = {
       id: editing.id,
       description: formDesc.trim() || undefined,
@@ -161,9 +163,9 @@ export default function AgentRoutesPage() {
       setRoutes((prev) => prev.map((r) => (r.id === editing.id ? updated : r)));
       setIsEditOpen(false);
       setEditing(null);
-      showToast("Agent route updated", "success");
+      showToast(t("agentRoutes.updated"), "success");
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Failed to update route", "error");
+      showToast(err instanceof ApiError ? err.message : t("agentRoutes.updateFailed"), "error");
     } finally {
       setSaving(false);
     }
@@ -175,9 +177,9 @@ export default function AgentRoutesPage() {
     try {
       await deleteAgentRoute(pendingDeleteId);
       setRoutes((prev) => prev.filter((r) => r.id !== pendingDeleteId));
-      showToast("Agent route deleted", "success");
+      showToast(t("agentRoutes.deleted"), "success");
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Failed to delete route", "error");
+      showToast(err instanceof ApiError ? err.message : t("agentRoutes.deleteFailed"), "error");
     } finally {
       setSaving(false);
       setShowConfirm(false);
@@ -188,29 +190,29 @@ export default function AgentRoutesPage() {
   const renderFormBody = (readonlyId: boolean) => (
     <div className="space-y-5">
       <div className="space-y-3">
-        <SectionHeading>Basic Info</SectionHeading>
+        <SectionHeading>{t("agentRoutes.basic")}</SectionHeading>
         {readonlyId ? (
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-400">Route ID</label>
+            <label className="mb-1 block text-xs font-medium text-slate-400">{t("agentRoutes.id")}</label>
             <p className="rounded-md border border-slate-700/60 bg-slate-900/70 px-2.5 py-1.5 font-mono text-xs text-slate-400">{formId}</p>
           </div>
         ) : (
           <div>
             <label className="mb-1.5 block text-sm font-medium text-slate-300">
-              Route ID
-              <HelpTooltip content="Optional. Auto-generated as agent:<agent_id>:<path_prefix> when left blank." />
+              {t("agentRoutes.id")}
+              <HelpTooltip content={t("agentRoutes.idHelp")} />
             </label>
             <Input name="id" value={formId} onChange={setFormId} placeholder="auto: agent:<agent>:<prefix>" />
           </div>
         )}
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-300">Description</label>
-          <Input name="description" value={formDesc} onChange={setFormDesc} placeholder="Optional description" />
+          <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("common.description")}</label>
+          <Input name="description" value={formDesc} onChange={setFormDesc} placeholder={t("agentRoutes.optionalDescription")} />
         </div>
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-300">
-            Protocol
-            <HelpTooltip content="agent exposes the common /turn contract used by Chat. a2a exposes the remote Agent's native A2A 1.0 interface and Agent Card." />
+            {t("agentRoutes.protocol")}
+            <HelpTooltip content={t("agentRoutes.protocolHelp")} />
           </label>
           <select
             value={formProtocol}
@@ -221,21 +223,21 @@ export default function AgentRoutesPage() {
             }}
             className="w-full rounded-md border border-slate-700/70 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 focus:border-blue-500/60 focus:outline-none"
           >
-            <option value="agent">agent — common /turn ingress</option>
-            <option value="a2a">a2a — native A2A 1.0 ingress</option>
+            <option value="agent">{t("agentRoutes.commonIngress")}</option>
+            <option value="a2a">{t("agentRoutes.nativeIngress")}</option>
           </select>
         </div>
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-300">
             Agent <span className="text-red-400">*</span>
-            <HelpTooltip content="The route targets a stable agent_id. Switching that agent's runtime later keeps this route, its URL, and every VirtualKey allowlist entry intact." />
+            <HelpTooltip content={t("agentRoutes.targetHelp")} />
           </label>
           <select
             value={formAgentId}
             onChange={(e) => setFormAgentId(e.target.value)}
             className="w-full rounded-md border border-slate-700/70 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 focus:border-blue-500/60 focus:outline-none"
           >
-            <option value="">— select agent —</option>
+            <option value="">{t("agentRoutes.selectAgent")}</option>
             {agents.map((a) => (
               <option key={a.id} value={a.id}>{a.name} ({a.runtime.type})</option>
             ))}
@@ -246,23 +248,22 @@ export default function AgentRoutesPage() {
           {agentsError ? (
             <div className="mt-1.5 flex items-start justify-between gap-2 rounded-md border border-rose-500/50 bg-rose-500/10 px-2.5 py-1.5">
               <p className="text-[11px] leading-4 text-rose-200">
-                Could not load the agent list — {agentsError}
+                {t("agentRoutes.agentListFailed", { detail: agentsError })}
               </p>
               <Button variant="ghost" className="shrink-0 px-2 py-0.5 text-[10px]" onClick={() => void load()}>
-                Retry
+                {t("common.retry")}
               </Button>
             </div>
           ) : (
             agents.length === 0 && (
               <p className="mt-1.5 text-[11px] leading-4 text-amber-300/90">
-                No agents exist yet. <Link href="/dashboard/agents/new" className="underline hover:text-amber-200">Create an agent</Link> before binding a route to one.
+                {t("agentRoutes.noAgentsBefore")} <Link href="/dashboard/agents/new" className="underline hover:text-amber-200">{t("agentRoutes.createAgent")}</Link> {t("agentRoutes.noAgentsAfter")}
               </p>
             )
           )}
           {formAgentId && agentsById.get(formAgentId)?.capabilities?.executable === false && (
             <p className="mt-1.5 text-[11px] leading-4 text-rose-300/90">
-              This agent&apos;s runtime is not executable. The route will validate and persist, but
-              turns return 501 runtime_not_executable until the backend is available.
+              {t("agentRoutes.notExecutableForm")}
             </p>
           )}
         </div>
@@ -270,30 +271,30 @@ export default function AgentRoutesPage() {
 
       <div className="space-y-3">
         <SectionHeading>
-          Match
-          <HelpTooltip content="Restrict this route to a host, path prefix, or HTTP methods. The path prefix is stripped before dispatch to the agent." />
+          {t("agentRoutes.match")}
+          <HelpTooltip content={t("agentRoutes.matchHelp")} />
         </SectionHeading>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-300">Host</label>
+            <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("agentRoutes.host")}</label>
             <Input name="match-host" value={formMatchHost} onChange={setFormMatchHost} placeholder="api.example.com" />
           </div>
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-300">Path Prefix</label>
+            <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("agentRoutes.pathPrefix")}</label>
             <Input name="match-path-prefix" value={formMatchPathPrefix} onChange={setFormMatchPathPrefix} placeholder="/agents/codex" />
           </div>
         </div>
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-300">
-            Methods
-            <HelpTooltip content="Comma or space separated, e.g. POST. Leave blank to allow all." />
+            {t("agentRoutes.methods")}
+            <HelpTooltip content={t("agentRoutes.methodsHelp")} />
           </label>
           <Input name="match-methods" value={formMatchMethods} onChange={setFormMatchMethods} placeholder="POST" />
         </div>
       </div>
 
       <div className="space-y-2">
-        <SectionHeading>Auth Policy</SectionHeading>
+        <SectionHeading>{t("agentRoutes.authPolicy")}</SectionHeading>
         <label className="flex cursor-pointer items-center gap-2.5">
           <input
             type="checkbox"
@@ -302,8 +303,8 @@ export default function AgentRoutesPage() {
             className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-800 accent-blue-500"
           />
           <span className="text-sm text-slate-300">
-            Require virtual key
-            <HelpTooltip content="When enabled, callers must present a gateway virtual key in Authorization or x-api-key." />
+            {t("agentRoutes.requireKey")}
+            <HelpTooltip content={t("agentRoutes.requireKeyHelp")} />
           </span>
         </label>
       </div>
@@ -315,36 +316,33 @@ export default function AgentRoutesPage() {
       <section className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-slate-100">Agent Routes</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-100">{t("agentRoutes.title")}</h1>
             <p className="mt-1 text-xs text-slate-400">
-              Expose agents to consumers through path-matched ingress routes.
-              <HelpTooltip content="Each route binds a path prefix to one agent_id. Consumers drive it via POST /<prefix>/turn; sessions, transcript, and permission are capability-gated on the same prefix." />
+              {t("agentRoutes.description")}
+              <HelpTooltip content={t("agentRoutes.descriptionHelp")} />
             </p>
           </div>
-          <Button onClick={openCreate} className="px-2.5 py-1 text-xs">Create Route</Button>
+          <Button onClick={openCreate} className="px-2.5 py-1 text-xs">{t("agentRoutes.create")}</Button>
         </div>
       </section>
 
       {loading ? (
         <div className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-8 text-center">
-          <p className="text-sm text-slate-400">Loading routes…</p>
+          <p className="text-sm text-slate-400">{t("agentRoutes.loading")}</p>
         </div>
       ) : routesError ? (
         <div className="rounded-lg border border-rose-500/50 bg-rose-500/10 p-6" role="alert">
-          <p className="text-sm font-semibold text-rose-200">Could not load agent routes</p>
+          <p className="text-sm font-semibold text-rose-200">{t("agentRoutes.loadFailed")}</p>
           <p className="mt-1 text-xs text-rose-300/90">{routesError}</p>
           <p className="mt-2 text-[11px] leading-4 text-rose-300/70">
-            If the gateway reports <span className="font-mono">agent not found</span>, it predates the
-            unified agent runtime: without the dedicated route mux it resolves{" "}
-            <span className="font-mono">/admin/agents/routes</span> as an agent id. Upgrade the gateway
-            to v0.5.0 or later.
+            {t("agentRoutes.compatibilityHelp")}
           </p>
-          <Button variant="ghost" className="mt-3 px-2.5 py-1 text-xs" onClick={() => void load()}>Retry</Button>
+          <Button variant="ghost" className="mt-3 px-2.5 py-1 text-xs" onClick={() => void load()}>{t("common.retry")}</Button>
         </div>
       ) : routes.length === 0 ? (
         <div className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-8 text-center">
-          <p className="text-sm text-slate-400">No agent routes yet. Create one to expose an agent.</p>
-          <Button onClick={openCreate} className="mt-4 px-3 py-1.5 text-xs">Create Route</Button>
+          <p className="text-sm text-slate-400">{t("agentRoutes.empty")}</p>
+          <Button onClick={openCreate} className="mt-4 px-3 py-1.5 text-xs">{t("agentRoutes.create")}</Button>
         </div>
       ) : (
         <div className="space-y-2">
@@ -377,10 +375,10 @@ export default function AgentRoutesPage() {
                         </span>
                       )}
                       {route.disabled && (
-                        <span className="inline-flex rounded-sm bg-slate-700/40 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">disabled</span>
+                        <span className="inline-flex rounded-sm bg-slate-700/40 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">{t("common.disabled")}</span>
                       )}
                       {route.read_only && (
-                        <span className="inline-flex rounded-sm bg-slate-700/40 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">read-only</span>
+                        <span className="inline-flex rounded-sm bg-slate-700/40 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">{t("agentRoutes.readOnly")}</span>
                       )}
                     </div>
                     {route.description && <p className="mt-0.5 truncate text-[11px] text-slate-500">{route.description}</p>}
@@ -398,29 +396,27 @@ export default function AgentRoutesPage() {
                         <span className="rounded-sm border border-slate-700/40 bg-slate-900/50 px-1.5 py-0.5 font-mono text-[10px] text-slate-400"><span className="text-slate-600">runtime:</span>{target.runtime.type}</span>
                       )}
                       <span className={`rounded-sm px-1.5 py-0.5 text-[10px] ${route.auth_policy?.require_virtual_key ? "bg-emerald-500/15 text-emerald-300" : "bg-slate-700/40 text-slate-400"}`}>
-                        {route.auth_policy?.require_virtual_key ? "vkey required" : "open"}
+                        {route.auth_policy?.require_virtual_key ? t("agentRoutes.keyRequired") : t("agentRoutes.open")}
                       </span>
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
-                    <span title={route.read_only ? "Read-only route" : undefined}>
-                      <Button variant="ghost" className="px-2 py-1 text-[10px]" disabled={!!route.read_only} onClick={() => openEdit(route)}>Edit</Button>
+                    <span title={route.read_only ? t("agentRoutes.readOnlyTitle") : undefined}>
+                      <Button variant="ghost" className="px-2 py-1 text-[10px]" disabled={!!route.read_only} onClick={() => openEdit(route)}>{t("common.edit")}</Button>
                     </span>
-                    <span title={route.read_only ? "Read-only route" : undefined}>
-                      <Button variant="danger" className="px-2 py-1 text-[10px]" disabled={!!route.read_only} onClick={() => { setPendingDeleteId(route.id); setShowConfirm(true); }}>Delete</Button>
+                    <span title={route.read_only ? t("agentRoutes.readOnlyTitle") : undefined}>
+                      <Button variant="danger" className="px-2 py-1 text-[10px]" disabled={!!route.read_only} onClick={() => { setPendingDeleteId(route.id); setShowConfirm(true); }}>{t("common.delete")}</Button>
                     </span>
                   </div>
                 </div>
                 {dangling && (
                   <p className="mt-2 rounded-md border border-rose-500/50 bg-rose-500/10 px-2.5 py-1.5 text-[11px] text-rose-200" role="alert">
-                    No agent with this id exists — the route cannot dispatch. Rebind it or delete it.
+                    {t("agentRoutes.dangling")}
                   </p>
                 )}
                 {target?.capabilities?.executable === false && !target.disabled && (
                   <p className="mt-2 rounded-md border border-rose-500/50 bg-rose-500/10 px-2.5 py-1.5 text-[11px] text-rose-200" role="alert">
-                    The target agent&apos;s runtime is not executable. This route matches and
-                    authenticates normally, but turns return 501 runtime_not_executable — do not
-                    troubleshoot the matcher or virtual key for this state.
+                    {t("agentRoutes.notExecutable")}
                   </p>
                 )}
               </section>
@@ -430,20 +426,20 @@ export default function AgentRoutesPage() {
       )}
 
       <Modal isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)}>
-        <ModalHeader><ModalTitle>Create Agent Route</ModalTitle></ModalHeader>
+        <ModalHeader><ModalTitle>{t("agentRoutes.createTitle")}</ModalTitle></ModalHeader>
         <ModalContent>{renderFormBody(false)}</ModalContent>
         <ModalFooter>
-          <Button variant="ghost" onClick={() => setIsCreateOpen(false)} disabled={saving}>Cancel</Button>
-          <Button onClick={handleCreate} disabled={saving}>{saving ? "Creating…" : "Create Route"}</Button>
+          <Button variant="ghost" onClick={() => setIsCreateOpen(false)} disabled={saving}>{t("common.cancel")}</Button>
+          <Button onClick={handleCreate} disabled={saving}>{saving ? t("common.creating") : t("agentRoutes.create")}</Button>
         </ModalFooter>
       </Modal>
 
       <Modal isOpen={isEditOpen} onClose={() => { setIsEditOpen(false); setEditing(null); }}>
-        <ModalHeader><ModalTitle>Edit Agent Route — {editing?.id}</ModalTitle></ModalHeader>
+        <ModalHeader><ModalTitle>{t("agentRoutes.editTitle", { id: editing?.id ?? "" })}</ModalTitle></ModalHeader>
         <ModalContent>{renderFormBody(true)}</ModalContent>
         <ModalFooter>
-          <Button variant="ghost" onClick={() => { setIsEditOpen(false); setEditing(null); }} disabled={saving}>Cancel</Button>
-          <Button onClick={handleEdit} disabled={saving}>{saving ? "Saving…" : "Save Changes"}</Button>
+          <Button variant="ghost" onClick={() => { setIsEditOpen(false); setEditing(null); }} disabled={saving}>{t("common.cancel")}</Button>
+          <Button onClick={handleEdit} disabled={saving}>{saving ? t("common.saving") : t("common.saveChanges")}</Button>
         </ModalFooter>
       </Modal>
 
@@ -451,9 +447,9 @@ export default function AgentRoutesPage() {
         isOpen={showConfirm}
         onClose={() => { setShowConfirm(false); setPendingDeleteId(null); }}
         onConfirm={handleDelete}
-        title="Delete Agent Route"
-        message="Are you sure you want to delete this route? Consumers calling its path prefix will stop reaching the agent. This action cannot be undone."
-        confirmLabel={saving ? "Deleting…" : "Delete"}
+        title={t("agentRoutes.deleteTitle")}
+        message={t("agentRoutes.deleteMessage")}
+        confirmLabel={saving ? t("common.deleting") : t("common.delete")}
         variant="danger"
       />
     </div>

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { ACPPermissionOption, ChatPermission } from "./types";
+import { useI18n } from "@/components/i18n-provider";
 
 interface PermissionCardProps {
   permission: ChatPermission;
@@ -13,8 +14,8 @@ function optionId(opt: ACPPermissionOption): string {
   return (opt.optionId ?? opt.option_id ?? opt.id ?? "").trim();
 }
 
-function optionLabel(opt: ACPPermissionOption): string {
-  return (opt.name ?? opt.label ?? optionId(opt) ?? "Option").trim() || "Option";
+function optionLabel(opt: ACPPermissionOption, fallback: string): string {
+  return (opt.name ?? opt.label ?? optionId(opt) ?? fallback).trim() || fallback;
 }
 
 // "allow"-style options get the primary button; anything reject/deny-shaped
@@ -39,6 +40,7 @@ function extractOptions(data: unknown): ACPPermissionOption[] {
 }
 
 export function PermissionCard({ permission, onResolve }: PermissionCardProps) {
+  const { t } = useI18n();
   const [busy, setBusy] = useState(false);
   const options = useMemo(() => extractOptions(permission.data), [permission.data]);
   const resolved = permission.resolved;
@@ -56,7 +58,7 @@ export function PermissionCard({ permission, onResolve }: PermissionCardProps) {
     <div className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
       <div className="flex items-center gap-2">
         <span className="rounded bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-200">
-          Permission
+          {t("chat.permission")}
         </span>
         <span className="font-mono text-[11px] text-amber-200/80">{permission.request_id}</span>
       </div>
@@ -70,20 +72,20 @@ export function PermissionCard({ permission, onResolve }: PermissionCardProps) {
       {resolved ? (
         <p className="mt-2 text-[11px] font-medium text-slate-300">
           {resolved === "selected"
-            ? `Approved${permission.optionId ? ` (${permission.optionId})` : ""}`
-            : "Rejected"}
+            ? permission.optionId ? t("chat.approvedOption", { option: permission.optionId }) : t("chat.approved")
+            : t("chat.rejected")}
         </p>
       ) : (
         <div className="mt-3 flex flex-wrap gap-2">
           {options.map((opt) => (
             <Button
-              key={optionId(opt) || optionLabel(opt)}
+              key={optionId(opt) || optionLabel(opt, t("chat.option"))}
               variant={optionTone(opt)}
               disabled={busy}
               className="px-2.5 py-1 text-xs"
               onClick={() => void resolve("selected", optionId(opt) || undefined)}
             >
-              {optionLabel(opt)}
+              {optionLabel(opt, t("chat.option"))}
             </Button>
           ))}
           {/* Always offer an explicit cancel/deny as a fallback. */}
@@ -93,7 +95,7 @@ export function PermissionCard({ permission, onResolve }: PermissionCardProps) {
             className="px-2.5 py-1 text-xs"
             onClick={() => void resolve("cancelled")}
           >
-            {busy ? "Resolving…" : "Reject"}
+            {busy ? t("permissions.resolving") : t("common.reject")}
           </Button>
         </div>
       )}

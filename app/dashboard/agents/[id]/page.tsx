@@ -40,6 +40,7 @@ import {
 } from "@/lib/api";
 import { AcpChat } from "@/components/acp-chat/acp-chat";
 import { PendingPermissions, normalizeACPPoolPermission } from "@/components/acp-pending-permissions";
+import { useI18n } from "@/components/i18n-provider";
 
 const TABS = ["Overview", "Chat", "Runs", "Resources", "Health", "Configuration"] as const;
 type Tab = (typeof TABS)[number];
@@ -64,6 +65,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
   const { id } = use(params);
   const router = useRouter();
   const { showToast } = useToast();
+  const { t } = useI18n();
   const [tab, setTab] = useState<Tab>("Overview");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -79,10 +81,10 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
     setDeleting(true);
     try {
       await deleteAgent(id);
-      showToast("Agent deleted", "success");
+      showToast(t("agentDetail.deleted"), "success");
       router.push("/dashboard/agents");
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Failed to delete agent", "error");
+      showToast(err instanceof ApiError ? err.message : t("agentDetail.deleteFailed"), "error");
       setDeleting(false);
       setConfirmDelete(false);
     }
@@ -95,49 +97,54 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
           <span className="flex items-center gap-2">
             {agent?.name ?? id}
             {agent && <Badge tone={protocolTone(agent.runtime.type)}>{agent.runtime.type}</Badge>}
-            {agent?.disabled && <Badge tone="neutral">disabled</Badge>}
+            {agent?.disabled && <Badge tone="neutral">{t("common.disabled")}</Badge>}
           </span>
         }
         description={
           <span className="flex flex-wrap items-center gap-2">
-            <Link href="/dashboard/agents" className="text-blue-400 hover:underline">← Agents</Link>
+            <Link href="/dashboard/agents" className="text-blue-400 hover:underline">{t("agentDetail.back")}</Link>
             <span className="font-mono text-xs text-slate-500">{id}</span>
           </span>
         }
         actions={
           <>
             <AutoRefreshControl lastUpdated={ws.lastUpdated} onRefresh={() => void ws.mutate()} refreshing={ws.isValidating} />
-            <Link href={`/dashboard/agents/usage?agent=${encodeURIComponent(id)}`}><Button variant="secondary" className="px-2.5 py-1 text-xs">Usage</Button></Link>
-            <Link href={`/dashboard/agents/interactions?agent=${encodeURIComponent(id)}`}><Button variant="secondary" className="px-2.5 py-1 text-xs">Interactions</Button></Link>
-            <Link href={`/dashboard/agents/${encodeURIComponent(id)}/edit`}><Button variant="secondary" className="px-2.5 py-1 text-xs">Edit</Button></Link>
-            <Button variant="danger" className="px-2.5 py-1 text-xs" onClick={() => setConfirmDelete(true)}>Delete</Button>
+            <Link href={`/dashboard/agents/usage?agent=${encodeURIComponent(id)}`}><Button variant="secondary" className="px-2.5 py-1 text-xs">{t("nav.usage")}</Button></Link>
+            <Link href={`/dashboard/agents/interactions?agent=${encodeURIComponent(id)}`}><Button variant="secondary" className="px-2.5 py-1 text-xs">{t("nav.interactions")}</Button></Link>
+            <Link href={`/dashboard/agents/${encodeURIComponent(id)}/edit`}><Button variant="secondary" className="px-2.5 py-1 text-xs">{t("common.edit")}</Button></Link>
+            <Button variant="danger" className="px-2.5 py-1 text-xs" onClick={() => setConfirmDelete(true)}>{t("common.delete")}</Button>
           </>
         }
       />
 
       {ws.error && !ws.data ? (
-        <Card className="p-8 text-center text-sm text-rose-300">{ws.error instanceof Error ? ws.error.message : "Failed to load agent"}</Card>
+        <Card className="p-8 text-center text-sm text-rose-300">{ws.error instanceof Error ? ws.error.message : t("agentDetail.loadFailed")}</Card>
       ) : (
         <>
           {ws.data?.capabilities?.executable === false && !agent?.disabled && (
             <div className="rounded-lg border-2 border-rose-500/70 bg-rose-500/10 p-4 shadow-[0_0_24px_rgba(244,63,94,0.12)]" role="alert">
-              <p className="text-sm font-semibold text-rose-200">This Agent runtime is not executable</p>
+              <p className="text-sm font-semibold text-rose-200">{t("agentDetail.notExecutableTitle")}</p>
               <p className="mt-1 text-xs leading-5 text-rose-300/90">
-                The Agent and its ingress route are valid and may accept VirtualKey assignment, but the runtime backend is inactive. Calls to POST /turn return 501 runtime_not_executable. Do not troubleshoot route matching or authentication for this state.
+                {t("agentDetail.notExecutableBody")}
               </p>
             </div>
           )}
           <div className="flex flex-wrap gap-1 border-b border-slate-700/70">
-            {tabs.map((t) => (
+            {tabs.map((tabItem) => (
               <button
-                key={t}
+                key={tabItem}
                 type="button"
-                onClick={() => setTab(t)}
+                onClick={() => setTab(tabItem)}
                 className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
-                  activeTab === t ? "border-blue-500 text-slate-100" : "border-transparent text-slate-400 hover:text-slate-200"
+                  activeTab === tabItem ? "border-blue-500 text-slate-100" : "border-transparent text-slate-400 hover:text-slate-200"
                 }`}
               >
-                {t}
+                {tabItem === "Overview" ? t("agentDetail.tabOverview")
+                  : tabItem === "Chat" ? t("agentDetail.tabChat")
+                    : tabItem === "Runs" ? t("agentDetail.tabRuns")
+                      : tabItem === "Resources" ? t("agentDetail.tabResources")
+                        : tabItem === "Health" ? t("agentDetail.tabHealth")
+                          : t("agentDetail.tabConfiguration")}
               </button>
             ))}
           </div>
@@ -161,15 +168,14 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
         isOpen={confirmDelete}
         onClose={() => setConfirmDelete(false)}
         onConfirm={() => void handleDelete()}
-        title="Delete agent?"
+        title={t("agentDetail.deleteTitle")}
         message={
           <span>
-            Deleting drains this agent&apos;s pending permissions and cancels its in-flight runs. The gateway
-            <strong> refuses with 409</strong> while any agent route still targets it — delete those routes first.
-            {deleting && " Deleting…"}
+            {t("agentDetail.deleteMessage")}
+            {deleting && ` ${t("common.deleting")}`}
           </span>
         }
-        confirmLabel="Delete"
+        confirmLabel={t("common.delete")}
         variant="danger"
       />
     </div>
@@ -206,6 +212,7 @@ function pendingCount(
 }
 
 function OverviewTab({ id, workspace, loading, refresh }: { id: string; workspace: AgentWorkspace | undefined; loading: boolean; refresh: () => void }) {
+  const { locale, t } = useI18n();
   // The workspace payload is a summary/index and carries no usage rollup, so the
   // top-line traffic is read from the interactions store instead. Three pins
   // matter here:
@@ -235,9 +242,9 @@ function OverviewTab({ id, workspace, loading, refresh }: { id: string; workspac
   // could not ask" are opposite diagnoses on an agent that looks idle.
   const trafficUnknown = !!traffic.error;
   const trafficLoading = traffic.isLoading && !traffic.data;
-  const stat = (n: number) => (trafficUnknown ? "—" : n.toLocaleString());
+  const stat = (n: number) => (trafficUnknown ? "—" : n.toLocaleString(locale));
 
-  if (loading || !workspace) return <Card className="p-8 text-center text-sm text-slate-400">Loading workspace…</Card>;
+  if (loading || !workspace) return <Card className="p-8 text-center text-sm text-slate-400">{t("agentDetail.loadingWorkspace")}</Card>;
 
   const rv = workspace.runtime_view;
   const runtimeType = workspace.runtime_type;
@@ -251,34 +258,34 @@ function OverviewTab({ id, workspace, loading, refresh }: { id: string; workspac
   return (
     <div className="space-y-4">
       <StatGrid>
-        <StatCard label="Requests" value={stat(totals.requests)} sub="ingress, 24h" loading={trafficLoading} />
-        <StatCard label="Success" value={stat(totals.success)} tone="text-emerald-300" loading={trafficLoading} />
-        <StatCard label="Failures" value={stat(totals.failure)} tone={totals.failure > 0 && !trafficUnknown ? "text-rose-300" : "text-slate-100"} loading={trafficLoading} />
+        <StatCard label={t("usage.requests")} value={stat(totals.requests)} sub={t("agentDetail.ingress24h")} loading={trafficLoading} />
+        <StatCard label={t("usage.success")} value={stat(totals.success)} tone="text-emerald-300" loading={trafficLoading} />
+        <StatCard label={t("agentDetail.failures")} value={stat(totals.failure)} tone={totals.failure > 0 && !trafficUnknown ? "text-rose-300" : "text-slate-100"} loading={trafficLoading} />
         <StatCard
-          label="Error Rate"
+          label={t("usage.errorRate")}
           value={trafficUnknown ? "—" : pct(errorRate(totals.success, totals.failure))}
           tone={totals.failure > 0 && !trafficUnknown ? "text-amber-300" : "text-slate-100"}
           loading={trafficLoading}
         />
-        <StatCard label="Avg Latency" value={trafficUnknown ? "—" : `${totals.avgLatency.toLocaleString()} ms`} loading={trafficLoading} />
+        <StatCard label={t("usage.avgLatency")} value={trafficUnknown ? "—" : `${totals.avgLatency.toLocaleString(locale)} ms`} loading={trafficLoading} />
       </StatGrid>
       {trafficUnknown ? (
         <p className="text-[11px] text-amber-400/90">
-          Usage metrics unavailable — {traffic.error instanceof Error ? traffic.error.message : "the gateway did not answer"}.
+          {t("agentDetail.metricsUnavailable", { detail: traffic.error instanceof Error ? traffic.error.message : t("agentDetail.gatewayNoAnswer") })}
         </p>
       ) : (
         <p className="text-[11px] text-slate-600">
-          Ingress turns over the last 24h. Downstream LLM/MCP calls and admin actions are excluded — see{" "}
-          <Link href={`/dashboard/agents/usage?agent=${encodeURIComponent(id)}`} className="text-blue-400 hover:underline">Usage</Link> for the full breakdown.
+          {t("agentDetail.trafficHelpBefore")} {" "}
+          <Link href={`/dashboard/agents/usage?agent=${encodeURIComponent(id)}`} className="text-blue-400 hover:underline">{t("nav.usage")}</Link> {t("agentDetail.trafficHelpAfter")}
         </p>
       )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle>Runtime</CardTitle></CardHeader>
-          <KV label="Type" value={runtimeType} />
+          <CardHeader><CardTitle>{t("agentDetail.runtime")}</CardTitle></CardHeader>
+          <KV label={t("agentDetail.type")} value={runtimeType} />
           <KV
-            label="State"
+            label={t("agentDetail.state")}
             value={
               summary ? (
                 <Badge tone={runtimeStateTone(summary.state)}>{summary.state}</Badge>
@@ -287,73 +294,72 @@ function OverviewTab({ id, workspace, loading, refresh }: { id: string; workspac
               )
             }
           />
-          <KV label="Executable" value={summary ? (summary.executable ? "Yes" : "No") : "—"} />
-          <KV label="Active runs" value={num(summary?.active_runs)} />
-          <KV label="Sessions" value={num(summary?.session_count)} />
+          <KV label={t("agentDetail.executable")} value={summary ? (summary.executable ? t("agentDetail.yes") : t("agentDetail.no")) : "—"} />
+          <KV label={t("agentDetail.activeRuns")} value={num(summary?.active_runs)} />
+          <KV label={t("agentDetail.sessions")} value={num(summary?.session_count)} />
           <KV
-            label="Last activity"
-            value={summary?.last_activity_at ? new Date(summary.last_activity_at).toLocaleString() : "—"}
+            label={t("agentDetail.lastActivity")}
+            value={summary?.last_activity_at ? new Date(summary.last_activity_at).toLocaleString(locale) : "—"}
           />
 
           {runtimeType === "acp" && acp && (
             <div className="mt-3 border-t border-slate-700/50 pt-2">
-              <KV label="Agent type" value={acp.agent_type} />
-              <KV label="Permission mode" value={acp.permission_mode} />
-              <KV label="Working directory" value={acp.cwd} mono />
-              <KV label="Allowed roots" value={acp.allowed_roots?.length ? acp.allowed_roots.join(", ") : "—"} mono />
-              <KV label="Default model" value={acp.default_model} mono />
-              <KV label="Max instances" value={acp.max_instances} />
+              <KV label={t("agentDetail.agentType")} value={acp.agent_type} />
+              <KV label={t("agentDetail.permissionMode")} value={acp.permission_mode} />
+              <KV label={t("agentDetail.workingDirectory")} value={acp.cwd} mono />
+              <KV label={t("agentDetail.allowedRoots")} value={acp.allowed_roots?.length ? acp.allowed_roots.join(", ") : "—"} mono />
+              <KV label={t("agentDetail.defaultModel")} value={acp.default_model} mono />
+              <KV label={t("agentDetail.maxInstances")} value={acp.max_instances} />
             </div>
           )}
 
           {runtimeType === "builtin" && builtin && (
             <div className="mt-3 border-t border-slate-700/50 pt-2">
-              <KV label="Topology" value={builtin.definition.topology_kind} />
+              <KV label={t("agentDetail.topology")} value={builtin.definition.topology_kind} />
               <KV
-                label="LLM route"
+                label={t("agentDetail.llmRoute")}
                 value={
                   <Link href="/dashboard/llm/routes" className="text-blue-400 hover:underline">
                     {builtin.definition.llm_route_id}
                   </Link>
                 }
               />
-              <KV label="Model" value={builtin.definition.model} mono />
+              <KV label={t("agentDetail.model")} value={builtin.definition.model} mono />
               <KV
-                label="Tool services"
+                label={t("agentDetail.toolServices")}
                 value={builtin.definition.tool_service_ids?.length ? builtin.definition.tool_service_ids.join(", ") : "—"}
                 mono
               />
-              <KV label="Max concurrent turns" value={builtin.definition.max_concurrent_turns} />
-              <KV label="Turn timeout" value={builtin.definition.turn_timeout_seconds ? `${builtin.definition.turn_timeout_seconds}s` : "—"} />
-              <KV label="Summarization" value={builtin.definition.summarization_enabled ? "Enabled" : "Disabled"} />
+              <KV label={t("agentDetail.maxConcurrentTurns")} value={builtin.definition.max_concurrent_turns} />
+              <KV label={t("agentDetail.turnTimeout")} value={builtin.definition.turn_timeout_seconds ? `${builtin.definition.turn_timeout_seconds}s` : "—"} />
+              <KV label={t("agentDetail.summarization")} value={builtin.definition.summarization_enabled ? t("common.enabledTitle") : t("common.disabledTitle")} />
             </div>
           )}
 
           {runtimeType === "http" && (
             <div className="mt-3 border-t border-slate-700/50 pt-2">
-              <KV label="Agent Card URL" value={workspace.agent.runtime.http?.card_url} mono />
-              <KV label="Protocol" value={workspace.agent.runtime.http?.protocol} />
-              <KV label="Timeout" value={workspace.agent.runtime.http?.timeout_seconds ? `${workspace.agent.runtime.http.timeout_seconds}s` : "Default (120s)"} />
-              <KV label="Auth ref" value={workspace.agent.runtime.http?.auth_ref} mono />
+              <KV label={t("agentDetail.agentCardUrl")} value={workspace.agent.runtime.http?.card_url} mono />
+              <KV label={t("agentDetail.protocol")} value={workspace.agent.runtime.http?.protocol} />
+              <KV label={t("agentDetail.timeout")} value={workspace.agent.runtime.http?.timeout_seconds ? `${workspace.agent.runtime.http.timeout_seconds}s` : t("agentDetail.defaultTimeout")} />
+              <KV label={t("agentDetail.authRef")} value={workspace.agent.runtime.http?.auth_ref} mono />
               <p className="mt-2 text-[11px] leading-4 text-slate-500">
-                This remote service owns its lifecycle. The Gateway discovers its Agent Card and translates
-                common turns to A2A. Chat, session and cancellation controls follow the reported capabilities.
+                {t("agentDetail.httpHelp")}
               </p>
             </div>
           )}
         </Card>
 
         <Card>
-          <CardHeader><CardTitle>Live Runtime</CardTitle></CardHeader>
+          <CardHeader><CardTitle>{t("agentDetail.liveRuntime")}</CardTitle></CardHeader>
           <div className="grid grid-cols-3 gap-2">
             <div className="rounded-md border border-slate-700/60 bg-slate-900/40 px-3 py-2">
-              <p className="text-[11px] uppercase tracking-wide text-slate-500">{hasPool ? "Pooled" : "Runs"}</p>
+              <p className="text-[11px] uppercase tracking-wide text-slate-500">{hasPool ? t("agentDetail.pooled") : t("agentDetail.runs")}</p>
               <p className="text-lg font-semibold tabular-nums text-slate-100">
                 {hasPool ? rv?.pooled_instances?.length ?? 0 : num(summary?.active_runs)}
               </p>
             </div>
             <div className="rounded-md border border-slate-700/60 bg-slate-900/40 px-3 py-2">
-              <p className="text-[11px] uppercase tracking-wide text-slate-500">In-flight</p>
+              <p className="text-[11px] uppercase tracking-wide text-slate-500">{t("agentDetail.inFlight")}</p>
               <p className="text-lg font-semibold tabular-nums text-slate-100">
                 {hasPool ? num(rv?.in_flight_turns) : num(summary?.active_runs)}
               </p>
@@ -362,7 +368,7 @@ function OverviewTab({ id, workspace, loading, refresh }: { id: string; workspac
               href={hasPool ? "/dashboard/acp/runtime" : "/dashboard/agents/routes"}
               className="rounded-md border border-slate-700/60 bg-slate-900/40 px-3 py-2 transition-colors hover:border-amber-500/40"
             >
-              <p className="text-[11px] uppercase tracking-wide text-slate-500">Pending</p>
+              <p className="text-[11px] uppercase tracking-wide text-slate-500">{t("agentDetail.pending")}</p>
               <p className={`text-lg font-semibold tabular-nums ${pendingCount(rv, summary) > 0 ? "text-amber-300" : "text-slate-100"}`}>
                 {pendingCount(rv, summary)}
               </p>
@@ -370,7 +376,7 @@ function OverviewTab({ id, workspace, loading, refresh }: { id: string; workspac
           </div>
           {(rv?.pending_permissions?.length ?? 0) > 0 && (
             <div className="mt-3">
-              <p className="mb-1.5 text-[11px] uppercase tracking-wide text-amber-400/80">Pending Permissions</p>
+              <p className="mb-1.5 text-[11px] uppercase tracking-wide text-amber-400/80">{t("agentDetail.pendingPermissions")}</p>
               <PendingPermissions
                 pending={rv!.pending_permissions!.map(normalizeACPPoolPermission)}
                 onResolved={refresh}
@@ -379,7 +385,7 @@ function OverviewTab({ id, workspace, loading, refresh }: { id: string; workspac
           )}
           {workspace.agent_routes && workspace.agent_routes.length > 0 && (
             <div className="mt-3">
-              <p className="mb-1 text-[11px] uppercase tracking-wide text-slate-500">Agent Routes</p>
+              <p className="mb-1 text-[11px] uppercase tracking-wide text-slate-500">{t("agentDetail.agentRoutes")}</p>
               <div className="flex flex-wrap gap-1.5">
                 {workspace.agent_routes.map((r) => (
                   <Link key={r.id} href="/dashboard/agents/routes">
@@ -391,13 +397,13 @@ function OverviewTab({ id, workspace, loading, refresh }: { id: string; workspac
           )}
           {!workspace.agent_routes?.length && (
             <p className="mt-3 text-[11px] text-amber-400/90">
-              No ingress route targets this agent yet, so nothing can call it.{" "}
-              <Link href="/dashboard/agents/routes" className="text-blue-400 hover:underline">Create one →</Link>
+              {t("agentDetail.noIngressBefore")} {" "}
+              <Link href="/dashboard/agents/routes" className="text-blue-400 hover:underline">{t("agentDetail.createOne")}</Link>
             </p>
           )}
         </Card>
       </div>
-      <p className="text-[11px] text-slate-600">Workspace is a summary/index — full session content is fetched on demand from the linked endpoints, never aggregated here. Agent: {id}</p>
+      <p className="text-[11px] text-slate-600">{t("agentDetail.workspaceHelp", { id })}</p>
     </div>
   );
 }
@@ -411,10 +417,10 @@ function runStateTone(state: AgentRunInfo["state"]): "green" | "amber" | "red" |
   return "neutral";
 }
 
-function formatRunTime(value?: string): string {
+function formatRunTime(value: string | undefined, locale: string): string {
   if (!value || value.startsWith("0001-01-01")) return "—";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString(locale);
 }
 
 function RunsTab({
@@ -427,6 +433,7 @@ function RunsTab({
   onChanged: () => void;
 }) {
   const { showToast } = useToast();
+  const { locale, t } = useI18n();
   const runs = useAdminSWR(["agent-runs", id], () => listAgentRuns(id), { live: true });
   const [pendingCancel, setPendingCancel] = useState<{ run: AgentRunInfo; mode: AgentCancelMode } | null>(null);
   const [cancelling, setCancelling] = useState<string | null>(null);
@@ -439,13 +446,13 @@ function RunsTab({
     setCancelling(run.run_id);
     try {
       await cancelAgentRun(id, run.run_id, mode);
-      showToast(`Run cancellation requested (${mode})`, "success");
+      showToast(t("agentDetail.cancelRequested", { mode }), "success");
       await runs.mutate();
       onChanged();
     } catch (err) {
       const message = err instanceof ApiError
         ? err.errorType ? `${err.message} (${err.errorType})` : err.message
-        : "Failed to cancel run";
+        : t("agentDetail.cancelFailed");
       showToast(message, "error");
     } finally {
       setCancelling(null);
@@ -454,10 +461,10 @@ function RunsTab({
   };
 
   if (runs.error && !runs.data) {
-    return <Card className="p-8 text-center text-sm text-rose-300">{runs.error instanceof Error ? runs.error.message : "Failed to load runs"}</Card>;
+    return <Card className="p-8 text-center text-sm text-rose-300">{runs.error instanceof Error ? runs.error.message : t("agentDetail.loadRunsFailed")}</Card>;
   }
   if (runs.isLoading && !runs.data) {
-    return <Card className="p-8 text-center text-sm text-slate-400">Loading runs…</Card>;
+    return <Card className="p-8 text-center text-sm text-slate-400">{t("agentDetail.loadingRuns")}</Card>;
   }
 
   const items = runs.data ?? [];
@@ -467,8 +474,8 @@ function RunsTab({
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <CardTitle>Runs</CardTitle>
-              <p className="mt-1 text-xs text-slate-500">Live and recently completed executions reported by this agent runtime.</p>
+              <CardTitle>{t("agentDetail.runs")}</CardTitle>
+              <p className="mt-1 text-xs text-slate-500">{t("agentDetail.runsDescription")}</p>
             </div>
             <AutoRefreshControl
               lastUpdated={runs.lastUpdated}
@@ -479,12 +486,12 @@ function RunsTab({
         </CardHeader>
 
         {items.length === 0 ? (
-          <p className="py-8 text-center text-sm text-slate-500">No runs reported.</p>
+          <p className="py-8 text-center text-sm text-slate-500">{t("agentDetail.noRuns")}</p>
         ) : (
           <div className="overflow-x-auto">
             <div className="min-w-[760px]">
               <div className="grid grid-cols-[minmax(180px,1fr)_110px_minmax(140px,0.8fr)_170px_minmax(210px,auto)] border-b border-slate-700/70 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">
-                <span>Run</span><span>Status</span><span>Session</span><span>Started</span><span className="text-right">Actions</span>
+                <span>{t("agentDetail.run")}</span><span>{t("agentDetail.status")}</span><span>{t("agentDetail.session")}</span><span>{t("agentDetail.started")}</span><span className="text-right">{t("common.actions")}</span>
               </div>
               {items.map((run) => {
                 const isRunning = run.state === "running";
@@ -497,30 +504,30 @@ function RunsTab({
                     <div className="min-w-0">
                       <p className="truncate font-mono text-xs text-slate-200" title={run.run_id}>{run.run_id}</p>
                       <p className="mt-0.5 truncate text-[11px] text-slate-500">
-                        {run.runtime_type}{run.stop_reason ? ` · ${run.stop_reason}` : run.state !== "running" && run.finished_at ? ` · ended ${formatRunTime(run.finished_at)}` : ""}
+                        {run.runtime_type}{run.stop_reason ? ` · ${run.stop_reason}` : run.state !== "running" && run.finished_at ? ` · ${t("agentDetail.ended", { time: formatRunTime(run.finished_at, locale) })}` : ""}
                       </p>
                     </div>
                     <div><Badge tone={runStateTone(run.state)}>{run.state}</Badge></div>
                     <span className="truncate font-mono text-xs text-slate-400" title={run.session_id}>{run.session_id ?? "—"}</span>
-                    <span className="text-xs text-slate-400">{formatRunTime(run.started_at)}</span>
+                    <span className="text-xs text-slate-400">{formatRunTime(run.started_at, locale)}</span>
                     <div className="flex justify-end gap-1.5">
                       <Button
                         variant="secondary"
                         className="px-2.5 py-1 text-xs"
                         disabled={!isRunning || !supportsGraceful || busy}
-                        title={!supportsGraceful ? "Graceful cancellation is not supported by this runtime" : undefined}
+                        title={!supportsGraceful ? t("agentDetail.gracefulUnsupported") : undefined}
                         onClick={() => setPendingCancel({ run, mode: "graceful" })}
                       >
-                        Graceful
+                        {t("agentDetail.graceful")}
                       </Button>
                       <Button
                         variant="danger"
                         className="px-2.5 py-1 text-xs"
                         disabled={!isRunning || !supportsForce || busy}
-                        title={!supportsForce ? "Force cancellation is not supported by this runtime" : undefined}
+                        title={!supportsForce ? t("agentDetail.forceUnsupported") : undefined}
                         onClick={() => setPendingCancel({ run, mode: "force" })}
                       >
-                        {busy ? "Cancelling…" : "Force"}
+                        {busy ? t("agentDetail.cancelling") : t("agentDetail.force")}
                       </Button>
                     </div>
                   </div>
@@ -532,20 +539,20 @@ function RunsTab({
       </Card>
 
       <p className="text-[11px] text-slate-600">
-        Graceful cancellation asks the runtime to stop cleanly; force cancellation terminates the run immediately. Unsupported modes stay disabled according to the agent&apos;s advertised capabilities.
+        {t("agentDetail.cancelHelp")}
       </p>
 
       <ConfirmDialog
         isOpen={!!pendingCancel}
         onClose={() => setPendingCancel(null)}
         onConfirm={() => void handleCancel()}
-        title={`${pendingCancel?.mode === "force" ? "Force cancel" : "Gracefully cancel"} run?`}
+        title={pendingCancel?.mode === "force" ? t("agentDetail.forceCancelTitle") : t("agentDetail.gracefulCancelTitle")}
         message={
           <span>
-            Run <span className="font-mono">{pendingCancel?.run.run_id}</span> will receive a {pendingCancel?.mode} cancellation request.
+            {t("agentDetail.cancelMessage", { id: pendingCancel?.run.run_id ?? "", mode: pendingCancel?.mode ?? "" })}
           </span>
         }
-        confirmLabel={pendingCancel?.mode === "force" ? "Force cancel" : "Cancel run"}
+        confirmLabel={pendingCancel?.mode === "force" ? t("agentDetail.forceCancel") : t("agentDetail.cancelRun")}
         variant={pendingCancel?.mode === "force" ? "danger" : "warning"}
       />
     </div>
@@ -555,6 +562,7 @@ function RunsTab({
 // ── Chat ────────────────────────────────────────────────────────────────────
 
 function ChatTab({ workspace, loading }: { workspace: AgentWorkspace | undefined; loading: boolean }) {
+  const { t } = useI18n();
   const agentId = workspace?.agent.id ?? "";
   const capabilities = workspace?.capabilities;
   // Chat is available whenever the backend can stream a turn — ACP and builtin
@@ -573,20 +581,20 @@ function ChatTab({ workspace, loading }: { workspace: AgentWorkspace | undefined
     [routes, agentId],
   );
 
-  if (loading || !workspace) return <Card className="p-8 text-center text-sm text-slate-400">Loading workspace…</Card>;
+  if (loading || !workspace) return <Card className="p-8 text-center text-sm text-slate-400">{t("agentDetail.loadingWorkspace")}</Card>;
   if (!chattable) {
     return (
       <Card className="p-8 text-center text-sm text-slate-500">
-        This agent&apos;s runtime does not advertise streaming turns, so there is nothing to drive interactively.
-        {capabilities?.executable === false && " Its runtime backend reports as not executable."}
+        {t("agentDetail.noStreaming")}
+        {capabilities?.executable === false && t("agentDetail.backendNotExecutable")}
       </Card>
     );
   }
   if (!loadingRoutes && scopedRoutes.length === 0) {
     return (
       <Card className="p-8 text-center text-sm text-slate-500">
-        No enabled common-turn agent route targets this agent, so there is no data-plane path to chat over.{" "}
-        <Link href="/dashboard/agents/routes" className="text-blue-400 hover:underline">Create one →</Link>
+        {t("agentDetail.noChatRoute")} {" "}
+        <Link href="/dashboard/agents/routes" className="text-blue-400 hover:underline">{t("agentDetail.createOne")}</Link>
       </Card>
     );
   }
@@ -641,6 +649,7 @@ function indexRoutes(llm: LLMRoute[], mcp: MCPRoute[], agentRoutes: AgentRoute[]
  * key with no allowlist permits every route; an unresolvable id is dangling.
  */
 function AgentReachability({ keyRefs }: { keyRefs?: AgentResourceRef[] }) {
+  const { t } = useI18n();
   const vks = useAdminSWR("reach-vks", listVirtualKeys);
   const llm = useAdminSWR("reach-llm-routes", listLLMRoutes);
   const mcp = useAdminSWR("reach-mcp-routes", listMCPRoutes);
@@ -656,10 +665,9 @@ function AgentReachability({ keyRefs }: { keyRefs?: AgentResourceRef[] }) {
   if (!keyRefs || keyRefs.length === 0) {
     return (
       <Card>
-        <CardHeader><CardTitle>Reachability</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{t("agentDetail.reachability")}</CardTitle></CardHeader>
         <p className="text-xs text-slate-500">
-          This agent holds no virtual keys, so it has no key-gated outbound reach. Inbound exposure (how callers reach
-          this agent) is configured on the Agent Routes page.
+          {t("agentDetail.noKeysReachability")}
         </p>
       </Card>
     );
@@ -667,12 +675,12 @@ function AgentReachability({ keyRefs }: { keyRefs?: AgentResourceRef[] }) {
 
   return (
     <Card>
-      <CardHeader><CardTitle>Reachability</CardTitle></CardHeader>
+      <CardHeader><CardTitle>{t("agentDetail.reachability")}</CardTitle></CardHeader>
       <p className="mb-3 text-[11px] text-slate-500">
-        What this agent can reach through the virtual keys it holds: key → permitted route → target resource.
+        {t("agentDetail.reachabilityHelp")}
       </p>
       {!ready ? (
-        <p className="text-xs text-slate-400">Resolving…</p>
+        <p className="text-xs text-slate-400">{t("agentDetail.resolving")}</p>
       ) : (
         <div className="space-y-3">
           {keyRefs.map((ref) => {
@@ -681,7 +689,7 @@ function AgentReachability({ keyRefs }: { keyRefs?: AgentResourceRef[] }) {
               return (
                 <div key={ref.id} className="flex items-center justify-between gap-2 rounded-md border border-rose-500/40 bg-rose-500/5 px-3 py-2">
                   <span className="font-mono text-xs text-slate-200">{ref.id}</span>
-                  <Badge tone="red">dangling</Badge>
+                  <Badge tone="red">{t("agentDetail.dangling")}</Badge>
                 </div>
               );
             }
@@ -692,28 +700,28 @@ function AgentReachability({ keyRefs }: { keyRefs?: AgentResourceRef[] }) {
                 <div className="mb-1.5 flex items-center justify-between gap-2">
                   <span className="truncate font-mono text-xs text-slate-200">{k.id}</span>
                   <div className="flex shrink-0 items-center gap-1.5">
-                    {k.disabled && <Badge tone="neutral">disabled</Badge>}
-                    <Badge tone={allowsAll ? "amber" : "neutral"}>{allowsAll ? "all routes" : `${routeIds.length} routes`}</Badge>
+                    {k.disabled && <Badge tone="neutral">{t("common.disabled")}</Badge>}
+                    <Badge tone={allowsAll ? "amber" : "neutral"}>{allowsAll ? t("agentDetail.allRoutes") : t("agentDetail.routeCount", { count: routeIds.length })}</Badge>
                   </div>
                 </div>
                 {routeIds.length === 0 ? (
-                  <p className="pl-3 text-[11px] text-slate-500">No routes reachable.</p>
+                  <p className="pl-3 text-[11px] text-slate-500">{t("agentDetail.noReachableRoutes")}</p>
                 ) : (
                   <div className="space-y-1">
                     {routeIds.map((rid) => {
-                      const t = routeIndex.get(rid);
+                      const targetRoute = routeIndex.get(rid);
                       return (
                         <div key={rid} className="flex items-center gap-2 pl-3 text-xs">
                           <span className="text-slate-600">→</span>
                           <span className="truncate font-mono text-slate-300">{rid}</span>
-                          {t ? (
+                          {targetRoute ? (
                             <>
-                              <Badge tone={protocolTone(t.kind)}>{t.kind}</Badge>
-                              {t.disabled && <Badge tone="neutral">disabled</Badge>}
-                              <span className="ml-auto truncate font-mono text-[11px] text-slate-500">→ {t.target}</span>
+                              <Badge tone={protocolTone(targetRoute.kind)}>{targetRoute.kind}</Badge>
+                              {targetRoute.disabled && <Badge tone="neutral">{t("common.disabled")}</Badge>}
+                              <span className="ml-auto truncate font-mono text-[11px] text-slate-500">→ {targetRoute.target}</span>
                             </>
                           ) : (
-                            <Badge tone="red">dangling</Badge>
+                            <Badge tone="red">{t("agentDetail.dangling")}</Badge>
                           )}
                         </div>
                       );
@@ -730,6 +738,7 @@ function AgentReachability({ keyRefs }: { keyRefs?: AgentResourceRef[] }) {
 }
 
 function ResourceGroup({ title, refs }: { title: string; refs?: AgentResourceRef[] }) {
+  const { t } = useI18n();
   if (!refs || refs.length === 0) return null;
   return (
     <Card>
@@ -743,8 +752,8 @@ function ResourceGroup({ title, refs }: { title: string; refs?: AgentResourceRef
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
               {r.kind && <Badge tone={protocolTone(r.kind)}>{r.kind}</Badge>}
-              {r.disabled && <Badge tone="neutral">disabled</Badge>}
-              {!r.exists && <Badge tone="red">dangling</Badge>}
+              {r.disabled && <Badge tone="neutral">{t("common.disabled")}</Badge>}
+              {!r.exists && <Badge tone="red">{t("agentDetail.dangling")}</Badge>}
             </div>
           </div>
         ))}
@@ -754,27 +763,28 @@ function ResourceGroup({ title, refs }: { title: string; refs?: AgentResourceRef
 }
 
 function ResourcesTab({ id }: { id: string }) {
+  const { t } = useI18n();
   const { data, error, isLoading } = useAdminSWR(["agent-resources", id], () => getAgentResources(id));
-  if (error) return <Card className="p-8 text-center text-sm text-rose-300">{error instanceof Error ? error.message : "Failed to load resources"}</Card>;
-  if (isLoading && !data) return <Card className="p-8 text-center text-sm text-slate-400">Loading resources…</Card>;
+  if (error) return <Card className="p-8 text-center text-sm text-rose-300">{error instanceof Error ? error.message : t("agentDetail.resourcesLoadFailed")}</Card>;
+  if (isLoading && !data) return <Card className="p-8 text-center text-sm text-slate-400">{t("agentDetail.loadingResources")}</Card>;
   const r = data?.resolved;
   const empty = !r || Object.values(r).every((v) => !v || v.length === 0);
   return (
     <div className="space-y-4">
       {empty ? (
-        <Card className="p-8 text-center text-sm text-slate-500">No resources bound to this agent.</Card>
+        <Card className="p-8 text-center text-sm text-slate-500">{t("agentDetail.noResources")}</Card>
       ) : (
         <>
           <AgentReachability keyRefs={r?.virtual_keys} />
-          <ResourceGroup title="Providers" refs={r?.providers} />
-          <ResourceGroup title="MCP Services" refs={r?.mcp_services} />
-          <ResourceGroup title="Virtual Keys" refs={r?.virtual_keys} />
-          <ResourceGroup title="LLM Routes" refs={r?.llm_routes} />
-          <ResourceGroup title="MCP Routes" refs={r?.mcp_routes} />
+          <ResourceGroup title={t("agentDetail.providers")} refs={r?.providers} />
+          <ResourceGroup title={t("agentDetail.mcpServices")} refs={r?.mcp_services} />
+          <ResourceGroup title={t("agentDetail.virtualKeys")} refs={r?.virtual_keys} />
+          <ResourceGroup title={t("agentDetail.llmRoutes")} refs={r?.llm_routes} />
+          <ResourceGroup title={t("agentDetail.mcpRoutes")} refs={r?.mcp_routes} />
         </>
       )}
       <p className="text-[11px] text-slate-600">
-        Resources are a management view of what the agent is allowed to use — the data plane is still gated by virtual-key + route policy, not by this list.
+        {t("agentDetail.resourcesHelp")}
       </p>
     </div>
   );
@@ -783,29 +793,30 @@ function ResourcesTab({ id }: { id: string }) {
 // ── Health ──────────────────────────────────────────────────────────────────
 
 function HealthTab({ id }: { id: string }) {
+  const { t } = useI18n();
   const { data, error, isLoading } = useAdminSWR(["agent-health", id], () => getAgentHealth(id), { live: true });
-  if (error) return <Card className="p-8 text-center text-sm text-rose-300">{error instanceof Error ? error.message : "Failed to load health"}</Card>;
-  if (isLoading && !data) return <Card className="p-8 text-center text-sm text-slate-400">Loading health…</Card>;
+  if (error) return <Card className="p-8 text-center text-sm text-rose-300">{error instanceof Error ? error.message : t("agentDetail.healthLoadFailed")}</Card>;
+  if (isLoading && !data) return <Card className="p-8 text-center text-sm text-slate-400">{t("agentDetail.loadingHealth")}</Card>;
   if (!data) return null;
   const rate = errorRate(data.recent_window - data.recent_failures, data.recent_failures);
   return (
     <div className="space-y-4">
       <StatGrid>
-        <StatCard label="Status" value={data.disabled ? "Disabled" : "Enabled"} tone={data.disabled ? "text-slate-400" : "text-emerald-300"} />
-        <StatCard label="Pooled" value={data.pooled_instances} />
-        <StatCard label="In-flight" value={data.in_flight_turns} />
-        <StatCard label="Pending Perms" value={data.pending_permissions} tone={data.pending_permissions > 0 ? "text-amber-300" : "text-slate-100"} />
-        <StatCard label="Recent Errors" value={`${data.recent_failures} / ${data.recent_window}`} sub={pct(rate)} tone={data.recent_failures > 0 ? "text-amber-300" : "text-slate-100"} />
+        <StatCard label={t("agentDetail.status")} value={data.disabled ? t("common.disabledTitle") : t("common.enabledTitle")} tone={data.disabled ? "text-slate-400" : "text-emerald-300"} />
+        <StatCard label={t("agentDetail.pooled")} value={data.pooled_instances} />
+        <StatCard label={t("agentDetail.inFlight")} value={data.in_flight_turns} />
+        <StatCard label={t("agentDetail.pendingPerms")} value={data.pending_permissions} tone={data.pending_permissions > 0 ? "text-amber-300" : "text-slate-100"} />
+        <StatCard label={t("agentDetail.recentErrors")} value={`${data.recent_failures} / ${data.recent_window}`} sub={pct(rate)} tone={data.recent_failures > 0 ? "text-amber-300" : "text-slate-100"} />
       </StatGrid>
       {data.pipeline && (
         <Card>
-          <CardHeader><CardTitle>Metrics Pipeline</CardTitle></CardHeader>
-          <KV label="Dropped events" value={num(data.pipeline.dropped_events)} />
-          <KV label="Write failures" value={num(data.pipeline.write_failures)} />
+          <CardHeader><CardTitle>{t("agentDetail.metricsPipeline")}</CardTitle></CardHeader>
+          <KV label={t("agentDetail.droppedEvents")} value={num(data.pipeline.dropped_events)} />
+          <KV label={t("agentDetail.writeFailures")} value={num(data.pipeline.write_failures)} />
         </Card>
       )}
       <p className="text-[11px] text-slate-600">
-        Shallow health only. Deep checks (upstream reachability, circuit-break, credential expiry) are not yet exposed by the gateway.
+        {t("agentDetail.healthHelp")}
       </p>
     </div>
   );
@@ -815,80 +826,81 @@ function HealthTab({ id }: { id: string }) {
 
 function ConfigurationTab({ id, workspace }: { id: string; workspace: AgentWorkspace | undefined }) {
   const { showToast } = useToast();
+  const { locale, t } = useI18n();
   const [copied, setCopied] = useState(false);
   const agent = workspace?.agent;
-  if (!agent) return <Card className="p-8 text-center text-sm text-slate-400">Loading configuration…</Card>;
+  if (!agent) return <Card className="p-8 text-center text-sm text-slate-400">{t("agentDetail.loadingConfiguration")}</Card>;
   const yaml = agentYamlFragment(agent);
 
   const copyYaml = async () => {
     try {
       await navigator.clipboard.writeText(yaml);
       setCopied(true);
-      showToast("Agent YAML copied", "success");
+      showToast(t("agentDetail.yamlCopied"), "success");
       window.setTimeout(() => setCopied(false), 2000);
     } catch {
-      showToast("Failed to copy Agent YAML", "error");
+      showToast(t("agentDetail.yamlCopyFailed"), "error");
     }
   };
 
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader><CardTitle>Identity</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{t("agentDetail.identity")}</CardTitle></CardHeader>
         <KV label="ID" value={agent.id} mono />
-        <KV label="Name" value={agent.name} />
-        <KV label="Description" value={agent.description} />
-        <KV label="Source" value={agent.source} />
-        <KV label="Created" value={agent.created_at ? new Date(agent.created_at).toLocaleString() : "—"} />
-        <KV label="Updated" value={agent.updated_at ? new Date(agent.updated_at).toLocaleString() : "—"} />
+        <KV label={t("common.name")} value={agent.name} />
+        <KV label={t("common.description")} value={agent.description} />
+        <KV label={t("agentDetail.source")} value={agent.source} />
+        <KV label={t("common.created")} value={agent.created_at ? new Date(agent.created_at).toLocaleString(locale) : "—"} />
+        <KV label={t("agentDetail.updated")} value={agent.updated_at ? new Date(agent.updated_at).toLocaleString(locale) : "—"} />
       </Card>
       <Card>
-        <CardHeader><CardTitle>Runtime &amp; Policy</CardTitle></CardHeader>
-        <KV label="Runtime type" value={agent.runtime.type} />
+        <CardHeader><CardTitle>{t("agentDetail.runtimePolicy")}</CardTitle></CardHeader>
+        <KV label={t("agentDetail.runtimeType")} value={agent.runtime.type} />
         {agent.runtime.acp && (
           <>
-            <KV label="ACP agent type" value={agent.runtime.acp.agent_type} />
-            <KV label="Working directory" value={agent.runtime.acp.cwd} mono />
+            <KV label={t("agentDetail.acpAgentType")} value={agent.runtime.acp.agent_type} />
+            <KV label={t("agentDetail.workingDirectory")} value={agent.runtime.acp.cwd} mono />
           </>
         )}
         {agent.runtime.builtin && (
           <>
-            <KV label="Builtin topology" value={agent.runtime.builtin.topology?.kind} />
-            <KV label="Builtin LLM route" value={agent.runtime.builtin.model?.llm_route_id} mono />
+            <KV label={t("agentDetail.builtinTopology")} value={agent.runtime.builtin.topology?.kind} />
+            <KV label={t("agentDetail.builtinLlmRoute")} value={agent.runtime.builtin.model?.llm_route_id} mono />
           </>
         )}
-        {agent.runtime.http && <KV label="Agent Card URL" value={agent.runtime.http.card_url} mono />}
-        <KV label="Max agent depth" value={agent.policy.max_agent_depth} />
-        <KV label="Max turns/day" value={agent.policy.budget?.max_turns_per_day} />
-        <KV label="Max tokens/day" value={agent.policy.budget?.max_tokens_per_day} />
+        {agent.runtime.http && <KV label={t("agentDetail.agentCardUrl")} value={agent.runtime.http.card_url} mono />}
+        <KV label={t("agentDetail.maxAgentDepth")} value={agent.policy.max_agent_depth} />
+        <KV label={t("agentDetail.maxTurnsDay")} value={agent.policy.budget?.max_turns_per_day} />
+        <KV label={t("agentDetail.maxTokensDay")} value={agent.policy.budget?.max_tokens_per_day} />
       </Card>
       <Card>
         <CardHeader>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <CardTitle>Agent YAML</CardTitle>
+              <CardTitle>{t("agentDetail.yaml")}</CardTitle>
               <p className="mt-1 text-xs leading-5 text-slate-500">
-                Read-only GatewayBundle fragment. Paste it into a bundle alongside its referenced resources, then apply with agwctl.
+                {t("agentDetail.yamlHelp")}
               </p>
             </div>
             <Button variant="secondary" className="px-2.5 py-1 text-xs" onClick={() => void copyYaml()}>
-              {copied ? "Copied" : "Copy YAML"}
+              {copied ? t("agentDetail.copied") : t("agentDetail.copyYaml")}
             </Button>
           </div>
         </CardHeader>
         <pre
           className="max-h-[32rem] overflow-auto rounded-md border border-slate-700/70 bg-slate-950/70 p-4 font-mono text-[11px] leading-5 text-slate-300"
-          aria-label="Read-only Agent YAML"
+          aria-label={t("agentDetail.yamlAria")}
           tabIndex={0}
         >
           {yaml}
         </pre>
         <p className="mt-2 text-[11px] leading-4 text-slate-600">
-          Gateway-managed fields such as source, runtime status, and timestamps are omitted. Referenced routes, providers, services, and virtual keys are not embedded in this fragment.
+          {t("agentDetail.yamlFootnote")}
         </p>
       </Card>
       <div className="flex justify-end">
-        <Link href={`/dashboard/agents/${encodeURIComponent(id)}/edit`}><Button className="px-3 py-1.5 text-xs">Edit Configuration</Button></Link>
+        <Link href={`/dashboard/agents/${encodeURIComponent(id)}/edit`}><Button className="px-3 py-1.5 text-xs">{t("agentDetail.editConfiguration")}</Button></Link>
       </div>
     </div>
   );

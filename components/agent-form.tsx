@@ -18,6 +18,7 @@ import {
   stripBuiltinDependencies,
 } from "@/lib/agent-bindings";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/components/i18n-provider";
 import { httpAgentConfigFromForm, httpAgentFormValues } from "@/lib/agent-http";
 import {
   ApiError,
@@ -118,9 +119,10 @@ function Field({ label, hint, required, action, children }: { label: string; hin
  *  the in-progress wizard draft. Opens in a new tab; pair with the Refresh
  *  control to pull the newly-created resource into the selectors. */
 function NewLink({ href }: { href: string }) {
+  const { t } = useI18n();
   return (
     <a href={href} target="_blank" rel="noopener noreferrer" className="text-xs font-medium text-blue-400 hover:underline">
-      + New ↗
+      {t("agentForm.newLink")}
     </a>
   );
 }
@@ -134,6 +136,7 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
   const isEdit = !!initial;
   const router = useRouter();
   const { showToast } = useToast();
+  const { t } = useI18n();
   const initialPayload = useMemo(() => initial ? agentPayload(initial) : undefined, [initial]);
   const initialFormPayload = useMemo(
     () => initialPayload ? stripBuiltinDependencies(initialPayload) : undefined,
@@ -202,6 +205,23 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
     mcpServiceIDs: [] as string[],
   });
 
+  const localizedHttpError = (error: unknown): string => {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.startsWith("Unsupported runtime.http fields: ")) {
+      return t("agentForm.httpUnsupported", { fields: message.slice("Unsupported runtime.http fields: ".length) });
+    }
+    const messages: Record<string, ReturnType<typeof t>> = {
+      "runtime.http.card_url is required": t("agentForm.httpCardRequired"),
+      "runtime.http.card_url must be an absolute HTTP(S) URL": t("agentForm.httpCardAbsolute"),
+      "runtime.http.card_url must not contain userinfo or a fragment": t("agentForm.httpCardNoUserinfo"),
+      "runtime.http.card_url must use HTTPS except for loopback HTTP": t("agentForm.httpHttps"),
+      "runtime.http.protocol must be a2a": t("agentForm.httpProtocol"),
+      "runtime.http.auth_ref must be a string": t("agentForm.httpAuthString"),
+      "runtime.http.timeout_seconds must be a non-negative integer": t("agentForm.httpTimeoutInteger"),
+    };
+    return messages[message] ?? message;
+  };
+
   const loadRef = useCallback(async () => {
     setRefStatus({ llmRoutes: "loading", mcpServices: "loading" });
     const [llmRoutes, mcpRoutes, mcpServices, providers, vkeys] = await Promise.allSettled([
@@ -236,9 +256,9 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
     try {
       const status = await loadRef();
       if (status.llmRoutes === "error" || status.mcpServices === "error") {
-        showToast("Some resource options still could not be loaded", "error");
+        showToast(t("agentForm.optionsPartial"), "error");
       } else {
-        showToast("Options refreshed", "success");
+        showToast(t("agentForm.optionsRefreshed"), "success");
       }
     } finally {
       setRefreshing(false);
@@ -252,7 +272,7 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
       onClick={() => void refresh()}
       disabled={refreshing}
     >
-      {refreshing ? "Retrying…" : "Retry"}
+      {refreshing ? t("agentForm.retrying") : t("common.retry")}
     </Button>
   );
 
@@ -263,13 +283,13 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
     try {
       const parsed = JSON.parse(builtinJson) as unknown;
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        return { error: "Builtin definition must be a JSON object" };
+        return { error: t("agentForm.builtinObject") };
       }
       return { value: parsed as AgentRuntimeBuiltin };
     } catch (e) {
-      return { error: e instanceof Error ? e.message : "Invalid JSON" };
+      return { error: e instanceof Error ? e.message : t("agentForm.invalidJson") };
     }
-  }, [runtimeType, builtinJson]);
+  }, [runtimeType, builtinJson, t]);
 
   const buildRuntime = (): AgentRuntime => {
     if (runtimeType === "acp") {
@@ -343,15 +363,15 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
   const buildBoundPayload = (): AgentPayload => bindBuiltinDependencies(buildPayload());
 
   const yamlParse = useMemo((): { value?: AgentPayload; error?: string } => {
-    if (!yamlText.trim()) return { error: "Agent YAML is empty" };
+    if (!yamlText.trim()) return { error: t("agentForm.yamlEmpty") };
     try {
       const value = parseAgentPayloadYaml(yamlText);
-      if (isEdit && value.id !== initial?.id) return { error: `Agent ID is immutable and must remain ${initial?.id}` };
+      if (isEdit && value.id !== initial?.id) return { error: t("agentForm.idImmutable", { id: initial?.id ?? "" }) };
       return { value };
     } catch (error) {
-      return { error: error instanceof Error ? error.message : "Invalid Agent YAML" };
+      return { error: error instanceof Error ? error.message : t("agentForm.invalidYaml") };
     }
-  }, [initial, isEdit, yamlText]);
+  }, [initial, isEdit, yamlText, t]);
 
   const formBuiltinReferences = useMemo(
     () => collectBuiltinReferences(builtinParse.value),
@@ -438,12 +458,12 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
   const switchToYaml = () => {
     if (runtimeType === "http") {
       try { httpAgentConfigFromForm(httpValues); } catch (error) {
-        showToast((error as Error).message, "error");
+        showToast(localizedHttpError(error), "error");
         return;
       }
     }
     if (runtimeType === "builtin" && builtinParse.error) {
-      showToast(`Builtin definition: ${builtinParse.error}`, "error");
+      showToast(t("agentForm.builtinError", { detail: builtinParse.error }), "error");
       return;
     }
     const payload = buildBoundPayload();
@@ -454,7 +474,7 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
 
   const switchToForm = () => {
     if (yamlParse.error || !yamlParse.value) {
-      showToast(yamlParse.error ?? "Invalid Agent YAML", "error");
+      showToast(yamlParse.error ?? t("agentForm.invalidYaml"), "error");
       return;
     }
     applyPayloadToForm(yamlParse.value);
@@ -467,11 +487,11 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
 
     if ((references.llmRouteIDs.length > 0 && refStatus.llmRoutes === "loading")
       || (references.mcpServiceIDs.length > 0 && refStatus.mcpServices === "loading")) {
-      return "Wait for builtin dependency checks to finish before saving";
+      return t("agentForm.waitDependencies");
     }
     if ((references.llmRouteIDs.length > 0 && refStatus.llmRoutes === "error")
       || (references.mcpServiceIDs.length > 0 && refStatus.mcpServices === "error")) {
-      return "Builtin dependencies could not be verified. Refresh the resource options before saving";
+      return t("agentForm.dependenciesUnverified");
     }
 
     const diagnostics = diagnoseBuiltinDependencies(payload, {
@@ -483,38 +503,38 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
       ...diagnostics.missingMcpServiceIDs.map((id) => `MCP service "${id}"`),
     ];
     return missing.length > 0
-      ? `Create or correct the missing builtin ${missing.length === 1 ? "dependency" : "dependencies"} before saving: ${missing.join(", ")}`
+      ? t("agentForm.missingDependencies", { noun: missing.length === 1 ? t("agentForm.dependency") : t("agentForm.dependencies"), items: missing.join(", ") })
       : null;
   };
 
   // Returns an error message if the given wizard step is incomplete, else null.
   const validateStep = (s: number): string | null => {
     if (s === 0) {
-      if (!id.trim()) return "Agent ID is required";
+      if (!id.trim()) return t("agentForm.idRequired");
       // The gateway routes /admin/agents/routes* to a separate mux ahead of
       // /admin/agents/{id}, so an agent with this id would be unreachable.
-      if (id.trim() === RESERVED_AGENT_ID) return `"${RESERVED_AGENT_ID}" is a reserved agent ID`;
-      if (!name.trim()) return "Name is required";
+      if (id.trim() === RESERVED_AGENT_ID) return t("agentForm.idReserved", { id: RESERVED_AGENT_ID });
+      if (!name.trim()) return t("agentForm.nameRequired");
     }
     if (s === 1) {
       if (runtimeType === "acp") {
-        if (!acpCwd.trim()) return "Working directory is required";
-        if (!isAbsolutePath(acpCwd)) return "Working directory must be an absolute path";
+        if (!acpCwd.trim()) return t("agentForm.cwdRequired");
+        if (!isAbsolutePath(acpCwd)) return t("agentForm.cwdAbsolute");
         if (splitLines(acpAllowedRoots).some((r) => !isAbsolutePath(r))) {
-          return "Allowed roots must each be an absolute path";
+          return t("agentForm.rootsAbsolute");
         }
       }
       if (runtimeType === "builtin") {
-        if (builtinParse.error) return `Builtin definition: ${builtinParse.error}`;
+        if (builtinParse.error) return t("agentForm.builtinError", { detail: builtinParse.error });
         if (!builtinParse.value?.model?.llm_route_id?.trim()) {
-          return "Builtin definition requires model.llm_route_id";
+          return t("agentForm.builtinModelRequired");
         }
         if (!builtinParse.value?.topology?.kind) {
-          return "Builtin definition requires topology.kind";
+          return t("agentForm.builtinTopologyRequired");
         }
       }
       if (runtimeType === "http") {
-        try { httpAgentConfigFromForm(httpValues); } catch (error) { return (error as Error).message; }
+        try { httpAgentConfigFromForm(httpValues); } catch (error) { return localizedHttpError(error); }
       }
     }
     if (s === 2) return validateBuiltinDependencies(buildPayload());
@@ -524,7 +544,7 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
   const submit = async () => {
     if (editorMode === "yaml") {
       if (yamlParse.error || !yamlParse.value) {
-        showToast(yamlParse.error ?? "Invalid Agent YAML", "error");
+        showToast(yamlParse.error ?? t("agentForm.invalidYaml"), "error");
         return;
       }
       const dependencyError = validateBuiltinDependencies(yamlParse.value);
@@ -545,16 +565,16 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
     setSaving(true);
     try {
       const saved = isEdit ? await updateAgent(initial!.id, payload) : await createAgent(payload);
-      showToast(isEdit ? "Agent updated" : "Agent created", "success");
+      showToast(isEdit ? t("agentForm.updated") : t("agentForm.created"), "success");
       router.push(`/dashboard/agents/${encodeURIComponent(saved.id)}`);
     } catch (err) {
-      let message = err instanceof ApiError ? err.message : "Failed to save agent";
+      let message = err instanceof ApiError ? err.message : t("agentForm.saveFailed");
       const conflict = err instanceof ApiError
         // Upstream source: agent-gateway/pkg/agent/manager.go:219.
         ? /^route "([^"]+)" is already bound by agent "([^"]+)"$/.exec(err.message)
         : null;
       if (conflict && submittedBuiltinReferences.llmRouteIDs.includes(conflict[1])) {
-        message = `Builtin definition references LLM route "${conflict[1]}", but agent "${conflict[2]}" already owns its exclusive binding`;
+        message = t("agentForm.bindingConflict", { route: conflict[1], agent: conflict[2] });
       }
       showToast(message, "error");
     } finally {
@@ -572,17 +592,17 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
 
   const identityCard = (
     <Card>
-      <CardHeader><CardTitle>Identity</CardTitle></CardHeader>
+      <CardHeader><CardTitle>{t("agentForm.identity")}</CardTitle></CardHeader>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Agent ID" required hint={isEdit ? "Immutable." : "Stable identifier, e.g. coding-agent."}>
+        <Field label={t("agentForm.agentId")} required hint={isEdit ? t("agentForm.immutable") : t("agentForm.stableId")}>
           <Input name="agent-id" value={id} onChange={setId} disabled={isEdit} placeholder="coding-agent" />
         </Field>
-        <Field label="Name" required>
+        <Field label={t("common.name")} required>
           <Input name="agent-name" value={name} onChange={setName} placeholder="Coding Agent" />
         </Field>
         <div className="sm:col-span-2">
-          <Field label="Description">
-            <Input name="agent-desc" value={description} onChange={setDescription} placeholder="Codex-backed development agent" />
+          <Field label={t("common.description")}>
+            <Input name="agent-desc" value={description} onChange={setDescription} placeholder={t("agentForm.descriptionPlaceholder")} />
           </Field>
         </div>
       </div>
@@ -592,7 +612,7 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
   const acpRuntimeFields = (
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Agent type" required>
+        <Field label={t("agentForm.agentType")} required>
           <Select
             name="acp-agent-type"
             value={acpAgentType}
@@ -600,7 +620,7 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
             options={[{ value: "codex", label: "codex" }, { value: "opencode", label: "opencode" }]}
           />
         </Field>
-        <Field label="Permission mode" hint="deny rejects tool calls; auto_approve runs them; interactive asks for a decision.">
+        <Field label={t("agentForm.permissionMode")} hint={t("agentForm.permissionModeHelp")}>
           <Select
             name="acp-permission-mode"
             value={acpPermissionMode}
@@ -613,34 +633,34 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
           />
         </Field>
       </div>
-      <Field label="Working directory (cwd)" required hint="Absolute path. The agent runs here by default; every turn cwd must sit under an allowed root.">
+      <Field label={t("agentForm.cwd")} required hint={t("agentForm.cwdHelp")}>
         <Input name="acp-cwd" value={acpCwd} onChange={setAcpCwd} placeholder="/tmp/acp-codex  or  C:\\acp\\workspace" />
       </Field>
-      <Field label="Allowed roots" hint="One absolute path per line. Defaults to the working directory when empty.">
+      <Field label={t("agentForm.allowedRoots")} hint={t("agentForm.allowedRootsHelp")}>
         <textarea value={acpAllowedRoots} onChange={(e) => setAcpAllowedRoots(e.target.value)} rows={2} className={TEXTAREA_CLASS} placeholder={"/tmp/acp-codex"} />
       </Field>
       <div className="grid gap-4 sm:grid-cols-3">
-        <Field label="Default model">
-          <Input name="acp-default-model" value={acpDefaultModel} onChange={setAcpDefaultModel} placeholder="optional" />
+        <Field label={t("agentForm.defaultModel")}>
+          <Input name="acp-default-model" value={acpDefaultModel} onChange={setAcpDefaultModel} placeholder={t("agentForm.optional")} />
         </Field>
-        <Field label="Idle TTL (seconds)" hint="0 disables idle expiry.">
+        <Field label={t("agentForm.idleTtl")} hint={t("agentForm.idleTtlHelp")}>
           <Input type="number" name="acp-idle-ttl" value={acpIdleTtl} onChange={setAcpIdleTtl} placeholder="0" />
         </Field>
-        <Field label="Max instances" hint="Pool ceiling. Blank uses the gateway default.">
-          <Input type="number" name="acp-max-instances" value={acpMaxInstances} onChange={setAcpMaxInstances} placeholder="optional" />
+        <Field label={t("agentForm.maxInstances")} hint={t("agentForm.maxInstancesHelp")}>
+          <Input type="number" name="acp-max-instances" value={acpMaxInstances} onChange={setAcpMaxInstances} placeholder={t("agentForm.optional")} />
         </Field>
       </div>
-      <Field label="Environment variables" hint="One KEY=VALUE per line, merged over the gateway process environment. Use it for a per-agent home, e.g. CODEX_HOME.">
+      <Field label={t("agentForm.environment")} hint={t("agentForm.environmentHelp")}>
         <textarea value={acpEnv} onChange={(e) => setAcpEnv(e.target.value)} rows={2} className={TEXTAREA_CLASS} placeholder={"CODEX_HOME=/tmp/acp-codex/.codex"} />
       </Field>
-      <Field label="Config overrides" hint="One KEY=VALUE per line, applied as ACP config options on the session.">
+      <Field label={t("agentForm.configOverrides")} hint={t("agentForm.configOverridesHelp")}>
         <textarea value={acpConfigOverrides} onChange={(e) => setAcpConfigOverrides(e.target.value)} rows={2} className={TEXTAREA_CLASS} placeholder={"model=gpt-5"} />
       </Field>
       {acpAgentType === "codex" && (
         <div className="space-y-4 rounded-md border border-slate-700/60 bg-slate-900/30 p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Codex settings</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{t("agentForm.codexSettings")}</p>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Mode">
+            <Field label={t("agentForm.mode")}>
               <Select
                 name="acp-codex-mode"
                 value={acpCodexMode}
@@ -648,11 +668,11 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
                 options={[{ value: "adapter", label: "adapter" }, { value: "app_server", label: "app_server" }]}
               />
             </Field>
-            <Field label="Adapter command">
+            <Field label={t("agentForm.adapterCommand")}>
               <Input name="acp-codex-command" value={acpCodexCommand} onChange={setAcpCodexCommand} placeholder="codex-acp" />
             </Field>
           </div>
-          <Field label="Adapter args" hint="One argument per line.">
+          <Field label={t("agentForm.adapterArgs")} hint={t("agentForm.oneArgLine")}>
             <textarea value={acpCodexArgs} onChange={(e) => setAcpCodexArgs(e.target.value)} rows={2} className={TEXTAREA_CLASS} placeholder={"--flag"} />
           </Field>
         </div>
@@ -663,9 +683,9 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
   const builtinRuntimeFields = (
     <div className="space-y-3">
       <Field
-        label="Builtin definition (JSON)"
+        label={t("agentForm.builtinDefinition")}
         required
-        hint="The in-process ADK definition: model.llm_route_id, topology.kind, tools[], middlewares, permissions, limits. Recursive sub-agents live under topology.sub_agents."
+        hint={t("agentForm.builtinDefinitionHelp")}
         action={<NewLink href="/dashboard/llm/routes" />}
       >
         <textarea
@@ -682,14 +702,11 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
         </p>
       ) : (
         <p className="text-xs text-slate-500">
-          Valid JSON. This is the same structure a gateway bundle&apos;s <span className="font-mono">agents[].runtime.builtin</span> carries,
-          so an <span className="font-mono">agwctl gateway export</span> fragment can be pasted here directly. Referenced LLM routes and MCP
-          services are added to the Agent&apos;s bindings when it is saved.
+          {t("agentForm.validBuiltinHelp")}
         </p>
       )}
       <p className="text-xs text-slate-500">
-        Available topologies: single, sequential, parallel, loop, supervisor, planexecute, deep, custom.
-        A model resolves through an LLM route, never a raw provider.
+        {t("agentForm.topologiesHelp")}
       </p>
     </div>
   );
@@ -697,19 +714,19 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
   const httpRuntimeFields = (
     <div className="space-y-4">
       <p className="text-xs text-slate-500">
-        Connect a remote A2A service through its Agent Card. Chat and run controls follow the capabilities reported by the Gateway.
+        {t("agentForm.httpHelp")}
       </p>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Agent Card URL" required hint="HTTPS is required except for loopback HTTP development services.">
+        <Field label={t("agentForm.agentCardUrl")} required hint={t("agentForm.httpsHelp")}>
           <Input name="http-card-url" value={httpValues.cardUrl} onChange={(cardUrl) => setHttpValues((v) => ({ ...v, cardUrl }))} placeholder="https://agent.internal/.well-known/agent-card.json" />
         </Field>
-        <Field label="Protocol" required hint="Gateway v0.7 supports A2A remote agents.">
+        <Field label={t("agentForm.protocol")} required hint={t("agentForm.protocolHelp")}>
           <Select name="http-protocol" value={httpValues.protocol} onChange={(protocol) => setHttpValues((v) => ({ ...v, protocol }))} options={[{ value: "a2a", label: "a2a" }]} />
         </Field>
-        <Field label="Auth ref" hint="Optional managed credential owned by this Agent with scope http-agent:<agent-id>.">
+        <Field label={t("agentForm.authRef")} hint={t("agentForm.authRefHelp")}>
           <Input name="http-auth" value={httpValues.authRef} onChange={(authRef) => setHttpValues((v) => ({ ...v, authRef }))} placeholder="credential-id" />
         </Field>
-        <Field label="Timeout (seconds)" hint="Non-negative integer. Leave blank or use 0 for the Gateway default (120 seconds).">
+        <Field label={t("agentForm.timeout")} hint={t("agentForm.timeoutHelp")}>
           <Input name="http-timeout" type="number" value={httpValues.timeoutSeconds} onChange={(timeoutSeconds) => setHttpValues((v) => ({ ...v, timeoutSeconds }))} placeholder="120" />
         </Field>
       </div>
@@ -718,12 +735,12 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
 
   const runtimeCard = (
     <Card>
-      <CardHeader><CardTitle>Runtime</CardTitle></CardHeader>
+      <CardHeader><CardTitle>{t("agentForm.stepRuntime")}</CardTitle></CardHeader>
       <div className="space-y-4">
         <Field
-          label="Runtime type"
+          label={t("agentForm.runtimeType")}
           required
-          hint="acp = the gateway pools an external agent process; builtin = an in-process ADK definition, no separate process; http = the agent owns its own lifecycle."
+          hint={t("agentForm.runtimeTypeHelp")}
         >
           <Select
             name="runtime-type"
@@ -745,28 +762,26 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
               setRuntimeType(nextType);
             }}
             options={[
-              { value: "acp", label: "acp — gateway-managed process" },
-              { value: "builtin", label: "builtin — in-process ADK" },
-              { value: "http", label: "http — remote A2A service" },
+              { value: "acp", label: t("agentForm.acpOption") },
+              { value: "builtin", label: t("agentForm.builtinOption") },
+              { value: "http", label: t("agentForm.httpOption") },
             ]}
           />
         </Field>
         {isEdit && initial && initial.runtime.type !== runtimeType && (
           <p className="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">
-            Changing the runtime keeps this agent&apos;s id, its ingress routes, their URLs, and every virtual key
-            allowlist entry. Clients keep the common <span className="font-mono">/turn</span> call but must refresh
-            optional capabilities — sessions, transcript, and permission support can differ.
+            {t("agentForm.runtimeChangeHelp")}
           </p>
         )}
         {runtimeType !== "builtin"
           && (unretainedDetachedLlmRouteIds.length > 0 || unretainedDetachedMcpServiceIds.length > 0) && (
           <p className="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-300" role="alert">
-            Switching away from builtin removes bindings derived from its model and tool references.
+            {t("agentForm.detachHelp")}
             {unretainedDetachedLlmRouteIds.length > 0 && (
-              <> Re-select LLM {unretainedDetachedLlmRouteIds.length === 1 ? "route" : "routes"} <span className="font-mono">{unretainedDetachedLlmRouteIds.join(", ")}</span> to retain {unretainedDetachedLlmRouteIds.length === 1 ? "it" : "them"} explicitly.</>
+              <> {t("agentForm.reselectLlm", { noun: unretainedDetachedLlmRouteIds.length === 1 ? t("agentForm.route") : t("agentForm.routes"), items: unretainedDetachedLlmRouteIds.join(", "), pronoun: unretainedDetachedLlmRouteIds.length === 1 ? t("agentForm.it") : t("agentForm.them") })}</>
             )}
             {unretainedDetachedMcpServiceIds.length > 0 && (
-              <> Re-select MCP {unretainedDetachedMcpServiceIds.length === 1 ? "service" : "services"} <span className="font-mono">{unretainedDetachedMcpServiceIds.join(", ")}</span> to retain {unretainedDetachedMcpServiceIds.length === 1 ? "it" : "them"} explicitly.</>
+              <> {t("agentForm.reselectMcp", { noun: unretainedDetachedMcpServiceIds.length === 1 ? t("agentForm.service") : t("agentForm.services"), items: unretainedDetachedMcpServiceIds.join(", "), pronoun: unretainedDetachedMcpServiceIds.length === 1 ? t("agentForm.it") : t("agentForm.them") })}</>
             )}
           </p>
         )}
@@ -780,20 +795,17 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
 
   const routesCard = (
     <Card>
-      <CardHeader><CardTitle>Routes <span className="text-xs font-normal text-slate-500">(Agent bindings)</span></CardTitle></CardHeader>
+      <CardHeader><CardTitle>{t("agentForm.bindings")} <span className="text-xs font-normal text-slate-500">{t("agentForm.bindingsSuffix")}</span></CardTitle></CardHeader>
       <div className="space-y-4">
         <p className="text-xs text-slate-500">
-          Ingress is not configured here. An agent route names its own <span className="font-mono">agent_id</span>, so
-          create it on the <Link href="/dashboard/agents/routes" className="text-blue-400 hover:underline">Agent Routes</Link> page.
-          Builtin model routes are included automatically and each route can be bound to only one Agent.
+          {t("agentForm.bindingsHelp")}
         </p>
         {runtimeType === "builtin" && (
           <p className="rounded-md border border-slate-700/60 bg-slate-950/30 px-2.5 py-1.5 text-[11px] text-slate-400">
-            A binding that overlaps a builtin reference is treated as derived. If the builtin stops referencing it,
-            select it again to retain it as an explicit binding.
+            {t("agentForm.derivedHelp")}
           </p>
         )}
-        <Field label="LLM routes" action={<NewLink href="/dashboard/llm/routes" />}>
+        <Field label={t("agentForm.llmRoutes")} action={<NewLink href="/dashboard/llm/routes" />}>
           <MultiSelect
             options={[
               ...ref.llmRoutes.map((r) => ({
@@ -801,38 +813,38 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
                 label: r.id,
                 disabled: formBuiltinReferences.llmRouteIDs.includes(r.id),
                 disabledStyle: "normal" as const,
-                hint: formBuiltinReferences.llmRouteIDs.includes(r.id) ? "required by builtin" : undefined,
+                hint: formBuiltinReferences.llmRouteIDs.includes(r.id) ? t("agentForm.requiredBuiltin") : undefined,
               })),
-              ...missingBuiltinLlmRoutes.map((id) => ({ value: id, label: id, disabled: true, disabledStyle: "normal" as const, invalid: true, hint: "dangling" })),
+              ...missingBuiltinLlmRoutes.map((id) => ({ value: id, label: id, disabled: true, disabledStyle: "normal" as const, invalid: true, hint: t("agentForm.dangling") })),
             ]}
             selected={effectiveLlmRouteIds}
             onChange={(next) => setLlmRouteIds(next.filter((id) => !formBuiltinReferences.llmRouteIDs.includes(id)))}
-            emptyText="No LLM routes."
+            emptyText={t("agentForm.noLlmRoutes")}
           />
           {formBuiltinReferences.llmRouteIDs.length > 0 && (
             <p className="mt-1 text-xs text-slate-500">
-              Automatically bound from builtin: <span className="font-mono">{formBuiltinReferences.llmRouteIDs.join(", ")}</span>. These exclusive bindings cannot be removed here.
+              {t("agentForm.boundFromBuiltin", { items: formBuiltinReferences.llmRouteIDs.join(", ") })}
             </p>
           )}
           {missingBuiltinLlmRoutes.length > 0 && (
             <p className="mt-2 rounded-md border border-rose-500/50 bg-rose-500/10 px-2.5 py-1.5 text-[11px] text-rose-200" role="alert">
-              The builtin references {missingBuiltinLlmRoutes.length === 1 ? "an LLM route that does" : "LLM routes that do"} not exist. Create or correct {missingBuiltinLlmRoutes.length === 1 ? "it" : "them"} before saving.
+              {t("agentForm.missingLlm", { noun: missingBuiltinLlmRoutes.length === 1 ? t("agentForm.route") : t("agentForm.routes"), pronoun: missingBuiltinLlmRoutes.length === 1 ? t("agentForm.it") : t("agentForm.them") })}
             </p>
           )}
           {formBuiltinReferences.llmRouteIDs.length > 0 && refStatus.llmRoutes === "loading" && (
             <p className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-200" role="status">
-              Checking referenced LLM routes…
+              {t("agentForm.checkingLlm")}
             </p>
           )}
           {formBuiltinReferences.llmRouteIDs.length > 0 && refStatus.llmRoutes === "error" && (
             <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-200" role="alert">
-              <span>Referenced LLM routes could not be verified. Retry before saving.</span>
+              <span>{t("agentForm.llmUnverified")}</span>
               {retryDependencyCheck}
             </div>
           )}
         </Field>
-        <Field label="MCP routes" action={<NewLink href="/dashboard/mcp/routes" />}>
-          <MultiSelect options={ref.mcpRoutes.map((r) => ({ value: r.id, label: r.id }))} selected={mcpRouteIds} onChange={setMcpRouteIds} emptyText="No MCP routes." />
+        <Field label={t("agentForm.mcpRoutes")} action={<NewLink href="/dashboard/mcp/routes" />}>
+          <MultiSelect options={ref.mcpRoutes.map((r) => ({ value: r.id, label: r.id }))} selected={mcpRouteIds} onChange={setMcpRouteIds} emptyText={t("agentForm.noMcpRoutes")} />
         </Field>
       </div>
     </Card>
@@ -840,12 +852,12 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
 
   const resourcesCard = (
     <Card>
-      <CardHeader><CardTitle>Resources <span className="text-xs font-normal text-slate-500">(allowed to use — not data-plane enforced)</span></CardTitle></CardHeader>
+      <CardHeader><CardTitle>{t("agentForm.resources")} <span className="text-xs font-normal text-slate-500">{t("agentForm.resourcesSuffix")}</span></CardTitle></CardHeader>
       <div className="space-y-4">
-        <Field label="Providers" action={<NewLink href="/dashboard/llm/providers" />}>
-          <MultiSelect options={ref.providers.map((p) => ({ value: p.id, label: p.id }))} selected={providerIds} onChange={setProviderIds} emptyText="No providers." />
+        <Field label={t("agentForm.providers")} action={<NewLink href="/dashboard/llm/providers" />}>
+          <MultiSelect options={ref.providers.map((p) => ({ value: p.id, label: p.id }))} selected={providerIds} onChange={setProviderIds} emptyText={t("agentForm.noProviders")} />
         </Field>
-        <Field label="MCP services" action={<NewLink href="/dashboard/mcp/services" />}>
+        <Field label={t("agentForm.mcpServices")} action={<NewLink href="/dashboard/mcp/services" />}>
           <MultiSelect
             options={[
               ...ref.mcpServices.map((s) => ({
@@ -853,38 +865,38 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
                 label: s.id,
                 disabled: formBuiltinReferences.mcpServiceIDs.includes(s.id),
                 disabledStyle: "normal" as const,
-                hint: formBuiltinReferences.mcpServiceIDs.includes(s.id) ? "required by builtin" : undefined,
+                hint: formBuiltinReferences.mcpServiceIDs.includes(s.id) ? t("agentForm.requiredBuiltin") : undefined,
               })),
-              ...missingBuiltinMcpServices.map((id) => ({ value: id, label: id, disabled: true, disabledStyle: "normal" as const, invalid: true, hint: "dangling" })),
+              ...missingBuiltinMcpServices.map((id) => ({ value: id, label: id, disabled: true, disabledStyle: "normal" as const, invalid: true, hint: t("agentForm.dangling") })),
             ]}
             selected={effectiveMcpServiceIds}
             onChange={(next) => setMcpServiceIds(next.filter((id) => !formBuiltinReferences.mcpServiceIDs.includes(id)))}
-            emptyText="No MCP services."
+            emptyText={t("agentForm.noMcpServices")}
           />
           {formBuiltinReferences.mcpServiceIDs.length > 0 && (
             <p className="mt-1 text-xs text-slate-500">
-              Automatically declared from builtin: <span className="font-mono">{formBuiltinReferences.mcpServiceIDs.join(", ")}</span>.
+              {t("agentForm.declaredFromBuiltin", { items: formBuiltinReferences.mcpServiceIDs.join(", ") })}
             </p>
           )}
           {missingBuiltinMcpServices.length > 0 && (
             <p className="mt-2 rounded-md border border-rose-500/50 bg-rose-500/10 px-2.5 py-1.5 text-[11px] text-rose-200" role="alert">
-              The builtin references {missingBuiltinMcpServices.length === 1 ? "an MCP service that does" : "MCP services that do"} not exist. Create or correct {missingBuiltinMcpServices.length === 1 ? "it" : "them"} before saving.
+              {t("agentForm.missingMcp", { noun: missingBuiltinMcpServices.length === 1 ? t("agentForm.service") : t("agentForm.services"), pronoun: missingBuiltinMcpServices.length === 1 ? t("agentForm.it") : t("agentForm.them") })}
             </p>
           )}
           {formBuiltinReferences.mcpServiceIDs.length > 0 && refStatus.mcpServices === "loading" && (
             <p className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-200" role="status">
-              Checking referenced MCP services…
+              {t("agentForm.checkingMcp")}
             </p>
           )}
           {formBuiltinReferences.mcpServiceIDs.length > 0 && refStatus.mcpServices === "error" && (
             <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-200" role="alert">
-              <span>Referenced MCP services could not be verified. Retry before saving.</span>
+              <span>{t("agentForm.mcpUnverified")}</span>
               {retryDependencyCheck}
             </div>
           )}
         </Field>
-        <Field label="Virtual keys" action={<NewLink href="/dashboard/general/virtual-keys" />}>
-          <MultiSelect options={ref.virtualKeys.map((k) => ({ value: k.id, label: k.id }))} selected={virtualKeyIds} onChange={setVirtualKeyIds} emptyText="No virtual keys." />
+        <Field label={t("agentForm.virtualKeys")} action={<NewLink href="/dashboard/general/virtual-keys" />}>
+          <MultiSelect options={ref.virtualKeys.map((k) => ({ value: k.id, label: k.id }))} selected={virtualKeyIds} onChange={setVirtualKeyIds} emptyText={t("agentForm.noVirtualKeys")} />
         </Field>
       </div>
     </Card>
@@ -892,21 +904,21 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
 
   const policyCard = (
     <Card>
-      <CardHeader><CardTitle>Policy</CardTitle></CardHeader>
+      <CardHeader><CardTitle>{t("agentForm.policy")}</CardTitle></CardHeader>
       <div className="grid gap-4 sm:grid-cols-3">
-        <Field label="Max agent depth" hint="Nested-agent call limit.">
+        <Field label={t("agentForm.maxDepth")} hint={t("agentForm.maxDepthHelp")}>
           <Input type="number" name="max-depth" value={maxAgentDepth} onChange={setMaxAgentDepth} placeholder="3" />
         </Field>
-        <Field label="Max turns / day">
+        <Field label={t("agentForm.maxTurns")}>
           <Input type="number" name="max-turns" value={maxTurns} onChange={setMaxTurns} placeholder="500" />
         </Field>
-        <Field label="Max tokens / day">
+        <Field label={t("agentForm.maxTokens")}>
           <Input type="number" name="max-tokens" value={maxTokens} onChange={setMaxTokens} placeholder="2000000" />
         </Field>
       </div>
       <label className="mt-4 flex items-center gap-2 text-sm text-slate-300">
         <input type="checkbox" checked={disabled} onChange={(e) => setDisabled(e.target.checked)} className="h-4 w-4 rounded border-slate-600 bg-slate-800" />
-        Disabled
+        {t("common.disabledTitle")}
       </label>
     </Card>
   );
@@ -924,11 +936,11 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
       return <span>acp → <span className="font-mono">{acpAgentType}</span> @ <span className="font-mono">{acpCwd || "—"}</span></span>;
     }
     if (runtimeType === "builtin") {
-      if (builtinParse.error) return <span className="text-rose-300">builtin → invalid JSON</span>;
+      if (builtinParse.error) return <span className="text-rose-300">builtin → {t("agentForm.invalidJsonShort")}</span>;
       const b = builtinParse.value;
       return (
         <span>
-          builtin → <span className="font-mono">{b?.topology?.kind || "—"}</span> via{" "}
+          builtin → <span className="font-mono">{b?.topology?.kind || "—"}</span> {t("agentForm.via")}{" "}
           <span className="font-mono">{b?.model?.llm_route_id || "—"}</span>
         </span>
       );
@@ -938,27 +950,27 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
 
   const reviewCard = (
     <Card>
-      <CardHeader><CardTitle>Review</CardTitle></CardHeader>
+      <CardHeader><CardTitle>{t("agentForm.stepReview")}</CardTitle></CardHeader>
       <div className="space-y-0">
-        {reviewRow("Agent ID", <span className="font-mono">{id || "—"}</span>)}
-        {reviewRow("Name", name || "—")}
-        {description && reviewRow("Description", description)}
-        {reviewRow("Runtime", runtimeReview())}
-        {reviewRow("LLM routes", reviewList(effectiveLlmRouteIds))}
-        {reviewRow("MCP routes", reviewList(mcpRouteIds))}
-        {reviewRow("Providers", reviewList(providerIds))}
-        {reviewRow("MCP services", reviewList(effectiveMcpServiceIds))}
-        {reviewRow("Virtual keys", reviewList(virtualKeyIds))}
-        {reviewRow("Disabled", disabled ? "Yes" : "No")}
+        {reviewRow(t("agentForm.agentId"), <span className="font-mono">{id || "—"}</span>)}
+        {reviewRow(t("common.name"), name || "—")}
+        {description && reviewRow(t("common.description"), description)}
+        {reviewRow(t("agentForm.stepRuntime"), runtimeReview())}
+        {reviewRow(t("agentForm.llmRoutes"), reviewList(effectiveLlmRouteIds))}
+        {reviewRow(t("agentForm.mcpRoutes"), reviewList(mcpRouteIds))}
+        {reviewRow(t("agentForm.providers"), reviewList(providerIds))}
+        {reviewRow(t("agentForm.mcpServices"), reviewList(effectiveMcpServiceIds))}
+        {reviewRow(t("agentForm.virtualKeys"), reviewList(virtualKeyIds))}
+        {reviewRow(t("common.disabledTitle"), disabled ? t("agentDetail.yes") : t("agentDetail.no"))}
       </div>
       {runtimeType === "http" && (
         <p className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">
-          The remote Card must advertise a supported A2A interface. Streaming chat is available when the Gateway reports streaming turn capability.
+          {t("agentForm.remoteCardHelp")}
         </p>
       )}
       <p className="mt-3 text-xs text-slate-500">
-        After creating the agent, add an ingress route on the{" "}
-        <Link href="/dashboard/agents/routes" className="text-blue-400 hover:underline">Agent Routes</Link> page to make it callable.
+        {t("agentForm.afterCreateBefore")} {" "}
+        <Link href="/dashboard/agents/routes" className="text-blue-400 hover:underline">{t("agentDetail.agentRoutes")}</Link> {t("agentForm.afterCreateAfter")}
       </p>
     </Card>
   );
@@ -966,11 +978,11 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
   const modeToggle = (
     <div className="flex items-center justify-between gap-3 rounded-md border border-slate-700/60 bg-slate-900/30 px-3 py-2">
       <div>
-        <p className="text-sm font-medium text-slate-200">Editor</p>
-        <p className="text-xs text-slate-500">Form for guided editing; YAML for the exact Admin API payload.</p>
+        <p className="text-sm font-medium text-slate-200">{t("agentForm.editor")}</p>
+        <p className="text-xs text-slate-500">{t("agentForm.editorHelp")}</p>
       </div>
-      <div className="flex rounded-md border border-slate-700/70 bg-slate-950/50 p-0.5" role="group" aria-label="Agent editor mode">
-        <Button variant={editorMode === "form" ? "secondary" : "ghost"} className="border-0 px-3 py-1 text-xs" onClick={editorMode === "yaml" ? switchToForm : undefined}>Form</Button>
+      <div className="flex rounded-md border border-slate-700/70 bg-slate-950/50 p-0.5" role="group" aria-label={t("agentForm.editorAria")}>
+        <Button variant={editorMode === "form" ? "secondary" : "ghost"} className="border-0 px-3 py-1 text-xs" onClick={editorMode === "yaml" ? switchToForm : undefined}>{t("agentForm.form")}</Button>
         <Button variant={editorMode === "yaml" ? "secondary" : "ghost"} className="border-0 px-3 py-1 text-xs" onClick={editorMode === "form" ? switchToYaml : undefined}>YAML</Button>
       </div>
     </div>
@@ -978,47 +990,47 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
 
   const yamlDependencyPanel = yamlParse.value?.runtime.type === "builtin" ? (
     <div className="mt-3 space-y-2 rounded-md border border-slate-700/70 bg-slate-950/35 px-3 py-2.5 text-xs">
-      <p className="font-medium text-slate-200">Builtin dependency check</p>
+      <p className="font-medium text-slate-200">{t("agentForm.dependencyCheck")}</p>
       <p className="text-slate-400">
-        Required LLM routes: <span className="font-mono text-slate-200">{builtinReferences.llmRouteIDs.join(", ") || "—"}</span>
+        {t("agentForm.requiredLlm")}: <span className="font-mono text-slate-200">{builtinReferences.llmRouteIDs.join(", ") || "—"}</span>
       </p>
       <p className="text-slate-400">
-        Required MCP services: <span className="font-mono text-slate-200">{builtinReferences.mcpServiceIDs.join(", ") || "—"}</span>
+        {t("agentForm.requiredMcp")}: <span className="font-mono text-slate-200">{builtinReferences.mcpServiceIDs.join(", ") || "—"}</span>
       </p>
-      <p className="text-slate-500">These references are added to the Agent bindings automatically when it is saved.</p>
+      <p className="text-slate-500">{t("agentForm.autoBindings")}</p>
       {((builtinReferences.llmRouteIDs.length > 0 && refStatus.llmRoutes === "loading")
         || (builtinReferences.mcpServiceIDs.length > 0 && refStatus.mcpServices === "loading")) && (
         <p className="rounded-md border border-amber-500/40 bg-amber-500/5 px-2.5 py-1.5 text-amber-200" role="status">
-          Checking referenced resources… Saving is blocked until the check finishes.
+          {t("agentForm.checkingResources")}
         </p>
       )}
       {((builtinReferences.llmRouteIDs.length > 0 && refStatus.llmRoutes === "error")
         || (builtinReferences.mcpServiceIDs.length > 0 && refStatus.mcpServices === "error")) && (
         <div className="flex items-center justify-between gap-2 rounded-md border border-rose-500/50 bg-rose-500/10 px-2.5 py-1.5 text-rose-200" role="alert">
-          <span>Referenced resources could not be verified. Retry before saving.</span>
+          <span>{t("agentForm.resourcesUnverified")}</span>
           {retryDependencyCheck}
         </div>
       )}
       {missingBuiltinLlmRoutes.length > 0 && (
         <p className="rounded-md border border-rose-500/50 bg-rose-500/10 px-2.5 py-1.5 text-rose-200" role="alert">
-          Missing LLM {missingBuiltinLlmRoutes.length === 1 ? "route" : "routes"}: <span className="font-mono">{missingBuiltinLlmRoutes.join(", ")}</span>. Create or correct {missingBuiltinLlmRoutes.length === 1 ? "it" : "them"} before saving.
+          {t("agentForm.missingLlmNamed", { noun: missingBuiltinLlmRoutes.length === 1 ? t("agentForm.route") : t("agentForm.routes"), items: missingBuiltinLlmRoutes.join(", "), pronoun: missingBuiltinLlmRoutes.length === 1 ? t("agentForm.it") : t("agentForm.them") })}
         </p>
       )}
       {missingBuiltinMcpServices.length > 0 && (
         <p className="rounded-md border border-rose-500/50 bg-rose-500/10 px-2.5 py-1.5 text-rose-200" role="alert">
-          Missing MCP {missingBuiltinMcpServices.length === 1 ? "service" : "services"}: <span className="font-mono">{missingBuiltinMcpServices.join(", ")}</span>. Create or correct {missingBuiltinMcpServices.length === 1 ? "it" : "them"} before saving.
+          {t("agentForm.missingMcpNamed", { noun: missingBuiltinMcpServices.length === 1 ? t("agentForm.service") : t("agentForm.services"), items: missingBuiltinMcpServices.join(", "), pronoun: missingBuiltinMcpServices.length === 1 ? t("agentForm.it") : t("agentForm.them") })}
         </p>
       )}
       {staleYamlLlmRouteIds.length > 0 && (
         <p className="rounded-md border border-amber-500/40 bg-amber-500/5 px-2.5 py-1.5 text-amber-200" role="alert">
-          No longer required by the builtin but still exclusively bound: <span className="font-mono">{staleYamlLlmRouteIds.join(", ")}</span>. Remove {staleYamlLlmRouteIds.length === 1 ? "it" : "them"} from <span className="font-mono">routes.llm_route_ids</span> unless the binding is intentional.
+          {t("agentForm.staleBindings", { items: staleYamlLlmRouteIds.join(", "), pronoun: staleYamlLlmRouteIds.length === 1 ? t("agentForm.it") : t("agentForm.them") })}
         </p>
       )}
       {(builtinReferences.llmRouteIDs.length === 0 || refStatus.llmRoutes === "ok")
         && (builtinReferences.mcpServiceIDs.length === 0 || refStatus.mcpServices === "ok")
         && missingBuiltinLlmRoutes.length === 0
         && missingBuiltinMcpServices.length === 0 && (
-        <p className="text-emerald-400">All referenced builtin dependencies exist.</p>
+        <p className="text-emerald-400">{t("agentForm.dependenciesValid")}</p>
       )}
     </div>
   ) : null;
@@ -1027,18 +1039,16 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
     <div className="space-y-4">
       {modeToggle}
       <Card>
-        <CardHeader><CardTitle>Agent YAML</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{t("agentDetail.yaml")}</CardTitle></CardHeader>
         <p className="mb-3 text-xs leading-5 text-slate-500">
-          Edit one Agent Admin API payload. You can also paste an <span className="font-mono">agents:</span> fragment or a
-          one-agent GatewayBundle; switching back to Form applies every field below. For builtin agents, referenced LLM routes and MCP
-          services are added to the Agent&apos;s bindings when it is saved.
+          {t("agentForm.yamlHelp")}
         </p>
         <textarea
           value={yamlText}
           onChange={(event) => setYamlText(event.target.value)}
           rows={28}
           spellCheck={false}
-          aria-label="Agent YAML editor"
+          aria-label={t("agentForm.yamlAria")}
           className={cn(TEXTAREA_CLASS, "min-h-[32rem] resize-y", yamlParse.error && "border-rose-500/70")}
         />
         {yamlParse.error ? (
@@ -1047,15 +1057,15 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
           </p>
         ) : (
           <p className="mt-3 text-xs text-emerald-400">
-            Valid Agent YAML · runtime: <span className="font-mono">{yamlParse.value?.runtime.type}</span>
+            {t("agentForm.validYaml", { runtime: yamlParse.value?.runtime.type ?? "" })}
           </p>
         )}
         {yamlDependencyPanel}
       </Card>
       <div className="flex justify-end gap-1.5">
-        <Button variant="ghost" onClick={() => router.back()} disabled={saving}>Cancel</Button>
+        <Button variant="ghost" onClick={() => router.back()} disabled={saving}>{t("common.cancel")}</Button>
         <Button onClick={() => void submit()} disabled={saving || !!yamlParse.error}>
-          {saving ? "Saving…" : isEdit ? "Save Changes" : "Create Agent"}
+          {saving ? t("common.saving") : isEdit ? t("common.saveChanges") : t("agentForm.createAgent")}
         </Button>
       </div>
     </div>
@@ -1074,8 +1084,8 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
         {resourcesCard}
         {policyCard}
         <div className="flex justify-end gap-1.5">
-          <Button variant="ghost" onClick={() => router.back()} disabled={saving}>Cancel</Button>
-          <Button onClick={() => void submit()} disabled={saving}>{saving ? "Saving…" : isEdit ? "Save Changes" : "Create Agent"}</Button>
+          <Button variant="ghost" onClick={() => router.back()} disabled={saving}>{t("common.cancel")}</Button>
+          <Button onClick={() => void submit()} disabled={saving}>{saving ? t("common.saving") : isEdit ? t("common.saveChanges") : t("agentForm.createAgent")}</Button>
         </div>
       </div>
     );
@@ -1121,7 +1131,10 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
                 >
                   {state === "done" ? "✓" : i + 1}
                 </span>
-                {label}
+                {label === "Basics" ? t("agentForm.stepBasics")
+                  : label === "Runtime" ? t("agentForm.stepRuntime")
+                    : label === "Resources" ? t("agentForm.stepResources")
+                      : t("agentForm.stepReview")}
               </button>
               {i < WIZARD_STEPS.length - 1 && <span className="h-px flex-1 bg-slate-700/60" aria-hidden="true" />}
             </div>
@@ -1133,7 +1146,7 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
       {(step === 1 || step === 2) && (
         <div className="flex justify-end">
           <Button variant="ghost" className="px-2.5 py-1 text-xs" onClick={() => void refresh()} disabled={refreshing}>
-            {refreshing ? "Refreshing…" : "Refresh options"}
+            {refreshing ? t("common.refreshing") : t("agentForm.refreshOptions")}
           </Button>
         </div>
       )}
@@ -1141,13 +1154,13 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
       {stepContent}
 
       <div className="flex items-center justify-between gap-1.5">
-        <Button variant="ghost" onClick={() => router.back()} disabled={saving}>Cancel</Button>
+        <Button variant="ghost" onClick={() => router.back()} disabled={saving}>{t("common.cancel")}</Button>
         <div className="flex gap-1.5">
-          {step > 0 && <Button variant="ghost" onClick={() => setStep((s) => Math.max(s - 1, 0))} disabled={saving}>Back</Button>}
+          {step > 0 && <Button variant="ghost" onClick={() => setStep((s) => Math.max(s - 1, 0))} disabled={saving}>{t("agentForm.back")}</Button>}
           {step < WIZARD_STEPS.length - 1 ? (
-            <Button onClick={next} disabled={saving}>Next</Button>
+            <Button onClick={next} disabled={saving}>{t("agentForm.next")}</Button>
           ) : (
-            <Button onClick={() => void submit()} disabled={saving}>{saving ? "Creating…" : "Create Agent"}</Button>
+            <Button onClick={() => void submit()} disabled={saving}>{saving ? t("common.creating") : t("agentForm.createAgent")}</Button>
           )}
         </div>
       </div>

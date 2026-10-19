@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import { HelpTooltip } from "@/components/ui/tooltip";
+import { useI18n } from "@/components/i18n-provider";
 import { cn } from "@/lib/utils";
 import {
   ApiError,
@@ -99,6 +100,7 @@ interface AcpChatProps {
  */
 export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: AcpChatProps) {
   const { showToast } = useToast();
+  const { locale, t } = useI18n();
 
   // Default to the ACP shape when the caller does not say, preserving the
   // behaviour of the ACP-only callers this component started out serving.
@@ -174,11 +176,11 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
     try {
       setVirtualKeys(await listVirtualKeys());
     } catch (err) {
-      showToast(err instanceof ApiError ? err.message : "Failed to load virtual keys", "error");
+      showToast(err instanceof ApiError ? err.message : t("chat.virtualKeysLoadFailed"), "error");
     } finally {
       setLoadingVks(false);
     }
-  }, [showToast]);
+  }, [showToast, t]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadVks(), 0);
@@ -255,10 +257,10 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
         setSessionId(session.session_id);
         setMessages(mapped);
       } catch (err) {
-        showToast(err instanceof ApiError ? err.message : "Failed to load transcript", "error");
+        showToast(err instanceof ApiError ? err.message : t("chat.transcriptLoadFailed"), "error");
       }
     },
-    [agentId, canReadTranscript, cwd, streaming, showToast],
+    [agentId, canReadTranscript, cwd, streaming, showToast, t],
   );
 
   const updateAgent = useCallback((agentId: string, mut: (m: ChatMessage) => ChatMessage) => {
@@ -329,7 +331,7 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
           updateAgent(agentId, (m) => ({
             ...m,
             status: "error",
-            text: m.text || data.message || "Agent error",
+            text: m.text || data.message || t("chat.agentError"),
             errorType: data.error_type,
           }));
           break;
@@ -337,7 +339,7 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
           break;
       }
     },
-    [updateAgent],
+    [updateAgent, t],
   );
 
   // Opens a turn stream and pipes its events into `messageId`. Shared by a plain
@@ -387,11 +389,11 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
     const text = input.trim();
     if (!text || streaming) return;
     if (!selectedRouteId) {
-      showToast("Select an agent route first", "error");
+      showToast(t("chat.selectRouteFirst"), "error");
       return;
     }
     if (requireVk && !selectedVk) {
-      showToast("This route requires a virtual key", "error");
+      showToast(t("chat.keyRequired"), "error");
       return;
     }
 
@@ -409,7 +411,7 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
     setMessages((prev) => [...prev, userMsg, emptyAgentMessage(agentMessageId)]);
     setInput("");
     startStream(agentMessageId, { input: text });
-  }, [input, streaming, selectedRouteId, requireVk, selectedVk, startStream, showToast]);
+  }, [input, streaming, selectedRouteId, requireVk, selectedVk, startStream, showToast, t]);
 
   const handleStop = useCallback(() => {
     streamRef.current?.abort();
@@ -442,7 +444,7 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
       //                           the continuation arrives on that new stream
       if (resumeMode === "new_stream") {
         if (streaming) {
-          showToast("Wait for the current turn to finish", "error");
+          showToast(t("chat.waitTurn"), "error");
           return;
         }
         markResolved();
@@ -463,10 +465,10 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
         });
         markResolved();
       } catch (err) {
-        showToast(err instanceof ApiError ? err.message : "Failed to resolve permission", "error");
+        showToast(err instanceof ApiError ? err.message : t("chat.permissionFailed"), "error");
       }
     },
-    [resumeMode, streaming, startStream, updateAgent, selectedRouteId, selectedVk, showToast],
+    [resumeMode, streaming, startStream, updateAgent, selectedRouteId, selectedVk, showToast, t],
   );
 
   const noRoutes = !loadingRoutes && routes.length === 0;
@@ -479,7 +481,7 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
           <div className="min-w-0 flex-1">
             <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-              Agent Route
+              {t("chat.agentRoute")}
             </label>
             <select
               className={selectClass()}
@@ -490,7 +492,7 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
                 startNewChat();
               }}
             >
-              {routes.length === 0 && <option value="">No agent routes</option>}
+              {routes.length === 0 && <option value="">{t("chat.noRoutes")}</option>}
               {routes.map((r) => (
                 <option key={r.id} value={r.id} className="bg-slate-900">
                   {r.id} → {r.agent_id}
@@ -501,9 +503,9 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
 
           <div className="min-w-0 flex-1">
             <label className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-              Virtual Key
+              {t("chat.virtualKey")}
               {requireVk && <span className="text-amber-300">*</span>}
-              <HelpTooltip content="Bearer credential used to call the data plane. Required when the route enforces a virtual key." />
+              <HelpTooltip content={t("chat.virtualKeyHelp")} />
             </label>
             <select
               className={selectClass()}
@@ -512,7 +514,7 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
               onChange={(e) => setSelectedVkId(e.target.value)}
             >
               <option value="" className="bg-slate-900">
-                {requireVk ? "Select a key…" : "None"}
+                {requireVk ? t("chat.selectKey") : t("chat.none")}
               </option>
               {eligibleVks.map((vk) => (
                 <option key={vk.id} value={vk.id} className="bg-slate-900">
@@ -523,8 +525,8 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
             {!loadingVks && eligibleVks.length === 0 && !noRoutes && (
               <p className="mt-1 text-[10px] leading-snug text-amber-300/80">
                 {virtualKeys.length === 0
-                  ? "No virtual keys exist. Create one on the Virtual Keys page."
-                  : `No virtual key permits this route. Edit a key to allow ${selectedRouteId} on the Virtual Keys page.`}
+                  ? t("chat.noKeys")
+                  : t("chat.noPermittedKey", { route: selectedRouteId })}
               </p>
             )}
           </div>
@@ -534,14 +536,14 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
           {isACP && (
             <div className="min-w-0 flex-1">
               <label className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                Working Dir
-                <HelpTooltip content="Optional. Overrides the runtime default cwd for this conversation. Must match the session's cwd when resuming." />
+                {t("chat.workingDir")}
+                <HelpTooltip content={t("chat.workingDirHelp")} />
               </label>
               <Input
                 name="cwd"
                 value={cwd}
                 onChange={setCwd}
-                placeholder="(runtime default)"
+                placeholder={t("chat.runtimeDefault")}
                 disabled={streaming}
               />
             </div>
@@ -549,7 +551,7 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
 
           <div className="shrink-0">
             <Button variant="secondary" onClick={startNewChat} disabled={streaming || noRoutes}>
-              New chat
+              {t("chat.new")}
             </Button>
           </div>
         </div>
@@ -557,7 +559,7 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
 
       {noRoutes ? (
         <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-slate-700/70 bg-slate-900/40 p-8 text-center text-sm text-slate-500">
-          No agent routes target this agent. Expose it over an agent route to enable chat.
+          {t("chat.noTargetRoute")}
         </div>
       ) : (
         /* Body: sessions sidebar + chat column */
@@ -569,27 +571,27 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
           {canListSessions && (
           <aside className="hidden w-60 shrink-0 flex-col rounded-lg border border-slate-700/70 bg-slate-900/40 md:flex">
             <div className="flex items-center justify-between border-b border-slate-700/70 px-3 py-2">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Sessions</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{t("chat.sessions")}</p>
               <button
                 type="button"
                 onClick={() => void loadSessions()}
                 className="text-[10px] text-slate-400 hover:text-slate-200"
                 disabled={loadingSessions || !agentId}
               >
-                Refresh
+                {t("common.refresh")}
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-2">
               {loadingSessions ? (
-                <p className="px-1 py-2 text-[11px] text-slate-500">Loading…</p>
+                <p className="px-1 py-2 text-[11px] text-slate-500">{t("common.loading")}</p>
               ) : sessionsError ? (
                 <div className="space-y-1 px-1 py-2">
-                  <p className="text-[11px] text-amber-300">Sessions unavailable</p>
+                  <p className="text-[11px] text-amber-300">{t("chat.sessionsUnavailable")}</p>
                   <p className="break-words text-[10px] text-slate-500">{sessionsError}</p>
-                  <p className="text-[10px] text-slate-500">Chat still works; only history is affected.</p>
+                  <p className="text-[10px] text-slate-500">{t("chat.historyOnly")}</p>
                 </div>
               ) : sessions.length === 0 ? (
-                <p className="px-1 py-2 text-[11px] text-slate-500">No sessions yet.</p>
+                <p className="px-1 py-2 text-[11px] text-slate-500">{t("chat.noSessions")}</p>
               ) : (
                 <ul className="space-y-1">
                   {sessions.map((s) => (
@@ -598,7 +600,7 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
                         type="button"
                         onClick={() => void openSession(s)}
                         disabled={streaming || !canReadTranscript}
-                        title={canReadTranscript ? undefined : "This runtime does not expose transcripts"}
+                        title={canReadTranscript ? undefined : t("chat.noTranscripts")}
                         className={cn(
                           "w-full rounded-md border px-2.5 py-1.5 text-left transition-colors",
                           sessionId === s.session_id
@@ -610,7 +612,7 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
                         <p className="truncate text-xs text-slate-200">{s.title || s.session_id}</p>
                         {s.updated_at && (
                           <p className="truncate text-[10px] text-slate-500" suppressHydrationWarning>
-                            {new Date(s.updated_at).toLocaleString()}
+                            {new Date(s.updated_at).toLocaleString(locale)}
                           </p>
                         )}
                       </button>
@@ -640,7 +642,7 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
                   }}
                   rows={2}
                   placeholder={
-                    selectedRouteId ? "Type a message… (Enter to send, Shift+Enter for newline)" : "Select an agent route to begin"
+                    selectedRouteId ? t("chat.inputPlaceholder") : t("chat.selectRoutePlaceholder")
                   }
                   disabled={!selectedRouteId}
                   className={cn(
@@ -651,11 +653,11 @@ export function AcpChat({ routes, loadingRoutes, runtimeType, capabilities }: Ac
                 />
                 {streaming ? (
                   <Button variant="danger" onClick={handleStop}>
-                    Stop
+                    {t("chat.stop")}
                   </Button>
                 ) : (
                   <Button onClick={handleSend} disabled={!input.trim() || !selectedRouteId}>
-                    Send
+                    {t("chat.send")}
                   </Button>
                 )}
               </div>

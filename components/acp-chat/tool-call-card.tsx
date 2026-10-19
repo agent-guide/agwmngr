@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ChatToolCall } from "./types";
+import { useI18n } from "@/components/i18n-provider";
 
 function statusTone(status?: string): string {
   switch ((status ?? "").toLowerCase()) {
@@ -20,8 +21,9 @@ function statusTone(status?: string): string {
 }
 
 export function ToolCallCard({ toolCall }: { toolCall: ChatToolCall }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const title = toolCall.title || toolCall.kind || toolCall.id || "Tool call";
+  const title = toolCall.title || toolCall.kind || toolCall.id || t("chat.toolCall");
 
   return (
     <div className="mt-2 rounded-md border border-slate-700/70 bg-slate-900/60">

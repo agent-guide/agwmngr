@@ -9,6 +9,7 @@ import { ToolCallCard } from "./tool-call-card";
 import { PlanList } from "./plan-list";
 import { PermissionCard } from "./permission-card";
 import { Badge } from "@/components/ui/badge";
+import { useI18n } from "@/components/i18n-provider";
 
 // Tailwind-styled element map so agent markdown (headings, bold, lists, code,
 // tables, links) renders inside the dark bubble instead of showing raw `##` /
@@ -84,6 +85,7 @@ function RichText({ text }: { text: string }) {
 }
 
 function Reasoning({ text }: { text: string }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   if (!text.trim()) return null;
   return (
@@ -101,7 +103,7 @@ function Reasoning({ text }: { text: string }) {
         >
           <path d="M7 5l6 5-6 5V5z" />
         </svg>
-        Reasoning
+        {t("chat.reasoning")}
       </button>
       {open && (
         <p className="whitespace-pre-wrap break-words border-t border-slate-700/60 px-3 py-2 text-xs italic text-slate-400">
@@ -123,6 +125,7 @@ interface MessageBubbleProps {
 }
 
 export function MessageBubble({ message, onResolvePermission }: MessageBubbleProps) {
+  const { t } = useI18n();
   const isUser = message.role === "user";
   const isError = message.role === "error" || message.status === "error";
 
@@ -175,14 +178,14 @@ export function MessageBubble({ message, onResolvePermission }: MessageBubblePro
         {message.status === "streaming" && !hasBody && (
           <span className="inline-flex items-center gap-1 text-slate-500">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-slate-500" />
-            <span className="text-xs">Thinking…</span>
+            <span className="text-xs">{t("chat.thinking")}</span>
           </span>
         )}
 
         {(message.status === "done" || message.status === "cancelled") &&
           (message.stopReason || message.usage != null) && (
             <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-slate-500">
-              {message.status === "cancelled" && <span>cancelled</span>}
+              {message.status === "cancelled" && <span>{t("chat.cancelled")}</span>}
               {message.stopReason && message.stopReason !== "end_turn" && (
                 <span>{message.stopReason}</span>
               )}
@@ -195,6 +198,7 @@ export function MessageBubble({ message, onResolvePermission }: MessageBubblePro
 }
 
 function UsageBadge({ usage }: { usage: unknown }) {
+  const { t } = useI18n();
   if (!usage || typeof usage !== "object") return null;
   const u = usage as Record<string, unknown>;
   const parts: string[] = [];
@@ -203,9 +207,9 @@ function UsageBadge({ usage }: { usage: unknown }) {
   const output = num("output_tokens") ?? num("outputTokens");
   const total = num("total_tokens") ?? num("totalTokens");
   if (input != null || output != null) {
-    parts.push(`${input ?? 0} in / ${output ?? 0} out`);
+    parts.push(t("chat.tokenUsage", { input: input ?? 0, output: output ?? 0 }));
   } else if (total != null) {
-    parts.push(`${total} tokens`);
+    parts.push(t("chat.totalTokens", { count: total }));
   }
   const cost = num("cost_amount") ?? num("costAmount");
   if (cost != null) parts.push(`$${cost.toFixed(4)}`);

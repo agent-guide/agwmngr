@@ -1,5 +1,7 @@
 "use client";
 
+import { useI18n } from "@/components/i18n-provider";
+
 interface PlanEntry {
   content?: string;
   title?: string;
@@ -44,12 +46,13 @@ function statusTone(status?: string): string {
 }
 
 export function PlanList({ plan }: { plan: unknown }) {
+  const { t } = useI18n();
   const entries = extractEntries(plan);
   if (entries.length === 0) return null;
 
   return (
     <div className="mt-2 rounded-md border border-slate-700/70 bg-slate-900/60 px-3 py-2">
-      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Plan</p>
+      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{t("chat.plan")}</p>
       <ul className="space-y-1">
         {entries.map((entry, idx) => (
           <li key={idx} className="flex items-start gap-2 text-xs text-slate-300">
