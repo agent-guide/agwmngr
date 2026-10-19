@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Modal, ModalHeader, ModalTitle, ModalContent, ModalFooter } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useI18n } from "@/components/i18n-provider";
 import {
   listCredentials,
   listProviders,
@@ -25,6 +26,7 @@ function AttributesEditor({
   value: Record<string, string>;
   onChange: (v: Record<string, string>) => void;
 }) {
+  const { t } = useI18n();
   const entries = Object.entries(value);
 
   const setKey = (idx: number, newKey: string) => {
@@ -61,14 +63,14 @@ function AttributesEditor({
             name={`attr-key-${idx}`}
             value={k}
             onChange={(val) => setKey(idx, val)}
-            placeholder="key"
+            placeholder={t("credentials.attributeKey")}
           />
           <Input
             type={k.trim().toLowerCase() === "api_key" ? "password" : "text"}
             name={`attr-val-${idx}`}
             value={v}
             onChange={(val) => setValue(idx, val)}
-            placeholder="value"
+            placeholder={t("credentials.attributeValue")}
             autoComplete="off"
             autoCapitalize="none"
             autoCorrect="off"
@@ -80,13 +82,14 @@ function AttributesEditor({
         </div>
       ))}
       <Button variant="ghost" onClick={addRow} className="px-2 py-1 text-xs">
-        + Add attribute
+        {t("credentials.addAttribute")}
       </Button>
     </div>
   );
 }
 
 function SourceBadge({ source }: { source: string }) {
+  const { t } = useI18n();
   const isApiKey = source === SOURCE_API_KEY;
   return (
     <span
@@ -96,7 +99,7 @@ function SourceBadge({ source }: { source: string }) {
           : "bg-slate-700/60 text-slate-400"
       }`}
     >
-      {source || "unknown"}
+      {source || t("credentials.unknown")}
     </span>
   );
 }
@@ -125,6 +128,7 @@ export default function CredentialsPage() {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const { showToast } = useToast();
+  const { t } = useI18n();
 
   const loadCredentials = useCallback(async () => {
     setLoading(true);
@@ -133,11 +137,11 @@ export default function CredentialsPage() {
       setCredentials(items);
       setProviders(providerItems);
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Failed to load credentials", "error");
+      showToast(err instanceof Error ? err.message : t("credentials.loadFailed"), "error");
     } finally {
       setLoading(false);
     }
-  }, [showToast]);
+  }, [showToast, t]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -154,7 +158,7 @@ export default function CredentialsPage() {
 
   const handleAdd = async () => {
     if (!addProviderId.trim()) {
-      showToast("Provider is required", "error");
+      showToast(t("credentials.providerRequired"), "error");
       return;
     }
     setAddSubmitting(true);
@@ -170,11 +174,11 @@ export default function CredentialsPage() {
         attributes: Object.keys(attrs).length > 0 ? attrs : undefined,
       });
       setCredentials((prev) => [...prev, item]);
-      showToast("Credential created", "success");
+      showToast(t("credentials.created"), "success");
       setIsAddOpen(false);
       resetAddForm();
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Failed to create credential", "error");
+      showToast(err instanceof Error ? err.message : t("credentials.createFailed"), "error");
     } finally {
       setAddSubmitting(false);
     }
@@ -206,10 +210,10 @@ export default function CredentialsPage() {
         disabled: editDisabled,
       });
       setCredentials((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
-      showToast("Credential updated", "success");
+      showToast(t("credentials.updated"), "success");
       setEditItem(null);
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Failed to update credential", "error");
+      showToast(err instanceof Error ? err.message : t("credentials.updateFailed"), "error");
     } finally {
       setEditSubmitting(false);
     }
@@ -220,9 +224,9 @@ export default function CredentialsPage() {
     try {
       await deleteCredential(pendingDeleteId);
       setCredentials((prev) => prev.filter((c) => c.id !== pendingDeleteId));
-      showToast("Credential deleted", "success");
+      showToast(t("credentials.deleted"), "success");
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Failed to delete credential", "error");
+      showToast(err instanceof Error ? err.message : t("credentials.deleteFailed"), "error");
     } finally {
       setPendingDeleteId(null);
     }
@@ -236,32 +240,31 @@ export default function CredentialsPage() {
       <section className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-slate-100">Credentials</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-100">{t("credentials.title")}</h1>
             <p className="mt-1 text-sm text-slate-400">
-              Manage upstream credentials. API key credentials can be created and edited directly.
-              Externally managed credentials may be read-only here.
+              {t("credentials.description")}
             </p>
           </div>
           <div className="flex gap-2">
             <Button onClick={() => setIsAddOpen(true)} className="px-2.5 py-1 text-xs">
-              Add API Key
+              {t("credentials.addApiKey")}
             </Button>
           </div>
         </div>
       </section>
 
       <section className="rounded-lg border border-amber-500/50 bg-amber-500/10 px-4 py-3 text-xs text-amber-200" role="note">
-        <p className="font-semibold">Gateway bundle backup limitation</p>
+        <p className="font-semibold">{t("credentials.backupTitle")}</p>
         <p className="mt-1 leading-5 text-amber-300/90">
-          Bundle import/export does not include managed credentials. Exported bundles are not complete backups; preserve and restore credentials separately from this page or the credentials Admin API.
+          {t("credentials.backupHelp")}
         </p>
       </section>
 
       <section className="grid grid-cols-3 gap-2">
         {[
-          { label: "Total", value: credentials.length },
-          { label: "Editable", value: apiKeyCount },
-          { label: "Read-only", value: readOnlyCount },
+          { label: t("common.total"), value: credentials.length },
+          { label: t("credentials.editable"), value: apiKeyCount },
+          { label: t("credentials.readOnly"), value: readOnlyCount },
         ].map((stat) => (
           <div
             key={stat.label}
@@ -277,23 +280,23 @@ export default function CredentialsPage() {
 
       <section className="overflow-x-auto rounded-lg border border-slate-700/70 bg-slate-900/40">
         <div className="sticky top-0 z-10 grid grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_80px_minmax(0,1fr)_80px_140px] border-b border-slate-700/70 bg-slate-900/95 backdrop-blur-sm px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
-          <span>ID / Label</span>
-          <span>Provider ID</span>
-          <span>Provider Type</span>
-          <span>Source</span>
-          <span>API Key</span>
-          <span>Read-only</span>
-          <span>Actions</span>
+          <span>{t("credentials.idLabel")}</span>
+          <span>{t("credentials.providerId")}</span>
+          <span>{t("credentials.providerType")}</span>
+          <span>{t("credentials.source")}</span>
+          <span>{t("providers.apiKey")}</span>
+          <span>{t("credentials.readOnly")}</span>
+          <span>{t("common.actions")}</span>
         </div>
 
         {loading ? (
-          <div className="px-3 py-8 text-center text-xs text-slate-500">Loading...</div>
+          <div className="px-3 py-8 text-center text-xs text-slate-500">{t("common.loading")}</div>
         ) : credentials.length === 0 ? (
-          <div className="px-3 py-8 text-center text-xs text-slate-500">No credentials configured.</div>
+          <div className="px-3 py-8 text-center text-xs text-slate-500">{t("credentials.empty")}</div>
         ) : (
           credentials.map((cred) => {
             const isEditable = !cred.read_only;
-            const keyStatus = cred.api_key_set ? "Configured" : "Not set";
+            const keyStatus = cred.api_key_set ? t("credentials.configured") : t("credentials.notSet");
             return (
               <div
                 key={cred.id}
@@ -305,7 +308,7 @@ export default function CredentialsPage() {
                     <p className="truncate text-[10px] text-slate-500">{cred.label}</p>
                   )}
                   {cred.disabled && (
-                    <span className="text-[10px] text-amber-400">disabled</span>
+                    <span className="text-[10px] text-amber-400">{t("common.disabled")}</span>
                   )}
                 </div>
                 <span className="truncate text-xs text-slate-400 font-mono">{cred.provider_id ?? "—"}</span>
@@ -317,7 +320,7 @@ export default function CredentialsPage() {
                 <span>
                   {cred.read_only && (
                     <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-slate-700/60 text-slate-400">
-                      yes
+                      {t("credentials.yes")}
                     </span>
                   )}
                 </span>
@@ -328,7 +331,7 @@ export default function CredentialsPage() {
                     disabled={!isEditable}
                     className="px-2 py-1 text-xs"
                   >
-                    Edit
+                    {t("common.edit")}
                   </Button>
                   <Button
                     variant="danger"
@@ -336,7 +339,7 @@ export default function CredentialsPage() {
                     disabled={!isEditable}
                     className="px-2 py-1 text-xs"
                   >
-                    Delete
+                    {t("common.delete")}
                   </Button>
                 </div>
               </div>
@@ -348,20 +351,20 @@ export default function CredentialsPage() {
       {/* Add Credential Modal */}
       <Modal isOpen={isAddOpen} onClose={() => { setIsAddOpen(false); resetAddForm(); }}>
         <ModalHeader>
-          <ModalTitle>Add API Key</ModalTitle>
+          <ModalTitle>{t("credentials.addApiKey")}</ModalTitle>
         </ModalHeader>
         <ModalContent>
           <div className="space-y-4">
             <div>
               <label className="mb-1.5 block text-sm font-medium text-slate-300">
-                Provider ID <span className="text-red-400">*</span>
+                {t("credentials.providerId")} <span className="text-red-400">*</span>
               </label>
               <select
                 value={addProviderId}
                 onChange={(e) => setAddProviderId(e.target.value)}
                 className="w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
-                <option value="">Select a provider…</option>
+                <option value="">{t("credentials.selectProvider")}</option>
                 {providers.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.id} ({p.provider_type})
@@ -370,19 +373,18 @@ export default function CredentialsPage() {
               </select>
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-300">Label</label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("credentials.label")}</label>
               <Input
                 name="label"
                 value={addLabel}
                 onChange={setAddLabel}
-                placeholder="Human-readable label"
+                placeholder={t("credentials.labelPlaceholder")}
               />
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-300">Attributes</label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("credentials.attributes")}</label>
               <p className="mb-2 text-[11px] text-slate-500">
-                Set <code className="font-mono">api_key</code>,{" "}
-                <code className="font-mono">base_url</code>, or any other provider attribute.
+                {t("credentials.attributesHelp")}
               </p>
               <AttributesEditor value={addAttributes} onChange={setAddAttributes} />
             </div>
@@ -394,10 +396,10 @@ export default function CredentialsPage() {
             onClick={() => { setIsAddOpen(false); resetAddForm(); }}
             disabled={addSubmitting}
           >
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button onClick={handleAdd} disabled={addSubmitting}>
-            {addSubmitting ? "Adding..." : "Add API Key"}
+            {addSubmitting ? t("common.adding") : t("credentials.addApiKey")}
           </Button>
         </ModalFooter>
       </Modal>
@@ -405,37 +407,37 @@ export default function CredentialsPage() {
       {/* Edit Credential Modal */}
       <Modal isOpen={!!editItem} onClose={() => setEditItem(null)}>
         <ModalHeader>
-          <ModalTitle>Edit Credential: {editItem?.id}</ModalTitle>
+          <ModalTitle>{t("credentials.editTitle", { id: editItem?.id ?? "" })}</ModalTitle>
         </ModalHeader>
         <ModalContent>
           <div className="space-y-4">
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-300">Label</label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("credentials.label")}</label>
               <Input
                 name="editLabel"
                 value={editLabel}
                 onChange={setEditLabel}
-                placeholder="Human-readable label"
+                placeholder={t("credentials.labelPlaceholder")}
               />
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-300">API Key</label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("providers.apiKey")}</label>
               <Input
                 type="password"
                 name="editApiKey"
                 value={editApiKey}
                 onChange={setEditApiKey}
-                placeholder={editItem?.api_key_set ? "Configured — leave blank to keep" : "Enter API key"}
+                placeholder={editItem?.api_key_set ? t("providers.keyConfigured") : t("providers.enterKey")}
                 autoComplete="off"
                 autoCapitalize="none"
                 autoCorrect="off"
                 spellCheck={false}
               />
-              <p className="mt-1 text-[11px] text-slate-500">The existing value is never shown. Enter a value only to replace it.</p>
+              <p className="mt-1 text-[11px] text-slate-500">{t("credentials.secretHelp")}</p>
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-300">Attributes</label>
-              <p className="mb-2 text-[11px] text-slate-500">Non-secret provider attributes only.</p>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("credentials.attributes")}</label>
+              <p className="mb-2 text-[11px] text-slate-500">{t("credentials.nonSecretHelp")}</p>
               <AttributesEditor value={editAttributes} onChange={setEditAttributes} />
             </div>
             <div className="flex items-center gap-2">
@@ -447,17 +449,17 @@ export default function CredentialsPage() {
                 className="h-4 w-4 rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500"
               />
               <label htmlFor="editDisabled" className="text-sm text-slate-300">
-                Disabled
+                {t("common.disabledTitle")}
               </label>
             </div>
           </div>
         </ModalContent>
         <ModalFooter>
           <Button variant="ghost" onClick={() => setEditItem(null)} disabled={editSubmitting}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button onClick={handleEdit} disabled={editSubmitting}>
-            {editSubmitting ? "Saving..." : "Save"}
+            {editSubmitting ? t("common.saving") : t("common.save")}
           </Button>
         </ModalFooter>
       </Modal>
@@ -466,9 +468,9 @@ export default function CredentialsPage() {
         isOpen={!!pendingDeleteId}
         onClose={() => setPendingDeleteId(null)}
         onConfirm={handleDelete}
-        title="Delete Credential"
-        message="Are you sure you want to delete this credential? This cannot be undone."
-        confirmLabel="Delete"
+        title={t("credentials.deleteTitle")}
+        message={t("credentials.deleteMessage")}
+        confirmLabel={t("common.delete")}
         variant="danger"
       />
     </div>

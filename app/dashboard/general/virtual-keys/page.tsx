@@ -11,6 +11,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { HelpTooltip } from "@/components/ui/tooltip";
 import { adminFetch, revealVirtualKey, type VirtualKeyRateLimits } from "@/lib/api";
 import { useCurrentUser } from "@/components/current-user-context";
+import { useI18n } from "@/components/i18n-provider";
 import {
   RATE_LIMIT_PROTOCOLS,
   emptyRateLimitsForm,
@@ -103,6 +104,7 @@ function RateLimitsEditor({
   value: RateLimitsFormValue;
   onChange: (value: RateLimitsFormValue) => void;
 }) {
+  const { t } = useI18n();
   const { errors } = rateLimitsFromForm(value);
 
   const update = (protocol: RateLimitProtocol, patch: Partial<RateLimitsFormValue[RateLimitProtocol]>) => {
@@ -115,8 +117,8 @@ function RateLimitsEditor({
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-1.5">
-        <label className="text-sm font-semibold text-slate-300">Rate Limits</label>
-        <HelpTooltip content="Optional token-bucket limits. Each protocol has its own capacity; disabled protocols are unlimited." />
+        <label className="text-sm font-semibold text-slate-300">{t("virtualKeys.rateLimits")}</label>
+        <HelpTooltip content={t("virtualKeys.rateLimitsHelp")} />
       </div>
       <div className="grid gap-2 sm:grid-cols-3">
         {RATE_LIMIT_PROTOCOLS.map((protocol) => {
@@ -154,7 +156,7 @@ function RateLimitsEditor({
                   />
                 </label>
                 <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                  Burst
+                  {t("virtualKeys.burst")}
                   <input
                     type="number"
                     min="1"
@@ -167,30 +169,30 @@ function RateLimitsEditor({
                   />
                 </label>
               </div>
-              {errors[protocol] && <p className="mt-2 text-xs text-red-300">{errors[protocol]}</p>}
+              {errors[protocol] && <p className="mt-2 text-xs text-red-300">{t("virtualKeys.rateInvalid")}</p>}
             </div>
           );
         })}
       </div>
       <p className="text-xs text-slate-500">
-        RPM controls the refill rate; burst is the maximum immediate capacity. Leave a protocol disabled for unlimited traffic.
+        {t("virtualKeys.rateHelp")}
       </p>
     </div>
   );
 }
 
-function rateLimitSummary(rateLimits?: VirtualKeyRateLimits): string | null {
+function rateLimitSummary(rateLimits: VirtualKeyRateLimits | undefined, burstLabel: string): string | null {
   if (!rateLimits) return null;
   const parts = RATE_LIMIT_PROTOCOLS.flatMap((protocol) => {
     const limit = rateLimits[protocol];
-    return limit ? [`${RATE_LIMIT_LABELS[protocol]} ${limit.requests_per_minute}/min · burst ${limit.burst}`] : [];
+    return limit ? [`${RATE_LIMIT_LABELS[protocol]} ${limit.requests_per_minute}/min · ${burstLabel} ${limit.burst}`] : [];
   });
   return parts.length > 0 ? parts.join("  ·  ") : null;
 }
 
-function keyLabel(apiKey: VirtualKey): string {
-  if (!apiKey.key_set) return "no key stored";
-  return apiKey.key_preview || "key hidden";
+function keyLabel(apiKey: VirtualKey, noKey: string, hidden: string): string {
+  if (!apiKey.key_set) return noKey;
+  return apiKey.key_preview || hidden;
 }
 
 function dateInputValue(value?: string): string {
@@ -234,10 +236,11 @@ function AllowedRouteSelect({
   loading: boolean;
   onChange: (v: string[]) => void;
 }) {
+  const { t } = useI18n();
   const routeIds = new Set(routes.map((route) => route.id));
   const missingSelectedRoutes: Route[] = value
     .filter((id) => !routeIds.has(id))
-    .map((id) => ({ id, name: "Unavailable route", disabled: true }));
+    .map((id) => ({ id, name: t("virtualKeys.unavailableRoute"), disabled: true }));
   const options = [...routes, ...missingSelectedRoutes];
 
   const toggle = (id: string, checked: boolean) => {
@@ -254,7 +257,7 @@ function AllowedRouteSelect({
     <div className="rounded-md border border-slate-600/60 bg-slate-800/60">
       <div className="flex min-h-[38px] items-center justify-between gap-3 border-b border-slate-700/60 px-3 py-2">
         <span className="text-xs text-slate-400">
-          {value.length === 0 ? "All routes allowed" : `${value.length} selected`}
+          {value.length === 0 ? t("virtualKeys.allRoutes") : t("virtualKeys.selected", { count: value.length })}
         </span>
         <button
           type="button"
@@ -262,14 +265,14 @@ function AllowedRouteSelect({
           disabled={value.length === 0}
           className="text-xs font-medium text-blue-300 hover:text-blue-200 disabled:cursor-not-allowed disabled:text-slate-600"
         >
-          Clear
+          {t("virtualKeys.clear")}
         </button>
       </div>
       <div className="max-h-48 overflow-y-auto p-1.5">
         {loading ? (
-          <p className="px-2 py-2 text-xs text-slate-500">Loading routes...</p>
+          <p className="px-2 py-2 text-xs text-slate-500">{t("virtualKeys.loadingRoutes")}</p>
         ) : options.length === 0 ? (
-          <p className="px-2 py-2 text-xs text-slate-500">No routes available.</p>
+          <p className="px-2 py-2 text-xs text-slate-500">{t("virtualKeys.noRoutes")}</p>
         ) : (
           options.map((route) => {
             const checked = value.includes(route.id);
@@ -294,8 +297,8 @@ function AllowedRouteSelect({
                     <span className="block truncate font-mono text-xs">{route.id}</span>
                   </span>
                   <span className="mt-0.5 block truncate text-xs text-slate-500">
-                    {route.name || route.agent_id || route.service_id || "Unnamed route"}
-                    {route.disabled ? " · disabled" : ""}
+                    {route.name || route.agent_id || route.service_id || t("virtualKeys.unnamedRoute")}
+                    {route.disabled ? ` · ${t("common.disabled")}` : ""}
                   </span>
                 </span>
               </label>
@@ -331,6 +334,7 @@ export default function ApiKeysPage() {
   const [routesLoading, setRoutesLoading] = useState(false);
   const { showToast } = useToast();
   const { user } = useCurrentUser();
+  const { locale, t } = useI18n();
   const canReveal = Boolean(user?.is_platform_admin);
 
   async function fetchKeys() {
@@ -339,7 +343,7 @@ export default function ApiKeysPage() {
       const data = await adminFetch<{ items: VirtualKey[] }>("/admin/virtual_keys");
       setApiKeys(data.items ?? []);
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Failed to load virtual keys", "error");
+      showToast(err instanceof Error ? err.message : t("virtualKeys.loadFailed"), "error");
     } finally {
       setLoading(false);
     }
@@ -356,7 +360,7 @@ export default function ApiKeysPage() {
     try {
       setRoutes(await fetchRoutes());
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Failed to load routes", "error");
+      showToast(err instanceof Error ? err.message : t("virtualKeys.routesLoadFailed"), "error");
     } finally {
       setRoutesLoading(false);
     }
@@ -386,7 +390,7 @@ export default function ApiKeysPage() {
   const handleCreateKey = async () => {
     const { rateLimits, errors } = rateLimitsFromForm(form.rate_limits);
     if (Object.keys(errors).length > 0) {
-      showToast("Fix the invalid rate limits before creating the key", "error");
+      showToast(t("virtualKeys.fixRatesCreate"), "error");
       return;
     }
     setCreating(true);
@@ -414,9 +418,9 @@ export default function ApiKeysPage() {
         setNewKeySource("created");
         setShowNewKey(true);
       }
-      showToast("Virtual key created", "success");
+      showToast(t("virtualKeys.created"), "success");
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Failed to create virtual key", "error");
+      showToast(err instanceof Error ? err.message : t("virtualKeys.createFailed"), "error");
     } finally {
       setCreating(false);
     }
@@ -426,7 +430,7 @@ export default function ApiKeysPage() {
     if (!editingKey) return;
     const { rateLimits, errors } = rateLimitsFromForm(editForm.rate_limits);
     if (Object.keys(errors).length > 0) {
-      showToast("Fix the invalid rate limits before saving", "error");
+      showToast(t("virtualKeys.fixRatesSave"), "error");
       return;
     }
     setUpdating(true);
@@ -451,9 +455,9 @@ export default function ApiKeysPage() {
       setApiKeys((prev) => prev.map((item) => (item.id === editingKey.id ? updated : item)));
       setIsEditModalOpen(false);
       setEditingKey(null);
-      showToast("Virtual key updated", "success");
+      showToast(t("virtualKeys.updated"), "success");
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Failed to update virtual key", "error");
+      showToast(err instanceof Error ? err.message : t("virtualKeys.updateFailed"), "error");
     } finally {
       setUpdating(false);
     }
@@ -467,7 +471,7 @@ export default function ApiKeysPage() {
       setNewKeySource("revealed");
       setShowNewKey(true);
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Failed to reveal virtual key", "error");
+      showToast(err instanceof Error ? err.message : t("virtualKeys.revealFailed"), "error");
     } finally {
       setRevealingId(null);
     }
@@ -479,7 +483,7 @@ export default function ApiKeysPage() {
     if (pendingVK?.read_only) {
       setShowConfirm(false);
       setPendingDeleteId(null);
-      showToast("Read-only virtual key cannot be deleted", "error");
+      showToast(t("virtualKeys.readOnlyDelete"), "error");
       return;
     }
     setDeleting(true);
@@ -488,9 +492,9 @@ export default function ApiKeysPage() {
         method: "DELETE",
       });
       setApiKeys((prev) => prev.filter((k) => k.id !== pendingDeleteId));
-      showToast("Virtual key deleted", "success");
+      showToast(t("virtualKeys.deleted"), "success");
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Failed to delete virtual key", "error");
+      showToast(err instanceof Error ? err.message : t("virtualKeys.deleteFailed"), "error");
     } finally {
       setDeleting(false);
       setShowConfirm(false);
@@ -503,38 +507,38 @@ export default function ApiKeysPage() {
       <section className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-slate-100">Virtual Keys</h1>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-100">{t("virtualKeys.title")}</h1>
             <p className="mt-1 text-xs text-slate-400">
-              Manage gateway access keys for clients and integrations.
-              <HelpTooltip content="Virtual keys authenticate requests to the agent gateway" />
+              {t("virtualKeys.description")}
+              <HelpTooltip content={t("virtualKeys.help")} />
             </p>
             <p className="mt-1 text-xs text-slate-500">
-              Key values are shown once on creation and never returned by a list.
+              {t("virtualKeys.disclosure")} {" "}
               {canReveal
-                ? " Use Reveal to recover an existing value — the disclosure is audited."
-                : " Recovering an existing value requires a platform administrator."}
+                ? t("virtualKeys.revealHelp")
+                : t("virtualKeys.adminRevealHelp")}
             </p>
           </div>
           <Button onClick={openCreateModal} className="px-2.5 py-1 text-xs">
-            Create Virtual Key
+            {t("virtualKeys.create")}
           </Button>
         </div>
       </section>
 
       {loading ? (
         <div className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-8 text-center">
-          <p className="text-sm text-slate-400">Loading...</p>
+          <p className="text-sm text-slate-400">{t("virtualKeys.loading")}</p>
         </div>
       ) : apiKeys.length === 0 ? (
         <div className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-8 text-center">
-          <p className="text-sm text-slate-400">No virtual keys yet. Create one to get started.</p>
-          <Button onClick={openCreateModal} className="mt-4 px-3 py-1.5 text-xs">Create Virtual Key</Button>
+          <p className="text-sm text-slate-400">{t("virtualKeys.empty")}</p>
+          <Button onClick={openCreateModal} className="mt-4 px-3 py-1.5 text-xs">{t("virtualKeys.create")}</Button>
         </div>
       ) : (
         <div className="overflow-x-auto">
           <section className="min-w-[700px] overflow-hidden rounded-lg border border-slate-700/70 bg-slate-900/40">
             <div className="sticky top-0 z-10 grid grid-cols-[minmax(0,1fr)_180px_160px_230px] border-b border-slate-700/70 bg-slate-900/95 backdrop-blur-sm px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
-              <span>Name</span><span>Created</span><span>Expires</span><span>Actions</span>
+              <span>{t("virtualKeys.name")}</span><span>{t("common.created")}</span><span>{t("virtualKeys.expires")}</span><span>{t("common.actions")}</span>
             </div>
             {apiKeys.map((apiKey) => (
               <div key={apiKey.id} className="grid grid-cols-[minmax(0,1fr)_180px_160px_230px] items-center border-b border-slate-700/60 px-3 py-2 last:border-b-0">
@@ -543,18 +547,18 @@ export default function ApiKeysPage() {
                     <p className="truncate font-mono text-xs font-medium text-slate-100">{apiKey.id}</p>
                     <UsedByAgents agentIds={attribution?.virtualKey[apiKey.id]} />
                   </div>
-                  <p className="mt-0.5 truncate font-mono text-xs text-slate-400">{keyLabel(apiKey)}</p>
-                  {rateLimitSummary(apiKey.rate_limits) && (
+                  <p className="mt-0.5 truncate font-mono text-xs text-slate-400">{keyLabel(apiKey, t("virtualKeys.noStoredKey"), t("virtualKeys.keyHidden"))}</p>
+                  {rateLimitSummary(apiKey.rate_limits, t("virtualKeys.burst")) && (
                     <p className="mt-1 truncate text-[11px] text-blue-300/80">
-                      {rateLimitSummary(apiKey.rate_limits)}
+                      {rateLimitSummary(apiKey.rate_limits, t("virtualKeys.burst"))}
                     </p>
                   )}
                 </div>
-                <span className="text-xs text-slate-400">{new Date(apiKey.created_at).toLocaleDateString()}</span>
+                <span className="text-xs text-slate-400">{new Date(apiKey.created_at).toLocaleDateString(locale)}</span>
                 <span className="text-xs text-slate-400">
                   {apiKey.expires_at && apiKey.expires_at !== "0001-01-01T00:00:00Z"
-                    ? new Date(apiKey.expires_at).toLocaleDateString()
-                    : "Never"}
+                    ? new Date(apiKey.expires_at).toLocaleDateString(locale)
+                    : t("virtualKeys.never")}
                 </span>
                 <div className="flex justify-end gap-1.5">
                   {canReveal && (
@@ -563,29 +567,29 @@ export default function ApiKeysPage() {
                       onClick={() => void handleReveal(apiKey.id)}
                       disabled={!apiKey.key_set || revealingId !== null}
                       className="px-2.5 py-1 text-xs"
-                      title="Show the key value (platform admin only, audited)"
+                      title={t("virtualKeys.revealTitle")}
                     >
-                      {revealingId === apiKey.id ? "Revealing..." : "Reveal"}
+                      {revealingId === apiKey.id ? t("virtualKeys.revealing") : t("virtualKeys.reveal")}
                     </Button>
                   )}
-                  <span title={apiKey.read_only ? "Read-only virtual key is not editable" : undefined}>
+                  <span title={apiKey.read_only ? t("virtualKeys.readOnlyEdit") : undefined}>
                     <Button
                       variant="ghost"
                       onClick={() => openEditModal(apiKey)}
                       disabled={!!apiKey.read_only}
                       className="px-2.5 py-1 text-xs"
                     >
-                      Edit
+                      {t("common.edit")}
                     </Button>
                   </span>
-                  <span title={apiKey.read_only ? "Read-only virtual key cannot be deleted" : undefined}>
+                  <span title={apiKey.read_only ? t("virtualKeys.readOnlyDelete") : undefined}>
                     <Button
                       variant="danger"
                       onClick={() => { setPendingDeleteId(apiKey.id); setShowConfirm(true); }}
                       disabled={!!apiKey.read_only}
                       className="px-2.5 py-1 text-xs"
                     >
-                      Delete
+                      {t("common.delete")}
                     </Button>
                   </span>
                 </div>
@@ -596,40 +600,40 @@ export default function ApiKeysPage() {
       )}
 
       <Modal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)}>
-        <ModalHeader><ModalTitle>Create Virtual Key</ModalTitle></ModalHeader>
+        <ModalHeader><ModalTitle>{t("virtualKeys.create")}</ModalTitle></ModalHeader>
         <ModalContent>
           <div className="space-y-4">
             <div>
               <label className="mb-1.5 block text-sm font-semibold text-slate-300">
-                ID <span className="text-slate-500 font-normal">(required)</span>
+                ID <span className="text-slate-500 font-normal">({t("virtualKeys.required")})</span>
               </label>
               <Input
                 name="key-id"
                 value={form.id}
                 onChange={(v) => setForm((f) => ({ ...f, id: v }))}
-                placeholder="e.g. development, production"
+                placeholder={t("virtualKeys.idPlaceholder")}
               />
             </div>
 
             <div>
               <label className="mb-1.5 block text-sm font-semibold text-slate-300">
-                Tag
-                <HelpTooltip content="Optional label to associate this key with a user or group." />
+                {t("virtualKeys.tag")}
+                <HelpTooltip content={t("virtualKeys.tagHelp")} />
               </label>
               <Input
                 name="key-tag"
                 value={form.tag}
                 onChange={(v) => setForm((f) => ({ ...f, tag: v }))}
-                placeholder="e.g. user-123, team-alpha"
+                placeholder={t("virtualKeys.tagPlaceholder")}
               />
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-300">Description</label>
+              <label className="mb-1.5 block text-sm font-semibold text-slate-300">{t("common.description")}</label>
               <textarea
                 value={form.description}
                 onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                placeholder="Optional description for this key"
+                placeholder={t("virtualKeys.descriptionPlaceholder")}
                 rows={2}
                 className="w-full resize-none rounded-md border border-slate-600/60 bg-slate-800/60 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-blue-400/50 focus:ring-1 focus:ring-blue-400/30"
               />
@@ -637,8 +641,8 @@ export default function ApiKeysPage() {
 
             <div>
               <label className="mb-1.5 block text-sm font-semibold text-slate-300">
-                Allowed Route IDs
-                <HelpTooltip content="Restrict this key to specific routes. Leave empty to allow all routes." />
+                {t("virtualKeys.allowedRoutes")}
+                <HelpTooltip content={t("virtualKeys.allowedRoutesHelp")} />
               </label>
               <AllowedRouteSelect
                 value={form.allowed_route_ids}
@@ -646,13 +650,13 @@ export default function ApiKeysPage() {
                 loading={routesLoading}
                 onChange={(v) => setForm((f) => ({ ...f, allowed_route_ids: v }))}
               />
-              <p className="mt-1 text-xs text-slate-500">Select one or more routes. Leave empty to allow all routes.</p>
+              <p className="mt-1 text-xs text-slate-500">{t("virtualKeys.selectRoutesHelp")}</p>
             </div>
 
             <div>
               <label className="mb-1.5 block text-sm font-semibold text-slate-300">
-                Expiration Date
-                <HelpTooltip content="Leave empty for a non-expiring key." />
+                {t("virtualKeys.expiration")}
+                <HelpTooltip content={t("virtualKeys.expirationHelp")} />
               </label>
               <input
                 type="date"
@@ -661,7 +665,7 @@ export default function ApiKeysPage() {
                 min={new Date().toISOString().split("T")[0]}
                 className="w-full rounded-md border border-slate-600/60 bg-slate-800/60 px-3 py-2 text-sm text-slate-50 outline-none focus:border-blue-400/50 focus:ring-1 focus:ring-blue-400/30"
               />
-              <p className="mt-1 text-xs text-slate-500">Leave empty for a non-expiring key.</p>
+              <p className="mt-1 text-xs text-slate-500">{t("virtualKeys.expirationHelp")}</p>
             </div>
 
             <RateLimitsEditor
@@ -671,7 +675,7 @@ export default function ApiKeysPage() {
           </div>
         </ModalContent>
         <ModalFooter>
-          <Button variant="ghost" onClick={() => setIsCreateModalOpen(false)} disabled={creating}>Cancel</Button>
+          <Button variant="ghost" onClick={() => setIsCreateModalOpen(false)} disabled={creating}>{t("common.cancel")}</Button>
           <Button
             onClick={handleCreateKey}
             disabled={
@@ -680,7 +684,7 @@ export default function ApiKeysPage() {
               Object.keys(rateLimitsFromForm(form.rate_limits).errors).length > 0
             }
           >
-            {creating ? "Creating..." : "Create Virtual Key"}
+            {creating ? t("common.creating") : t("virtualKeys.create")}
           </Button>
         </ModalFooter>
       </Modal>
@@ -689,28 +693,28 @@ export default function ApiKeysPage() {
         isOpen={isEditModalOpen && editingKey !== null}
         onClose={() => { setIsEditModalOpen(false); setEditingKey(null); }}
       >
-        <ModalHeader><ModalTitle>Edit Virtual Key</ModalTitle></ModalHeader>
+        <ModalHeader><ModalTitle>{t("virtualKeys.edit")}</ModalTitle></ModalHeader>
         <ModalContent>
           <div className="space-y-4">
             <div>
               <label className="mb-1.5 block text-sm font-semibold text-slate-300">
-                Tag
-                <HelpTooltip content="Optional label to associate this key with a user or group." />
+                {t("virtualKeys.tag")}
+                <HelpTooltip content={t("virtualKeys.tagHelp")} />
               </label>
               <Input
                 name="edit-key-tag"
                 value={editForm.tag}
                 onChange={(v) => setEditForm((f) => ({ ...f, tag: v }))}
-                placeholder="e.g. user-123, team-alpha"
+                placeholder={t("virtualKeys.tagPlaceholder")}
               />
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-semibold text-slate-300">Description</label>
+              <label className="mb-1.5 block text-sm font-semibold text-slate-300">{t("common.description")}</label>
               <textarea
                 value={editForm.description}
                 onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
-                placeholder="Optional description for this key"
+                placeholder={t("virtualKeys.descriptionPlaceholder")}
                 rows={2}
                 className="w-full resize-none rounded-md border border-slate-600/60 bg-slate-800/60 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-500 outline-none focus:border-blue-400/50 focus:ring-1 focus:ring-blue-400/30"
               />
@@ -718,8 +722,8 @@ export default function ApiKeysPage() {
 
             <div>
               <label className="mb-1.5 block text-sm font-semibold text-slate-300">
-                Allowed Route IDs
-                <HelpTooltip content="Restrict this key to specific routes. Leave empty to allow all routes." />
+                {t("virtualKeys.allowedRoutes")}
+                <HelpTooltip content={t("virtualKeys.allowedRoutesHelp")} />
               </label>
               <AllowedRouteSelect
                 value={editForm.allowed_route_ids}
@@ -727,13 +731,13 @@ export default function ApiKeysPage() {
                 loading={routesLoading}
                 onChange={(v) => setEditForm((f) => ({ ...f, allowed_route_ids: v }))}
               />
-              <p className="mt-1 text-xs text-slate-500">Select one or more routes. Leave empty to allow all routes.</p>
+              <p className="mt-1 text-xs text-slate-500">{t("virtualKeys.selectRoutesHelp")}</p>
             </div>
 
             <div>
               <label className="mb-1.5 block text-sm font-semibold text-slate-300">
-                Expiration Date
-                <HelpTooltip content="Leave empty for a non-expiring key." />
+                {t("virtualKeys.expiration")}
+                <HelpTooltip content={t("virtualKeys.expirationHelp")} />
               </label>
               <input
                 type="date"
@@ -742,7 +746,7 @@ export default function ApiKeysPage() {
                 min={new Date().toISOString().split("T")[0]}
                 className="w-full rounded-md border border-slate-600/60 bg-slate-800/60 px-3 py-2 text-sm text-slate-50 outline-none focus:border-blue-400/50 focus:ring-1 focus:ring-blue-400/30"
               />
-              <p className="mt-1 text-xs text-slate-500">Leave empty for a non-expiring key.</p>
+              <p className="mt-1 text-xs text-slate-500">{t("virtualKeys.expirationHelp")}</p>
             </div>
 
             <RateLimitsEditor
@@ -757,7 +761,7 @@ export default function ApiKeysPage() {
                 onChange={(e) => setEditForm((f) => ({ ...f, disabled: e.target.checked }))}
                 className="h-4 w-4 rounded border-slate-600 bg-slate-800 text-blue-500"
               />
-              Disabled
+              {t("common.disabledTitle")}
             </label>
           </div>
         </ModalContent>
@@ -767,7 +771,7 @@ export default function ApiKeysPage() {
             onClick={() => { setIsEditModalOpen(false); setEditingKey(null); }}
             disabled={updating}
           >
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             onClick={handleUpdateKey}
@@ -775,30 +779,30 @@ export default function ApiKeysPage() {
               updating || Object.keys(rateLimitsFromForm(editForm.rate_limits).errors).length > 0
             }
           >
-            {updating ? "Saving..." : "Save Changes"}
+            {updating ? t("common.saving") : t("common.saveChanges")}
           </Button>
         </ModalFooter>
       </Modal>
 
       <Modal isOpen={showNewKey && newKeyValue !== null} onClose={() => { setShowNewKey(false); setNewKeyValue(null); }}>
         <ModalHeader>
-          <ModalTitle>{newKeySource === "created" ? "New Virtual Key" : "Virtual Key Value"}</ModalTitle>
+          <ModalTitle>{newKeySource === "created" ? t("virtualKeys.new") : t("virtualKeys.value")}</ModalTitle>
         </ModalHeader>
         <ModalContent>
           <div className="rounded-sm border border-slate-700/70 bg-slate-900/40 p-4 text-sm">
             <div className="mb-2 flex items-center justify-between gap-3">
-              <span className="font-medium text-slate-100">Copy this key now</span>
+              <span className="font-medium text-slate-100">{t("virtualKeys.copyNow")}</span>
               <Button
                 variant="ghost"
                 onClick={() => {
                   if (!newKeyValue) return;
                   void navigator.clipboard.writeText(newKeyValue).then(() => {
-                    showToast("Key copied to clipboard", "success");
+                    showToast(t("virtualKeys.copied"), "success");
                   });
                 }}
                 className="px-2.5 py-1 text-xs"
               >
-                Copy
+                {t("virtualKeys.copy")}
               </Button>
             </div>
             <div className="break-all rounded-sm border border-slate-700/70 bg-slate-900/40 p-3 font-mono text-xs text-slate-200">{newKeyValue}</div>
@@ -806,13 +810,13 @@ export default function ApiKeysPage() {
           <div className="mt-3 rounded-sm border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
             <span className="text-amber-200">
               {newKeySource === "created"
-                ? "This key will only be shown once. Store it securely."
-                : "This value is not shown again after you close this dialog. The disclosure has been recorded in the audit log."}
+                ? t("virtualKeys.once")
+                : t("virtualKeys.auditDisclosure")}
             </span>
           </div>
         </ModalContent>
         <ModalFooter>
-          <Button onClick={() => { setShowNewKey(false); setNewKeyValue(null); }}>I have saved it</Button>
+          <Button onClick={() => { setShowNewKey(false); setNewKeyValue(null); }}>{t("virtualKeys.saved")}</Button>
         </ModalFooter>
       </Modal>
 
@@ -820,9 +824,9 @@ export default function ApiKeysPage() {
         isOpen={showConfirm}
         onClose={() => { setShowConfirm(false); setPendingDeleteId(null); }}
         onConfirm={handleDelete}
-        title="Delete Virtual Key"
-        message="Are you sure you want to delete this virtual key?"
-        confirmLabel={deleting ? "Deleting..." : "Delete"}
+        title={t("virtualKeys.deleteTitle")}
+        message={t("virtualKeys.deleteMessage")}
+        confirmLabel={deleting ? t("common.deleting") : t("common.delete")}
         variant="danger"
       />
     </div>

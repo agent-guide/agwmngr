@@ -2,6 +2,7 @@
 
 import { Input } from "@/components/ui/input";
 import type { ProviderNetworkConfig } from "@/lib/api";
+import { useI18n } from "@/components/i18n-provider";
 
 export interface NetworkDraft {
   request_timeout_seconds: string;
@@ -206,43 +207,67 @@ export function ProviderAdvancedFields({
   optionsRaw: string;
   onOptionsRawChange: (value: string) => void;
 }) {
+  const { t } = useI18n();
+  const localizedOptionLabel = (label: string): string => ({
+    "Compatibility mode": t("providerAdvanced.compatibility"),
+    Organization: t("providerAdvanced.organization"),
+    Project: t("providerAdvanced.project"),
+    "API key header": t("providerAdvanced.apiKeyHeader"),
+    "Context window": t("providerAdvanced.contextWindow"),
+    "Max output tokens": t("providerAdvanced.maxOutputTokens"),
+    "Default max tokens": t("providerAdvanced.defaultMaxTokens"),
+    Vision: t("providerAdvanced.vision"),
+    "Request path": t("providerAdvanced.requestPath"),
+    "Response format": t("providerAdvanced.responseFormat"),
+    "Thinking mode": t("providerAdvanced.thinkingMode"),
+    "Max tokens": t("providerAdvanced.maxTokens"),
+    Temperature: t("providerAdvanced.temperature"),
+    "Top P": t("providerAdvanced.topP"),
+    "Presence penalty": t("providerAdvanced.presencePenalty"),
+    "Frequency penalty": t("providerAdvanced.frequencyPenalty"),
+    "Log probabilities": t("providerAdvanced.logProbabilities"),
+    "Top log probabilities": t("providerAdvanced.topLogProbabilities"),
+    "API profile": t("providerAdvanced.apiProfile"),
+    Embeddings: t("providerAdvanced.embeddings"),
+    "Enable thinking": t("providerAdvanced.enableThinking"),
+  }[label] ?? label);
   const options = parsedOptions(optionsRaw);
   const fields = OPTION_FIELDS[providerType] ?? [];
   const optionsError = (() => {
     try { parseProviderOptions(optionsRaw); return ""; }
-    catch (error) { return error instanceof Error ? error.message : "Invalid options"; }
+    catch (error) { return error instanceof Error ? error.message : t("providerAdvanced.invalidOptions"); }
   })();
 
   return (
     <>
       <div>
-        <label className="mb-1.5 block text-sm font-medium text-slate-300">Default model</label>
-        <Input name={`${idPrefix}DefaultModel`} value={defaultModel} onChange={onDefaultModelChange} placeholder="Optional provider default" />
+        <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("providerAdvanced.defaultModel")}</label>
+        <Input name={`${idPrefix}DefaultModel`} value={defaultModel} onChange={onDefaultModelChange} placeholder={t("providerAdvanced.optionalDefault")} />
         {idPrefix.startsWith("edit") && (
-          <p className="mt-1 text-[11px] text-slate-500">Clear to restore the provider default.</p>
+          <p className="mt-1 text-[11px] text-slate-500">{t("providers.restoreDefault")}</p>
         )}
       </div>
       <label className="flex items-center gap-2 text-sm text-slate-300">
         <input type="checkbox" checked={disabled} onChange={(event) => onDisabledChange(event.target.checked)} />
-        Disabled
+        {t("common.disabledTitle")}
       </label>
 
       {fields.length > 0 && (
         <div className="rounded-md border border-slate-700/70 p-3">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">{providerType} options</p>
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">{t("providerAdvanced.options", { type: providerType })}</p>
           <div className="grid gap-3 sm:grid-cols-2">
             {fields.map((field) => {
               const value = optionValue(options[field.key]);
               return (
                 <div key={field.key}>
-                  <label className="mb-1 block text-xs font-medium text-slate-400">{field.label}</label>
+                  <label className="mb-1 block text-xs font-medium text-slate-400">{localizedOptionLabel(field.label)}</label>
                   {field.kind === "select" || field.kind === "boolean" ? (
                     <select
                       value={value}
                       onChange={(event) => onOptionsRawChange(updateProviderOption(optionsRaw, field, event.target.value))}
                       className="w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-100"
                     >
-                      <option value="">Provider default</option>
+                      <option value="">{t("providerAdvanced.providerDefault")}</option>
                       {(field.kind === "boolean" ? ["true", "false"] : field.choices ?? []).map((choice) => (
                         <option key={choice} value={choice}>{choice}</option>
                       ))}
@@ -264,7 +289,7 @@ export function ProviderAdvancedFields({
       )}
 
       <details className="rounded-md border border-slate-700/70 p-3">
-        <summary className="cursor-pointer text-sm font-medium text-slate-300">Network settings</summary>
+        <summary className="cursor-pointer text-sm font-medium text-slate-300">{t("providerAdvanced.network")}</summary>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           {NETWORK_NUMBER_FIELDS.map((field) => (
             <div key={field}>
@@ -274,18 +299,18 @@ export function ProviderAdvancedFields({
                 name={`${idPrefix}Network${field}`}
                 value={network[field]}
                 onChange={(value) => onNetworkChange({ ...network, [field]: value })}
-                placeholder="Gateway default"
+                placeholder={t("providerAdvanced.gatewayDefault")}
               />
             </div>
           ))}
           <div className="sm:col-span-2">
-            <label className="mb-1 block text-xs font-medium text-slate-400">Proxy URL</label>
+            <label className="mb-1 block text-xs font-medium text-slate-400">{t("providerAdvanced.proxyUrl")}</label>
             <Input name={`${idPrefix}ProxyUrl`} value={network.proxy_url} onChange={(value) => onNetworkChange({ ...network, proxy_url: value })} placeholder="http://127.0.0.1:7890" />
           </div>
           <div className="sm:col-span-2">
-            <label className="mb-1 block text-xs font-medium text-slate-400">Extra headers (write-only JSON)</label>
+            <label className="mb-1 block text-xs font-medium text-slate-400">{t("providerAdvanced.extraHeaders")}</label>
             {configuredHeaderNames.length > 0 && (
-              <p className="mb-1 text-[11px] text-slate-500">Configured: {configuredHeaderNames.join(", ")}. Leave blank to preserve them.</p>
+              <p className="mb-1 text-[11px] text-slate-500">{t("providerAdvanced.configuredHeaders", { names: configuredHeaderNames.join(", ") })}</p>
             )}
             <textarea
               value={network.extra_headers}
@@ -299,7 +324,7 @@ export function ProviderAdvancedFields({
       </details>
 
       <details className="rounded-md border border-slate-700/70 p-3">
-        <summary className="cursor-pointer text-sm font-medium text-slate-300">Advanced options JSON</summary>
+        <summary className="cursor-pointer text-sm font-medium text-slate-300">{t("providerAdvanced.advancedJson")}</summary>
         <textarea
           value={optionsRaw}
           onChange={(event) => onOptionsRawChange(event.target.value)}

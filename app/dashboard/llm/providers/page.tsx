@@ -18,6 +18,7 @@ import {
 } from "@/lib/api";
 import { useAgentAttribution } from "@/hooks/use-agent-attribution";
 import { UsedByAgents } from "@/components/used-by-agents";
+import { useI18n } from "@/components/i18n-provider";
 import {
   ProviderAdvancedFields,
   buildNetworkConfig,
@@ -68,6 +69,7 @@ export default function ProvidersPage() {
   const [togglingProviderId, setTogglingProviderId] = useState<string | null>(null);
 
   const { showToast } = useToast();
+  const { t } = useI18n();
 
   const loadProviders = useCallback(async () => {
     setLoading(true);
@@ -78,11 +80,11 @@ export default function ProvidersPage() {
       setEnabledProviderTypes(enabled);
       setAddType((prev) => (prev === "" ? (enabled[0] ?? "") : prev));
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Failed to load providers", "error");
+      showToast(err instanceof Error ? err.message : t("providers.loadFailed"), "error");
     } finally {
       setLoading(false);
     }
-  }, [showToast]);
+  }, [showToast, t]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -92,9 +94,9 @@ export default function ProvidersPage() {
   }, [loadProviders]);
 
   const handleAdd = async () => {
-    if (!addId.trim()) { showToast("Provider ID is required", "error"); return; }
+    if (!addId.trim()) { showToast(t("providers.idRequired"), "error"); return; }
     const id = slugify(addId);
-    if (!id) { showToast("Invalid provider ID", "error"); return; }
+    if (!id) { showToast(t("providers.idInvalid"), "error"); return; }
 
     setAddSubmitting(true);
     try {
@@ -109,12 +111,12 @@ export default function ProvidersPage() {
       if (options) payload.options = options;
       const item = await createProvider(payload);
       setProviders((prev) => [...prev, item]);
-      showToast("Provider added", "success");
+      showToast(t("providers.added"), "success");
       setIsAddOpen(false);
       setAddId(""); setAddType(enabledProviderTypes[0] ?? ""); setAddBaseUrl(""); setAddApiKey("");
       setAddDefaultModel(""); setAddDisabled(false); setAddNetwork(emptyNetworkDraft()); setAddOptionsRaw("{}");
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Failed to add provider", "error");
+      showToast(err instanceof Error ? err.message : t("providers.addFailed"), "error");
     } finally {
       setAddSubmitting(false);
     }
@@ -153,10 +155,10 @@ export default function ProvidersPage() {
       if (options !== undefined) payload.options = options;
       const updated = await updateProvider(editItem.id, payload);
       setProviders((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-      showToast("Provider updated", "success");
+      showToast(t("providers.updated"), "success");
       setEditItem(null);
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Failed to update provider", "error");
+      showToast(err instanceof Error ? err.message : t("providers.updateFailed"), "error");
     } finally {
       setEditSubmitting(false);
     }
@@ -167,9 +169,9 @@ export default function ProvidersPage() {
     try {
       await deleteProvider(pendingDeleteId);
       setProviders((prev) => prev.filter((p) => p.id !== pendingDeleteId));
-      showToast("Provider deleted", "success");
+      showToast(t("providers.deleted"), "success");
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Failed to delete provider", "error");
+      showToast(err instanceof Error ? err.message : t("providers.deleteFailed"), "error");
     } finally {
       setPendingDeleteId(null);
     }
@@ -183,9 +185,9 @@ export default function ProvidersPage() {
         ? await enableProvider(provider.id)
         : await disableProvider(provider.id);
       setProviders((prev) => prev.map((item) => (item.id === provider.id ? updated : item)));
-      showToast(provider.disabled ? "Provider enabled" : "Provider disabled", "success");
+      showToast(provider.disabled ? t("providers.enabled") : t("providers.disabled"), "success");
     } catch (err) {
-      showToast(err instanceof Error ? err.message : "Failed to update provider", "error");
+      showToast(err instanceof Error ? err.message : t("providers.updateFailed"), "error");
     } finally {
       setTogglingProviderId(null);
     }
@@ -196,17 +198,17 @@ export default function ProvidersPage() {
       <section className="rounded-lg border border-slate-700/70 bg-slate-900/40 p-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-slate-100">AI Providers</h1>
-            <p className="mt-1 text-sm text-slate-400">Manage LLM provider backends and API keys.</p>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-100">{t("providers.title")}</h1>
+            <p className="mt-1 text-sm text-slate-400">{t("providers.description")}</p>
           </div>
-          <Button onClick={() => setIsAddOpen(true)} className="px-2.5 py-1 text-xs">Add Provider</Button>
+          <Button onClick={() => setIsAddOpen(true)} className="px-2.5 py-1 text-xs">{t("providers.add")}</Button>
         </div>
       </section>
 
       <section className="grid grid-cols-2 gap-2 lg:grid-cols-2">
         {[
-          { label: "Total Providers", value: providers.length },
-          { label: "Types", value: new Set(providers.map((p) => p.provider_type)).size },
+          { label: t("providers.total"), value: providers.length },
+          { label: t("providers.types"), value: new Set(providers.map((p) => p.provider_type)).size },
         ].map((stat) => (
           <div key={stat.label} className="rounded-lg border border-slate-700/70 bg-slate-900/40 px-2.5 py-2">
             <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">{stat.label}</p>
@@ -217,13 +219,13 @@ export default function ProvidersPage() {
 
       <section className="overflow-x-auto rounded-lg border border-slate-700/70 bg-slate-900/40">
         <div className="sticky top-0 z-10 grid grid-cols-[minmax(0,1fr)_120px_minmax(0,1.5fr)_80px_120px] border-b border-slate-700/70 bg-slate-900/95 backdrop-blur-sm px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
-          <span>ID</span><span>Type</span><span>Base URL</span><span>Status</span><span>Actions</span>
+          <span>ID</span><span>{t("providers.type")}</span><span>{t("providers.baseUrl")}</span><span>{t("providers.status")}</span><span>{t("common.actions")}</span>
         </div>
 
         {loading ? (
-          <div className="px-3 py-8 text-center text-xs text-slate-500">Loading...</div>
+          <div className="px-3 py-8 text-center text-xs text-slate-500">{t("providers.loading")}</div>
         ) : providers.length === 0 ? (
-          <div className="px-3 py-8 text-center text-xs text-slate-500">No providers configured.</div>
+          <div className="px-3 py-8 text-center text-xs text-slate-500">{t("providers.empty")}</div>
         ) : (
           providers.map((provider) => (
             <div
@@ -245,13 +247,13 @@ export default function ProvidersPage() {
                     ? "border-slate-600/60 bg-slate-800/40 text-slate-400 hover:border-emerald-500/40 hover:text-emerald-300"
                     : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:border-slate-600/60 hover:bg-slate-800/40 hover:text-slate-400"
                 }`}
-                title={provider.read_only ? "Read-only provider" : provider.disabled ? "Enable provider" : "Disable provider"}
+                title={provider.read_only ? t("providers.readOnly") : provider.disabled ? t("providers.enable") : t("providers.disable")}
               >
-                {togglingProviderId === provider.id ? "Saving..." : provider.disabled ? "Enable" : "Active"}
+                {togglingProviderId === provider.id ? t("common.saving") : provider.disabled ? t("providers.enableLabel") : t("common.active")}
               </button>
               <div className="flex gap-1">
-                <Button variant="ghost" onClick={() => openEdit(provider)} disabled={provider.read_only} className="px-2 py-1 text-xs">Edit</Button>
-                <Button variant="danger" onClick={() => setPendingDeleteId(provider.id)} disabled={provider.read_only} className="px-2 py-1 text-xs">Delete</Button>
+                <Button variant="ghost" onClick={() => openEdit(provider)} disabled={provider.read_only} className="px-2 py-1 text-xs">{t("common.edit")}</Button>
+                <Button variant="danger" onClick={() => setPendingDeleteId(provider.id)} disabled={provider.read_only} className="px-2 py-1 text-xs">{t("common.delete")}</Button>
               </div>
             </div>
           ))
@@ -260,18 +262,18 @@ export default function ProvidersPage() {
 
       {/* Add Provider Modal */}
       <Modal isOpen={isAddOpen} onClose={() => setIsAddOpen(false)}>
-        <ModalHeader><ModalTitle>Add Provider</ModalTitle></ModalHeader>
+        <ModalHeader><ModalTitle>{t("providers.add")}</ModalTitle></ModalHeader>
         <ModalContent>
           <div className="space-y-4">
             <div>
               <label className="mb-1.5 block text-sm font-medium text-slate-300">ID</label>
               <Input name="name" value={addId} onChange={setAddId} placeholder="e.g. my-openai" />
               {addId && (
-                <p className="mt-1 text-[10px] text-slate-500">Will be stored as: <span className="font-mono text-slate-400">{slugify(addId) || "invalid"}</span></p>
+                <p className="mt-1 text-[10px] text-slate-500">{t("providers.willStore")}: <span className="font-mono text-slate-400">{slugify(addId) || t("providers.invalid")}</span></p>
               )}
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-300">Type</label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("providers.type")}</label>
               <select
                 value={addType}
                 onChange={(e) => { setAddType(e.target.value); setAddOptionsRaw("{}"); }}
@@ -283,11 +285,11 @@ export default function ProvidersPage() {
               </select>
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-300">Base URL</label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("providers.baseUrl")}</label>
               <Input name="baseUrl" value={addBaseUrl} onChange={setAddBaseUrl} placeholder="https://api.openai.com/v1" />
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-300">API Key</label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("providers.apiKey")}</label>
               <Input
                 type="password"
                 name="apiKey"
@@ -315,29 +317,29 @@ export default function ProvidersPage() {
           </div>
         </ModalContent>
         <ModalFooter>
-          <Button variant="ghost" onClick={() => setIsAddOpen(false)} disabled={addSubmitting}>Cancel</Button>
-          <Button onClick={handleAdd} disabled={addSubmitting}>{addSubmitting ? "Adding..." : "Add Provider"}</Button>
+          <Button variant="ghost" onClick={() => setIsAddOpen(false)} disabled={addSubmitting}>{t("common.cancel")}</Button>
+          <Button onClick={handleAdd} disabled={addSubmitting}>{addSubmitting ? t("common.adding") : t("providers.add")}</Button>
         </ModalFooter>
       </Modal>
 
       {/* Edit Provider Modal */}
       <Modal isOpen={!!editItem} onClose={() => setEditItem(null)}>
-        <ModalHeader><ModalTitle>Edit Provider: {editItem?.id}</ModalTitle></ModalHeader>
+        <ModalHeader><ModalTitle>{t("providers.editTitle", { id: editItem?.id ?? "" })}</ModalTitle></ModalHeader>
         <ModalContent>
           <div className="space-y-4">
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-300">Base URL</label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("providers.baseUrl")}</label>
               <Input name="editBaseUrl" value={editBaseUrl} onChange={setEditBaseUrl} placeholder="https://api.openai.com/v1" />
-              <p className="mt-1 text-[11px] text-slate-500">Clear to restore the provider default.</p>
+              <p className="mt-1 text-[11px] text-slate-500">{t("providers.restoreDefault")}</p>
             </div>
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-300">API Key</label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">{t("providers.apiKey")}</label>
               <Input
                 type="password"
                 name="editApiKey"
                 value={editApiKey}
                 onChange={setEditApiKey}
-                placeholder={editItem?.api_key_set ? "Configured — leave blank to keep" : "Enter API key"}
+                placeholder={editItem?.api_key_set ? t("providers.keyConfigured") : t("providers.enterKey")}
                 autoComplete="off"
                 autoCapitalize="none"
                 autoCorrect="off"
@@ -360,8 +362,8 @@ export default function ProvidersPage() {
           </div>
         </ModalContent>
         <ModalFooter>
-          <Button variant="ghost" onClick={() => setEditItem(null)} disabled={editSubmitting}>Cancel</Button>
-          <Button onClick={handleEdit} disabled={editSubmitting}>{editSubmitting ? "Saving..." : "Save"}</Button>
+          <Button variant="ghost" onClick={() => setEditItem(null)} disabled={editSubmitting}>{t("common.cancel")}</Button>
+          <Button onClick={handleEdit} disabled={editSubmitting}>{editSubmitting ? t("common.saving") : t("common.save")}</Button>
         </ModalFooter>
       </Modal>
 
@@ -369,9 +371,9 @@ export default function ProvidersPage() {
         isOpen={!!pendingDeleteId}
         onClose={() => setPendingDeleteId(null)}
         onConfirm={handleDelete}
-        title="Delete Provider"
-        message="Are you sure you want to delete this provider?"
-        confirmLabel="Delete"
+        title={t("providers.deleteTitle")}
+        message={t("providers.deleteMessage")}
+        confirmLabel={t("common.delete")}
         variant="danger"
       />
     </div>
