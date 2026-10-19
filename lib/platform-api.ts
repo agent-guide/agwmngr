@@ -20,6 +20,14 @@ import type {
   PlatformCatalogOffering,
   TenantCatalogOffering,
 } from "@/packages/contracts/platform/catalog";
+import type {
+  AuthoredResource,
+  AuthoredResourceContent,
+  AuthoredResourceDetail,
+  AuthoredResourceKind,
+  AuthoredResourceRevision,
+  CreateAuthoredResourceInput,
+} from "@/packages/contracts/platform/authored-resources";
 
 export type {
   MembershipAddResolution,
@@ -44,6 +52,14 @@ export type {
   PlatformCatalogOffering,
   TenantCatalogOffering,
 } from "@/packages/contracts/platform/catalog";
+export type {
+  AuthoredResource,
+  AuthoredResourceContent,
+  AuthoredResourceDetail,
+  AuthoredResourceKind,
+  AuthoredResourceRevision,
+  CreateAuthoredResourceInput,
+} from "@/packages/contracts/platform/authored-resources";
 
 function tenantPath(tenantId: string, suffix: string): string {
   return `/api/platform/v1/tenants/${encodeURIComponent(tenantId)}${suffix}`;
@@ -312,4 +328,114 @@ export async function listTenantCatalogOfferings(
     tenantPath(tenantId, `/catalog${query}`),
   );
   return result.items ?? [];
+}
+
+function authoredResourcePath(
+  scope: { tenantId: string } | { platform: true },
+  kind: AuthoredResourceKind,
+  suffix = "",
+): string {
+  const collection = kind === "skill" ? "skills" : "instructions";
+  return "tenantId" in scope
+    ? tenantPath(scope.tenantId, `/${collection}${suffix}`)
+    : `/api/platform/v1/catalog/${collection}${suffix}`;
+}
+
+export async function listAuthoredResources(
+  scope: { tenantId: string } | { platform: true },
+  kind: AuthoredResourceKind,
+): Promise<AuthoredResource[]> {
+  const result = await adminFetch<{ items: AuthoredResource[] }>(authoredResourcePath(scope, kind));
+  return result.items ?? [];
+}
+
+export function getAuthoredResource(
+  scope: { tenantId: string } | { platform: true },
+  kind: AuthoredResourceKind,
+  id: string,
+): Promise<AuthoredResourceDetail> {
+  return adminFetch<AuthoredResourceDetail>(
+    authoredResourcePath(scope, kind, `/${encodeURIComponent(id)}`),
+  );
+}
+
+export function createAuthoredResource(
+  scope: { tenantId: string } | { platform: true },
+  kind: AuthoredResourceKind,
+  input: CreateAuthoredResourceInput,
+  sharedAvailability?: { mode: CatalogAvailabilityMode; tenantIds: string[] },
+): Promise<AuthoredResourceDetail> {
+  return adminFetch<AuthoredResourceDetail>(authoredResourcePath(scope, kind), {
+    method: "POST",
+    body: JSON.stringify({
+      name: input.name,
+      description: input.description,
+      content: input.content,
+      ...(sharedAvailability ? {
+        availability: {
+          mode: sharedAvailability.mode,
+          tenant_ids: sharedAvailability.tenantIds,
+        },
+      } : {}),
+    }),
+  });
+}
+
+export function updateAuthoredResource(
+  scope: { tenantId: string } | { platform: true },
+  kind: AuthoredResourceKind,
+  id: string,
+  input: { name: string; description: string },
+): Promise<AuthoredResource> {
+  return adminFetch<AuthoredResource>(authoredResourcePath(scope, kind, `/${encodeURIComponent(id)}`), {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteAuthoredResource(
+  scope: { tenantId: string } | { platform: true },
+  kind: AuthoredResourceKind,
+  id: string,
+): Promise<void> {
+  await adminFetch(authoredResourcePath(scope, kind, `/${encodeURIComponent(id)}`), {
+    method: "DELETE",
+  });
+}
+
+export function addAuthoredResourceRevision(
+  scope: { tenantId: string } | { platform: true },
+  kind: AuthoredResourceKind,
+  id: string,
+  content: AuthoredResourceContent,
+): Promise<AuthoredResourceRevision> {
+  return adminFetch<AuthoredResourceRevision>(
+    authoredResourcePath(scope, kind, `/${encodeURIComponent(id)}/revisions`),
+    { method: "POST", body: JSON.stringify(content) },
+  );
+}
+
+export function setAuthoredRevisionStatus(
+  scope: { tenantId: string } | { platform: true },
+  kind: AuthoredResourceKind,
+  id: string,
+  revisionId: string,
+  status: "published" | "archived",
+): Promise<AuthoredResourceRevision> {
+  return adminFetch<AuthoredResourceRevision>(authoredResourcePath(
+    scope,
+    kind,
+    `/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revisionId)}`,
+  ), { method: "PUT", body: JSON.stringify({ status }) });
+}
+
+export function setAuthoredResourceAvailability(
+  kind: AuthoredResourceKind,
+  id: string,
+  mode: CatalogAvailabilityMode,
+  tenantIds: string[],
+): Promise<AuthoredResource> {
+  return adminFetch<AuthoredResource>(authoredResourcePath(
+    { platform: true }, kind, `/${encodeURIComponent(id)}/availability`,
+  ), { method: "PUT", body: JSON.stringify({ mode, tenant_ids: tenantIds }) });
 }

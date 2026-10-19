@@ -389,6 +389,10 @@ export class IdentityRegistry {
         "DELETE FROM platform_catalog_tenant_availability WHERE tenant_id = ?",
         [id],
       );
+      await transaction.query(
+        "DELETE FROM platform_authored_resource_availability WHERE tenant_id = ?",
+        [id],
+      );
       await transaction.query("DELETE FROM platform_tenants WHERE id = ?", [id]);
       await transaction.query(
         `UPDATE platform_issued_ids SET tombstoned_at = ?

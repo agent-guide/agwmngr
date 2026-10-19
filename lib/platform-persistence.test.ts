@@ -19,7 +19,7 @@ async function verifyPersistence(
 ) {
   expect(await migratePlatformIdentityDatabase(database, true)).toEqual({
     from: 0,
-    to: 4,
+    to: 5,
     dryRun: true,
   });
   await expect(database.query("SELECT * FROM platform_principals")).rejects.toThrow();
@@ -28,7 +28,7 @@ async function verifyPersistence(
     migratePlatformIdentityDatabase(database),
     migratePlatformIdentityDatabase(database),
   ]);
-  expect((await migratePlatformIdentityDatabase(database)).from).toBe(4);
+  expect((await migratePlatformIdentityDatabase(database)).from).toBe(5);
   expect(await database.query("SELECT * FROM platform_catalog_offerings")).toEqual([]);
 
   const registry = new IdentityRegistry(database);
@@ -144,23 +144,25 @@ async function verifyPersistence(
   ).rejects.toThrow("rollback");
   expect(await restarted.tenant("alpha")).not.toBeNull();
 
-  // Rehearse the exact additive v3 -> v4 catalog upgrade on both adapters.
-  await database.query("DROP TABLE platform_catalog_tenant_availability");
-  await database.query("DROP TABLE platform_catalog_offerings");
-  await database.query("UPDATE platform_schema_lock SET version = 3 WHERE id = 1");
+  // Rehearse the exact additive v4 -> v5 authored-resource upgrade on both adapters.
+  await database.query("DROP TABLE platform_authored_revision_refs");
+  await database.query("DROP TABLE platform_authored_resource_revisions");
+  await database.query("DROP TABLE platform_authored_resource_availability");
+  await database.query("DROP TABLE platform_authored_resources");
+  await database.query("UPDATE platform_schema_lock SET version = 4 WHERE id = 1");
   expect(await migratePlatformIdentityDatabase(database, true)).toEqual({
-    from: 3,
-    to: 4,
+    from: 4,
+    to: 5,
     dryRun: true,
   });
-  await expect(database.query("SELECT * FROM platform_catalog_offerings")).rejects.toThrow();
+  await expect(database.query("SELECT * FROM platform_authored_resources")).rejects.toThrow();
   expect((await restarted.tenant("alpha"))?.name).toBe("Alpha");
   expect(await migratePlatformIdentityDatabase(database)).toEqual({
-    from: 3,
-    to: 4,
+    from: 4,
+    to: 5,
     dryRun: false,
   });
-  expect(await database.query("SELECT * FROM platform_catalog_offerings")).toEqual([]);
+  expect(await database.query("SELECT * FROM platform_authored_resources")).toEqual([]);
   expect((await restarted.principal("user:1"))?.userId).toBe(1);
 }
 

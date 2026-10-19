@@ -19,7 +19,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     user?.is_platform_admin || activeGateway?.role === "admin";
   const ownsAccessDecision =
     pathname.startsWith("/dashboard/tenant/") ||
-    pathname.startsWith("/dashboard/platform/");
+    pathname.startsWith("/dashboard/platform/") ||
+    pathname.startsWith("/dashboard/resources/");
 
   return (
     <>

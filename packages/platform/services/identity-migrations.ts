@@ -173,6 +173,65 @@ const versionFourStatements = [
     ON platform_catalog_tenant_availability (tenant_id, offering_id)`,
 ];
 
+const versionFiveStatements = [
+  `CREATE TABLE platform_authored_resources (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('skill','instruction')),
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    owner_kind TEXT NOT NULL CHECK (owner_kind IN ('tenant','platform')),
+    tenant_id TEXT,
+    tenant_authority_epoch BIGINT,
+    owner_principal_id TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('active','archived')),
+    availability_mode TEXT CHECK (availability_mode IN ('all-active-tenants','tenant-allowlist')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    CHECK (
+      (owner_kind = 'tenant' AND tenant_id IS NOT NULL
+        AND tenant_authority_epoch > 0 AND availability_mode IS NULL)
+      OR
+      (owner_kind = 'platform' AND tenant_id IS NULL
+        AND tenant_authority_epoch IS NULL AND availability_mode IS NOT NULL)
+    )
+  )`,
+  `CREATE INDEX platform_authored_resources_tenant_kind
+    ON platform_authored_resources (tenant_id, kind, status, id)`,
+  `CREATE INDEX platform_authored_resources_platform_kind
+    ON platform_authored_resources (owner_kind, kind, status, id)`,
+  `CREATE TABLE platform_authored_resource_availability (
+    resource_id TEXT NOT NULL REFERENCES platform_authored_resources(id) ON DELETE CASCADE,
+    tenant_id TEXT NOT NULL,
+    tenant_authority_epoch BIGINT NOT NULL CHECK (tenant_authority_epoch > 0),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (resource_id, tenant_id)
+  )`,
+  `CREATE INDEX platform_authored_resource_availability_tenant
+    ON platform_authored_resource_availability (tenant_id, resource_id)`,
+  `CREATE TABLE platform_authored_resource_revisions (
+    id TEXT PRIMARY KEY,
+    resource_id TEXT NOT NULL REFERENCES platform_authored_resources(id) ON DELETE CASCADE,
+    number BIGINT NOT NULL CHECK (number > 0),
+    status TEXT NOT NULL CHECK (status IN ('draft','published','archived')),
+    content_json TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    created_by_principal_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (resource_id, number)
+  )`,
+  `CREATE INDEX platform_authored_resource_revisions_resource
+    ON platform_authored_resource_revisions (resource_id, number)`,
+  `CREATE TABLE platform_authored_revision_refs (
+    source_kind TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    revision_id TEXT NOT NULL REFERENCES platform_authored_resource_revisions(id) ON DELETE RESTRICT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (source_kind, source_id, revision_id)
+  )`,
+  `CREATE INDEX platform_authored_revision_refs_revision
+    ON platform_authored_revision_refs (revision_id)`,
+];
+
 export interface IdentityMigrationReport {
   from: number;
   to: number;
@@ -183,7 +242,7 @@ export async function migratePlatformIdentityDatabase(
   database: PlatformDatabase,
   dryRun = false,
 ): Promise<IdentityMigrationReport> {
-  let report: IdentityMigrationReport = { from: 0, to: 4, dryRun };
+  let report: IdentityMigrationReport = { from: 0, to: 5, dryRun };
   const rollback = new Error("platform identity migration dry-run rollback");
 
   try {
@@ -202,8 +261,8 @@ export async function migratePlatformIdentityDatabase(
         `SELECT version FROM platform_schema_lock WHERE id = 1${suffix}`,
       );
       const current = Number(row.version);
-      if (current > 4) throw new Error("platform schema is newer than this application");
-      report = { from: current, to: 4, dryRun };
+      if (current > 5) throw new Error("platform schema is newer than this application");
+      report = { from: current, to: 5, dryRun };
 
       if (current === 0) {
         for (const statement of versionOneStatements) await transaction.query(statement);
@@ -223,6 +282,11 @@ export async function migratePlatformIdentityDatabase(
       if (current < 4) {
         for (const statement of versionFourStatements) await transaction.query(statement);
         await transaction.query("UPDATE platform_schema_lock SET version = 4 WHERE id = 1");
+      }
+
+      if (current < 5) {
+        for (const statement of versionFiveStatements) await transaction.query(statement);
+        await transaction.query("UPDATE platform_schema_lock SET version = 5 WHERE id = 1");
       }
 
       await validatePlatformIdentityReferences(transaction);
@@ -275,5 +339,25 @@ export async function validatePlatformIdentityReferences(
   `);
   if (Number(availabilityRow.n) !== 0) {
     throw new Error("invalid catalog availability references");
+  }
+
+  const [resourceRevisionRow] = await transaction.query<{ n: number }>(`
+    SELECT COUNT(*) AS n
+      FROM platform_authored_resource_revisions revision
+      LEFT JOIN platform_authored_resources resource ON resource.id = revision.resource_id
+     WHERE resource.id IS NULL
+  `);
+  if (Number(resourceRevisionRow.n) !== 0) {
+    throw new Error("invalid authored resource revision references");
+  }
+
+  const [resourceAvailabilityRow] = await transaction.query<{ n: number }>(`
+    SELECT COUNT(*) AS n
+      FROM platform_authored_resource_availability availability
+      LEFT JOIN platform_authored_resources resource ON resource.id = availability.resource_id
+     WHERE resource.id IS NULL
+  `);
+  if (Number(resourceAvailabilityRow.n) !== 0) {
+    throw new Error("invalid authored resource availability references");
   }
 }

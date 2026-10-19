@@ -395,6 +395,63 @@ async function verify(mode: "dev" | "start") {
   assert.equal(tenantCatalog.items[0].sourceGatewayId, undefined);
   assert.equal(tenantCatalog.items[0].upstreamStableId, undefined);
   assert.ok(!JSON.stringify(tenantCatalog).includes("runtime-secret"));
+  await platformRequest(base, "catalog/instructions", 403, member.token, "POST", {
+    name: "Unauthorized shared instruction",
+    content: { text: "denied", files: [], tags: [] },
+    availability: { mode: "all-active-tenants", tenant_ids: [] },
+  });
+  const tenantSkill = await platformRequest(
+    base,
+    `tenants/${tenantId}/skills`,
+    201,
+    member.token,
+    "POST",
+    {
+      name: `Runtime skill ${mode}`,
+      description: "Runtime immutable-revision proof",
+      content: {
+        text: "",
+        files: [{ path: "SKILL.md", data: Buffer.from("# Runtime skill\n").toString("base64") }],
+        tags: ["runtime"],
+      },
+    },
+  );
+  assert.equal(tenantSkill.resource.owner.kind, "tenant");
+  assert.equal(tenantSkill.revisions[0].contentHash.length, 64);
+  const secondRevision = await platformRequest(
+    base,
+    `tenants/${tenantId}/skills/${encodeURIComponent(tenantSkill.resource.id)}/revisions`,
+    201,
+    member.token,
+    "POST",
+    {
+      text: "",
+      files: [{ path: "SKILL.md", data: Buffer.from("# Runtime skill v2\n").toString("base64") }],
+      tags: ["runtime"],
+    },
+  );
+  assert.equal(secondRevision.number, 2);
+  const sharedInstruction = await platformRequest(
+    base,
+    "catalog/instructions",
+    201,
+    session.token,
+    "POST",
+    {
+      name: `Runtime instruction ${mode}`,
+      description: "Shared authored-resource proof",
+      content: { text: "Keep responses concise.", files: [], tags: ["runtime"] },
+      availability: { mode: "tenant-allowlist", tenant_ids: [tenantId] },
+    },
+  );
+  const tenantInstructions = await platformRequest(
+    base,
+    `tenants/${tenantId}/instructions`,
+    200,
+    member.token,
+  );
+  assert.equal(tenantInstructions.items[0].id, sharedInstruction.resource.id);
+  assert.equal(tenantInstructions.items[0].owner.kind, "platform");
   const audit = await request(base, "audit?limit=100", 200, session.token);
   assert.ok(
     audit.items.some((entry: { action?: string }) => entry.action === "platform:identity"),
@@ -446,6 +503,14 @@ async function verify(mode: "dev" | "start") {
     member.token,
   );
   assert.equal(restartedCatalog.items[0].offeringId, offeringId);
+  const restartedSkills = await platformRequest(
+    base,
+    `tenants/${tenantId}/skills`,
+    200,
+    member.token,
+  );
+  assert.equal(restartedSkills.items[0].id, tenantSkill.resource.id);
+  assert.equal(restartedSkills.items[0].latestRevisionNumber, 2);
   await platformRequest(
     base,
     `catalog/offerings/${offeringId}/retire`,
@@ -475,7 +540,7 @@ async function verify(mode: "dev" | "start") {
   await stopServer();
 
   console.log(
-    `${mode}: Bun handler, session restart, catalog lifecycle/audit, Tenant Gateway grant audit, service revocation and logout passed`,
+    `${mode}: Bun handler, session restart, catalog/authored resources, Tenant Gateway grant audit, service revocation and logout passed`,
   );
 }
 

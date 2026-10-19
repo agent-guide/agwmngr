@@ -65,6 +65,7 @@ type NavGroup = {
   labelKey: MessageKey;
   icon: ComponentType<{ className?: string }>;
   adminOnly?: boolean;
+  resourceScope?: boolean;
   items: NavItem[];
 };
 
@@ -93,6 +94,16 @@ const CREDENTIALS_ITEM: NavItem = {
 // Shared infrastructure and host-wide diagnostics use independent disclosure
 // groups, so LLM and MCP can be expanded without a generic Resources wrapper.
 const NAV_GROUPS: NavGroup[] = [
+  {
+    key: "resources",
+    labelKey: "nav.resources",
+    icon: IconLayers,
+    resourceScope: true,
+    items: [
+      { href: "/dashboard/resources/skills", labelKey: "nav.skills", icon: IconLayers },
+      { href: "/dashboard/resources/instructions", labelKey: "nav.instructions", icon: IconLayers },
+    ],
+  },
   {
     key: "llm",
     labelKey: "nav.llm",
@@ -187,7 +198,9 @@ export function DashboardNav() {
 
   const baseGroups = NAV_GROUPS.filter(
     (g) =>
-      (hasGatewayContentAccess || g.key === "platform") &&
+      (g.resourceScope
+        ? Boolean(user?.is_platform_admin || platformAccess?.memberships.length)
+        : hasGatewayContentAccess || g.key === "platform") &&
       (!g.adminOnly || user?.is_platform_admin),
   );
   const scopedTenantId = tenantPathScope(pathname)?.tenantId;
