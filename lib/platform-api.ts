@@ -40,6 +40,10 @@ import type {
   PersonalFileUploadRequest,
   PersonalFileUploadSession,
 } from "@/packages/contracts/platform/personal-files";
+import type {
+  CreateTenantModelDefinitionInput,
+  TenantModelDefinition,
+} from "@/packages/contracts/platform/models";
 
 export type {
   MembershipAddResolution,
@@ -83,6 +87,11 @@ export type {
   PersonalFileUploadRequest,
   PersonalFileUploadSession,
 } from "@/packages/contracts/platform/personal-files";
+export type {
+  CreateTenantModelDefinitionInput,
+  TenantModelDefinition,
+  TenantModelDefinitionReference,
+} from "@/packages/contracts/platform/models";
 
 function tenantPath(tenantId: string, suffix: string): string {
   return `/api/platform/v1/tenants/${encodeURIComponent(tenantId)}${suffix}`;
@@ -682,4 +691,38 @@ export async function readPersonalFile(
 
 export async function deletePersonalFile(tenantId: string, id: string): Promise<void> {
   await adminFetch(personalFilesPath(tenantId, `/${encodeURIComponent(id)}`), { method: "DELETE" });
+}
+
+function modelDefinitionsPath(tenantId: string, suffix = ""): string {
+  return tenantPath(tenantId, `/models${suffix}`);
+}
+
+export async function listTenantModelDefinitions(tenantId: string): Promise<TenantModelDefinition[]> {
+  const result = await adminFetch<{ items: TenantModelDefinition[] }>(modelDefinitionsPath(tenantId));
+  return result.items ?? [];
+}
+
+export function createTenantModelDefinition(
+  tenantId: string,
+  input: CreateTenantModelDefinitionInput,
+): Promise<TenantModelDefinition> {
+  return adminFetch<TenantModelDefinition>(modelDefinitionsPath(tenantId), {
+    method: "POST",
+    body: JSON.stringify({ name: input.name, description: input.description, offering_id: input.offeringId }),
+  });
+}
+
+export function updateTenantModelDefinition(
+  tenantId: string,
+  id: string,
+  input: CreateTenantModelDefinitionInput,
+): Promise<TenantModelDefinition> {
+  return adminFetch<TenantModelDefinition>(modelDefinitionsPath(tenantId, `/${encodeURIComponent(id)}`), {
+    method: "PUT",
+    body: JSON.stringify({ name: input.name, description: input.description, offering_id: input.offeringId }),
+  });
+}
+
+export async function deleteTenantModelDefinition(tenantId: string, id: string): Promise<void> {
+  await adminFetch(modelDefinitionsPath(tenantId, `/${encodeURIComponent(id)}`), { method: "DELETE" });
 }

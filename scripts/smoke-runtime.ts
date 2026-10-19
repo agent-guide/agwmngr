@@ -395,6 +395,59 @@ async function verify(mode: "dev" | "start") {
   assert.equal(tenantCatalog.items[0].sourceGatewayId, undefined);
   assert.equal(tenantCatalog.items[0].upstreamStableId, undefined);
   assert.ok(!JSON.stringify(tenantCatalog).includes("runtime-secret"));
+  const modelOfferingId = `runtime-model-${mode}`;
+  await platformRequest(base, "catalog/offerings", 201, session.token, "POST", {
+    offering_id: modelOfferingId,
+    category: "model",
+    name: `Runtime model ${mode}`,
+    description: "Runtime Tenant-model proof",
+    kind: "platform-native",
+    availability: { mode: "tenant-allowlist", tenant_ids: [tenantId] },
+  });
+  await platformRequest(
+    base,
+    `catalog/offerings/${modelOfferingId}/approve`,
+    200,
+    session.token,
+    "POST",
+  );
+  await platformRequest(base, `tenants/${tenantId}/models`, 400, member.token, "POST", {
+    name: "Leaky model",
+    description: "Rejected",
+    offering_id: modelOfferingId,
+    provider_id: "must-not-enter-definition",
+  });
+  const tenantModel = await platformRequest(
+    base,
+    `tenants/${tenantId}/models`,
+    201,
+    member.token,
+    "POST",
+    {
+      name: `Runtime model ${mode}`,
+      description: "Immutable definition proof",
+      offering_id: modelOfferingId,
+    },
+  );
+  assert.equal(tenantModel.version, 1);
+  assert.equal(tenantModel.offeringId, modelOfferingId);
+  assert.equal(tenantModel.availability, "available");
+  assert.equal(tenantModel.digest.length, 64);
+  assert.ok(!JSON.stringify(tenantModel).includes("provider"));
+  const tenantModelV2 = await platformRequest(
+    base,
+    `tenants/${tenantId}/models/${encodeURIComponent(tenantModel.id)}`,
+    200,
+    member.token,
+    "PUT",
+    {
+      name: `Runtime model ${mode} v2`,
+      description: "Second immutable version",
+      offering_id: modelOfferingId,
+    },
+  );
+  assert.equal(tenantModelV2.version, 2);
+  assert.notEqual(tenantModelV2.digest, tenantModel.digest);
   await platformRequest(base, "catalog/instructions", 403, member.token, "POST", {
     name: "Unauthorized shared instruction",
     content: { text: "denied", files: [], tags: [] },
@@ -633,6 +686,29 @@ async function verify(mode: "dev" | "start") {
   );
   assert.equal(restartedFiles.items[0].id, personalFile.id);
   assert.equal(restartedFiles.items[0].ownerPrincipalId, `user:${memberUser.id}`);
+  const restartedModels = await platformRequest(
+    base,
+    `tenants/${tenantId}/models`,
+    200,
+    member.token,
+  );
+  assert.equal(restartedModels.items[0].id, tenantModel.id);
+  assert.equal(restartedModels.items[0].version, 2);
+  assert.equal(restartedModels.items[0].availability, "available");
+  await platformRequest(
+    base,
+    `catalog/offerings/${modelOfferingId}/retire`,
+    200,
+    session.token,
+    "POST",
+  );
+  const unavailableModel = await platformRequest(
+    base,
+    `tenants/${tenantId}/models/${encodeURIComponent(tenantModel.id)}`,
+    200,
+    member.token,
+  );
+  assert.equal(unavailableModel.availability, "unavailable");
   await platformRequest(
     base,
     `catalog/offerings/${offeringId}/retire`,
@@ -662,7 +738,7 @@ async function verify(mode: "dev" | "start") {
   await stopServer();
 
   console.log(
-    `${mode}: Bun handler, session restart, catalog/authored/knowledge/personal resources, Tenant Gateway grant audit, service revocation and logout passed`,
+    `${mode}: Bun handler, session restart, catalog/authored/knowledge/personal/model resources, Tenant Gateway grant audit, service revocation and logout passed`,
   );
 }
 

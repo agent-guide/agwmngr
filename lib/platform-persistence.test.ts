@@ -19,7 +19,7 @@ async function verifyPersistence(
 ) {
   expect(await migratePlatformIdentityDatabase(database, true)).toEqual({
     from: 0,
-    to: 7,
+    to: 8,
     dryRun: true,
   });
   await expect(database.query("SELECT * FROM platform_principals")).rejects.toThrow();
@@ -28,7 +28,7 @@ async function verifyPersistence(
     migratePlatformIdentityDatabase(database),
     migratePlatformIdentityDatabase(database),
   ]);
-  expect((await migratePlatformIdentityDatabase(database)).from).toBe(7);
+  expect((await migratePlatformIdentityDatabase(database)).from).toBe(8);
   expect(await database.query("SELECT * FROM platform_catalog_offerings")).toEqual([]);
 
   const registry = new IdentityRegistry(database);
@@ -144,25 +144,24 @@ async function verifyPersistence(
   ).rejects.toThrow("rollback");
   expect(await restarted.tenant("alpha")).not.toBeNull();
 
-  // Rehearse the exact additive v6 -> v7 personal-file upgrade on both adapters.
-  await database.query("DROP TABLE platform_personal_file_refs");
-  await database.query("DROP TABLE platform_personal_file_tickets");
-  await database.query("DROP TABLE platform_personal_files");
-  await database.query("ALTER TABLE platform_knowledge_documents DROP COLUMN object_deleted_at");
-  await database.query("UPDATE platform_schema_lock SET version = 6 WHERE id = 1");
+  // Rehearse the exact additive v7 -> v8 Tenant-model upgrade on both adapters.
+  await database.query("DROP TABLE platform_tenant_model_definition_refs");
+  await database.query("DROP TABLE platform_tenant_model_definition_versions");
+  await database.query("DROP TABLE platform_tenant_model_definitions");
+  await database.query("UPDATE platform_schema_lock SET version = 7 WHERE id = 1");
   expect(await migratePlatformIdentityDatabase(database, true)).toEqual({
-    from: 6,
-    to: 7,
+    from: 7,
+    to: 8,
     dryRun: true,
   });
-  await expect(database.query("SELECT * FROM platform_personal_files")).rejects.toThrow();
+  await expect(database.query("SELECT * FROM platform_tenant_model_definitions")).rejects.toThrow();
   expect((await restarted.tenant("alpha"))?.name).toBe("Alpha");
   expect(await migratePlatformIdentityDatabase(database)).toEqual({
-    from: 6,
-    to: 7,
+    from: 7,
+    to: 8,
     dryRun: false,
   });
-  expect(await database.query("SELECT * FROM platform_personal_files")).toEqual([]);
+  expect(await database.query("SELECT * FROM platform_tenant_model_definitions")).toEqual([]);
   expect((await restarted.principal("user:1"))?.userId).toBe(1);
 }
 
