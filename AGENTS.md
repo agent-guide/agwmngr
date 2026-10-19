@@ -28,6 +28,8 @@ bun run dev          # development server (port 3000)
 bun run build        # production build
 bun run start        # production server
 bun run lint         # ESLint
+bun run typecheck    # TypeScript including Bun scripts and tests
+bun run smoke:http-agent # pinned real Gateway + local A2A integration (Go required)
 ```
 
 The backend API and frontend are served from the same Next.js process on the same port.
@@ -255,13 +257,30 @@ Both guard with `requireGatewayAccess` (`runtime:chat` for turn, `runtime:permis
 - **Permission resume follows `capabilities.permissions.resume_mode`.** `active_stream` (ACP) resumes the held-open turn when the side-channel `POST /permission` lands. `new_stream` (builtin) **rejects that endpoint with `capability_not_supported`** (`pkg/dispatcher/agent_handler.go` gates it on `active_stream`); the decision must instead ride a fresh `POST /turn` carrying `permission` and no `input`, with the continuation arriving on that new stream. `acp-chat.tsx` branches on the mode.
 - **Session affordances follow `capabilities.sessions`.** Builtin reports `resume: true` but `list`/`transcript` `false` — it keeps in-memory sessions only for same-`session_id` continuation. Calling `/sessions` anyway yields a 501 and a gateway ERROR log for something entirely expected, so the chat surface hides the sessions sidebar (and the `cwd` field, an ACP option) rather than relying on tolerating the error.
 
+### HTTP Agent alignment (Gateway v0.7)
+
+`runtime.http` uses `card_url`, required `protocol: "a2a"`, optional `auth_ref`
+and optional non-negative integer `timeout_seconds` (0/omitted uses 120 seconds).
+Form/YAML/Bundle validate these fields through `lib/agent-http.ts`; legacy
+`endpoint` is rejected. Chat requires explicit `executable` and `turn.streaming`
+capabilities and an enabled common `agent` route. Native `a2a` routes are not
+accepted by the manager's `/turn` or `/permission` bridge.
+
+Admin forwarding strips inbound Host so Bun does not connect back to the manager.
+Data-plane virtual Hosts use `lib/dataplane-fetch.ts`, explicitly loading
+`undici/index.js` to bypass Bun's fetch-based shim. The registered data-plane
+URL determines the connection while the route's Host only determines matching.
+Cancellation propagates to the upstream stream; idle waits have no client-level
+body timeout. Keep the existing access guards, server-side Virtual Key resolution
+and stream-end audit finalization.
+
 ## Frontend (App Router Pages)
 
 The entry route (`/`) redirects to `/dashboard`, which redirects to `/dashboard/general/overview`.
 
 The UI is organized **agent-centric** (per `docs/ui-ux-improvement-plan.md`): the **Agents** section is the first-class, top-most nav group — it holds the agent itself, its ingress routes, and the day-to-day views for working with it (observability + the keys used to call it). The **LLM / MCP** sections below are the *shared infrastructure* that backs agents, not sub-items of any one agent.
 
-Since v0.5.0 the agent **is** the runtime: `Agent.runtime.<type>` inlines the execution config for exactly one backend (`acp` = gateway-pooled external process, `builtin` = in-process eino ADK definition, `http` = self-managed, not executable until M8). There is no ACP "service" object. Ownership is one-way — an AgentRoute names its `agent_id`, never the reverse — so changing an agent's runtime preserves its route id, URL, and every virtual-key allowlist entry. See `docs/v0.5-alignment-plan.md`.
+Since v0.5.0 the agent **is** the runtime: `Agent.runtime.<type>` inlines the execution config for exactly one backend (`acp` = gateway-pooled external process, `builtin` = in-process eino ADK definition, `http` = remote A2A service, executable on Gateway v0.7). There is no ACP "service" object. Ownership is one-way — an AgentRoute names its `agent_id`, never the reverse — so changing an agent's runtime preserves its route id, URL, and every virtual-key allowlist entry. See `docs/v0.5-alignment-plan.md`.
 
 > Navigation grouping ≠ URL path. `Overview` and `Virtual Keys` still live under `/dashboard/general/*` but are surfaced in the top-level **WORKSPACE** zone (with Agents/Interactions/Usage); the all-agents `Usage` page lives at `/dashboard/agents/usage`. There is no standalone "General" nav group.
 >

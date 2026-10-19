@@ -24,8 +24,10 @@ const agent: Agent = {
   created_at: "2026-08-01T00:00:00Z",
   updated_at: "2026-08-01T01:00:00Z",
   runtime_status: {
+    type: "builtin",
     state: "ready",
     executable: true,
+    healthy: true,
     active_runs: 0,
     pending_permissions: 0,
     session_count: 0,
@@ -69,11 +71,12 @@ name: Minimal
 runtime:
   type: http
   http:
-    endpoint: https://agent.example/run
+    card_url: https://agent.example/card
+    protocol: a2a
 `)).toEqual({
       id: "minimal",
       name: "Minimal",
-      runtime: { type: "http", http: { endpoint: "https://agent.example/run" } },
+      runtime: { type: "http", http: { card_url: "https://agent.example/card", protocol: "a2a" } },
       routes: {},
       resources: {},
       policy: {},
@@ -89,13 +92,13 @@ id: bad
 name: Bad
 runtime:
   type: http
-  http: { endpoint: https://example.test }
+  http: { card_url: https://example.test/card, protocol: a2a }
   acp: { agent_type: codex, cwd: /tmp }
 `)).toThrow("does not match runtime.type");
     expect(() => parseAgentPayloadYaml(`
 id: bad
 name: Bad
-runtime: { type: http, http: { endpoint: https://example.test } }
+runtime: { type: http, http: { card_url: https://example.test/card, protocol: a2a } }
 routes: { future_route_ids: [future] }
 `)).toThrow("Unsupported routes field");
   });

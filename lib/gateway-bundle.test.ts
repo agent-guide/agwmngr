@@ -62,7 +62,7 @@ describe("GatewayBundle serialization", () => {
         id: "assistant",
         name: "Support: primary",
         description: "Line one\nLine two",
-        runtime: { type: "http", http: { endpoint: "https://example.com/agent" } },
+        runtime: { type: "http", http: { card_url: "https://example.com/card", protocol: "a2a" } },
         routes: {}, resources: {}, policy: {}, disabled: false,
       }],
     };

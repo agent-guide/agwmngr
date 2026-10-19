@@ -18,6 +18,7 @@ import {
   stripBuiltinDependencies,
 } from "@/lib/agent-bindings";
 import { cn } from "@/lib/utils";
+import { httpAgentConfigFromForm, httpAgentFormValues } from "@/lib/agent-http";
 import {
   ApiError,
   createAgent,
@@ -174,8 +175,7 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
   const [acpCodexArgs, setAcpCodexArgs] = useState((initial?.runtime.acp?.codex?.adapter_args ?? []).join("\n"));
 
   // ── HTTP runtime ──
-  const [httpEndpoint, setHttpEndpoint] = useState(initial?.runtime.http?.endpoint ?? "");
-  const [httpAuthRef, setHttpAuthRef] = useState(initial?.runtime.http?.auth_ref ?? "");
+  const [httpValues, setHttpValues] = useState(() => httpAgentFormValues(initial?.runtime.http));
 
   // ── Builtin runtime (raw JSON) ──
   const [builtinJson, setBuiltinJson] = useState(
@@ -306,15 +306,15 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
     }
     return {
       type: "http",
-      http: { endpoint: httpEndpoint.trim(), auth_ref: httpAuthRef.trim() || undefined },
+      http: httpAgentConfigFromForm(httpValues),
     };
   };
 
-  const buildPayload = (): AgentPayload => ({
+  const buildPayload = (runtime = buildRuntime()): AgentPayload => ({
     id: id.trim(),
     name: name.trim(),
     description: description.trim() || undefined,
-    runtime: buildRuntime(),
+    runtime,
     routes: {
       llm_route_ids: llmRouteIds.length ? llmRouteIds : undefined,
       mcp_route_ids: mcpRouteIds.length ? mcpRouteIds : undefined,
@@ -421,8 +421,7 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
     }
     if (formPayload.runtime.builtin) setBuiltinJson(JSON.stringify(formPayload.runtime.builtin, null, 2));
     if (formPayload.runtime.http) {
-      setHttpEndpoint(formPayload.runtime.http.endpoint);
-      setHttpAuthRef(formPayload.runtime.http.auth_ref ?? "");
+      setHttpValues(httpAgentFormValues(formPayload.runtime.http));
     }
 
     setLlmRouteIds(formPayload.routes.llm_route_ids ?? []);
@@ -437,6 +436,12 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
   };
 
   const switchToYaml = () => {
+    if (runtimeType === "http") {
+      try { httpAgentConfigFromForm(httpValues); } catch (error) {
+        showToast((error as Error).message, "error");
+        return;
+      }
+    }
     if (runtimeType === "builtin" && builtinParse.error) {
       showToast(`Builtin definition: ${builtinParse.error}`, "error");
       return;
@@ -508,7 +513,9 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
           return "Builtin definition requires topology.kind";
         }
       }
-      if (runtimeType === "http" && !httpEndpoint.trim()) return "HTTP runtime requires an endpoint";
+      if (runtimeType === "http") {
+        try { httpAgentConfigFromForm(httpValues); } catch (error) { return (error as Error).message; }
+      }
     }
     if (s === 2) return validateBuiltinDependencies(buildPayload());
     return null;
@@ -689,20 +696,21 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
 
   const httpRuntimeFields = (
     <div className="space-y-4">
-      <div className="rounded-md border-2 border-amber-500/60 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-200" role="alert">
-        <p className="font-semibold">HTTP runtime is not executable in v0.5.0</p>
-        <p className="mt-1 leading-5 text-amber-300/90">
-          The agent will validate, persist, appear in workspace, and accept virtual key assignment, and its
-          route will match and authenticate normally — but a turn returns 501 runtime_not_executable until
-          the HTTP backend ships. This is expected, not a matcher or credential fault.
-        </p>
-      </div>
+      <p className="text-xs text-slate-500">
+        Connect a remote A2A service through its Agent Card. Chat and run controls follow the capabilities reported by the Gateway.
+      </p>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Endpoint" required hint="The agent's HTTP task endpoint.">
-          <Input name="http-endpoint" value={httpEndpoint} onChange={setHttpEndpoint} placeholder="https://agent.internal/run" />
+        <Field label="Agent Card URL" required hint="HTTPS is required except for loopback HTTP development services.">
+          <Input name="http-card-url" value={httpValues.cardUrl} onChange={(cardUrl) => setHttpValues((v) => ({ ...v, cardUrl }))} placeholder="https://agent.internal/.well-known/agent-card.json" />
         </Field>
-        <Field label="Auth ref" hint="Optional credential reference. Secret material never lives on the agent object.">
-          <Input name="http-auth" value={httpAuthRef} onChange={setHttpAuthRef} placeholder="credential-id" />
+        <Field label="Protocol" required hint="Gateway v0.7 supports A2A remote agents.">
+          <Select name="http-protocol" value={httpValues.protocol} onChange={(protocol) => setHttpValues((v) => ({ ...v, protocol }))} options={[{ value: "a2a", label: "a2a" }]} />
+        </Field>
+        <Field label="Auth ref" hint="Optional managed credential owned by this Agent with scope http-agent:<agent-id>.">
+          <Input name="http-auth" value={httpValues.authRef} onChange={(authRef) => setHttpValues((v) => ({ ...v, authRef }))} placeholder="credential-id" />
+        </Field>
+        <Field label="Timeout (seconds)" hint="Non-negative integer. Leave blank or use 0 for the Gateway default (120 seconds).">
+          <Input name="http-timeout" type="number" value={httpValues.timeoutSeconds} onChange={(timeoutSeconds) => setHttpValues((v) => ({ ...v, timeoutSeconds }))} placeholder="120" />
         </Field>
       </div>
     </div>
@@ -729,7 +737,7 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
               }
               if (nextType === "builtin" && runtimeType !== "builtin") {
                 const builtin = JSON.parse(BUILTIN_TEMPLATE) as AgentRuntimeBuiltin;
-                const payload = bindBuiltinDependencies({ ...buildPayload(), runtime: { type: "builtin", builtin } });
+                const payload = bindBuiltinDependencies(buildPayload({ type: "builtin", builtin }));
                 setYamlDerivedLlmRouteIds(collectBuiltinReferences(builtin).llmRouteIDs);
                 setYamlText(agentPayloadYaml(payload));
                 setEditorMode("yaml");
@@ -739,7 +747,7 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
             options={[
               { value: "acp", label: "acp — gateway-managed process" },
               { value: "builtin", label: "builtin — in-process ADK" },
-              { value: "http", label: "http — self-managed (not executable yet)" },
+              { value: "http", label: "http — remote A2A service" },
             ]}
           />
         </Field>
@@ -925,7 +933,7 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
         </span>
       );
     }
-    return <span>http → <span className="font-mono">{httpEndpoint || "—"}</span></span>;
+    return <span>http → <span className="font-mono">{httpValues.cardUrl || "—"}</span></span>;
   };
 
   const reviewCard = (
@@ -945,7 +953,7 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
       </div>
       {runtimeType === "http" && (
         <p className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">
-          Reminder: an HTTP agent is not executable in v0.5.0 — turns return 501 runtime_not_executable.
+          The remote Card must advertise a supported A2A interface. Streaming chat is available when the Gateway reports streaming turn capability.
         </p>
       )}
       <p className="mt-3 text-xs text-slate-500">

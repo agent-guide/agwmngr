@@ -51,7 +51,21 @@ bun run start
 
 # Lint
 bun run lint
+
+bun run typecheck
+
+# Unit tests
+bun test
+
+# Real Gateway v0.7 HTTP Agent / A2A integration (Go required)
+bun run smoke:http-agent
 ```
+
+`smoke:http-agent` archives and builds the exact published Gateway v0.7.0
+revision from `../agent-gateway` (override with `AGW_SOURCE_DIR`), runs its local
+A2A fixture, and exercises real HTTP Agent CRUD and authenticated SSE through an
+isolated manager instance, including virtual Host matching. Source repositories
+and existing databases remain untouched.
 
 Open [http://localhost:3000](http://localhost:3000) to access the dashboard.
 

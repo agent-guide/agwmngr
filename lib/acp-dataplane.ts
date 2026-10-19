@@ -1,4 +1,5 @@
 import { gatewayRequestJSON } from "./gateway-proxy";
+import { isCommonAgentRoute } from "./agent-http";
 import type { ResolvedGateway } from "./gateway-resolve";
 
 // The agent data plane (turn/permission/sessions) is served on the runtime's
@@ -59,6 +60,7 @@ export interface AgentRouteTarget {
 }
 
 interface GatewayAgentRoute {
+  protocol?: string;
   match_policy?: { path_prefix?: string; host?: string };
   auth_policy?: { require_virtual_key?: boolean };
   agent_id?: string;
@@ -95,6 +97,9 @@ export async function resolveAgentRouteTarget(
   }
 
   const route = (result.body ?? {}) as GatewayAgentRoute;
+  if (!isCommonAgentRoute(route.protocol)) {
+    throw new AgentRouteError(400, "Chat requires an agent-protocol route; native A2A routes do not expose /turn");
+  }
   const rawPrefix = route.match_policy?.path_prefix?.trim() ?? "";
   if (!rawPrefix) {
     throw new AgentRouteError(400, `agent route ${routeId} has no path_prefix`);

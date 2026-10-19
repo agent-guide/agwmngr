@@ -937,7 +937,7 @@ export interface BuiltinRuntimeOverview {
 export interface AgentRoute {
   id: string;
   kind?: string; // always "agent"
-  protocol?: string; // always "agent"
+  protocol?: "agent" | "a2a"; // common turns or native A2A ingress
   description?: string;
   disabled: boolean;
   match_policy: RouteMatchPolicy;
@@ -951,7 +951,7 @@ export interface AgentRoute {
 
 export type AgentRoutePayload = Pick<
   AgentRoute,
-  "id" | "description" | "disabled" | "match_policy" | "auth_policy" | "agent_id"
+  "id" | "protocol" | "description" | "disabled" | "match_policy" | "auth_policy" | "agent_id"
 >;
 
 // ---- Agent ingress route API functions ----
@@ -1389,10 +1389,12 @@ export interface AgentRuntimeACP {
   codex?: ACPCodexConfig;
 }
 
-/** The agent service owns its own lifecycle; not executable before M8. */
+/** Remote A2A Agent Card execution configuration (Gateway v0.7). */
 export interface AgentRuntimeHTTP {
-  endpoint: string;
+  card_url: string;
+  protocol: "a2a";
   auth_ref?: string;
+  timeout_seconds?: number; // zero or omitted uses the Gateway default
 }
 
 // ---- Builtin (in-process eino ADK) runtime ----

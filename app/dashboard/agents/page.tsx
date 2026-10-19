@@ -53,7 +53,7 @@ export default function AgentsListPage() {
           name="runtime-filter"
           value={runtimeFilter}
           onChange={setRuntimeFilter}
-          options={[{ value: "all", label: "All runtimes" }, { value: "acp", label: "acp" }, { value: "http", label: "http" }]}
+          options={[{ value: "all", label: "All runtimes" }, { value: "acp", label: "acp" }, { value: "builtin", label: "builtin" }, { value: "http", label: "http" }]}
         />
       </div>
 
@@ -105,7 +105,7 @@ export default function AgentsListPage() {
                     identifying field of whichever backend is bound. */}
                 {a.runtime.acp?.agent_type && <Badge tone="teal" mono>{a.runtime.acp.agent_type}</Badge>}
                 {a.runtime.builtin?.topology?.kind && <Badge tone="teal" mono>{a.runtime.builtin.topology.kind}</Badge>}
-                {a.runtime.http?.endpoint && <Badge tone="teal" mono>{a.runtime.http.endpoint}</Badge>}
+                {a.runtime.http?.card_url && <Badge tone="teal" mono>{a.runtime.http.card_url}</Badge>}
                 {a.runtime_status?.state && <Badge tone="neutral">{a.runtime_status.state}</Badge>}
                 <span className="text-[11px] text-slate-500">
                   {countResources(a.routes.llm_route_ids, a.routes.mcp_route_ids)} routes ·{" "}

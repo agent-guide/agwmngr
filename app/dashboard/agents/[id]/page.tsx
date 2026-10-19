@@ -1,5 +1,7 @@
 "use client";
 
+import { isCommonAgentRoute, supportsAgentChat } from "@/lib/agent-http";
+
 import Link from "next/link";
 import { use, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -49,7 +51,7 @@ type Tab = (typeof TABS)[number];
  * backend is down does not (docs/v0.5-alignment-plan.md D4).
  */
 function visibleTabs(capabilities: AgentCapabilities | undefined): Tab[] {
-  const chattable = capabilities ? capabilities.executable && capabilities.turn?.streaming !== false : false;
+  const chattable = supportsAgentChat(capabilities);
   const cancellable = !!(capabilities?.cancellation?.force || capabilities?.cancellation?.graceful);
   return TABS.filter((t) => {
     if (t === "Chat") return chattable;
@@ -329,12 +331,13 @@ function OverviewTab({ id, workspace, loading, refresh }: { id: string; workspac
 
           {runtimeType === "http" && (
             <div className="mt-3 border-t border-slate-700/50 pt-2">
-              <KV label="Endpoint" value={workspace.agent.runtime.http?.endpoint} mono />
+              <KV label="Agent Card URL" value={workspace.agent.runtime.http?.card_url} mono />
+              <KV label="Protocol" value={workspace.agent.runtime.http?.protocol} />
+              <KV label="Timeout" value={workspace.agent.runtime.http?.timeout_seconds ? `${workspace.agent.runtime.http.timeout_seconds}s` : "Default (120s)"} />
               <KV label="Auth ref" value={workspace.agent.runtime.http?.auth_ref} mono />
               <p className="mt-2 text-[11px] leading-4 text-slate-500">
-                This agent owns its own process lifecycle. The HTTP execution backend does not ship in v0.5.0, so
-                there is no pooled instance, session, or permission flow here and a turn returns
-                501 runtime_not_executable.
+                This remote service owns its lifecycle. The Gateway discovers its Agent Card and translates
+                common turns to A2A. Chat, session and cancellation controls follow the reported capabilities.
               </p>
             </div>
           )}
@@ -556,7 +559,7 @@ function ChatTab({ workspace, loading }: { workspace: AgentWorkspace | undefined
   const capabilities = workspace?.capabilities;
   // Chat is available whenever the backend can stream a turn — ACP and builtin
   // both can, so this must not be gated on runtime.type.
-  const chattable = !!capabilities?.executable && capabilities.turn?.streaming !== false;
+  const chattable = supportsAgentChat(capabilities);
 
   // Fetch every agent route and scope to the ones targeting this agent; the
   // workspace's agent_routes list is a thin index without auth_policy.
@@ -566,7 +569,7 @@ function ChatTab({ workspace, loading }: { workspace: AgentWorkspace | undefined
     {},
   );
   const scopedRoutes = useMemo(
-    () => (routes ?? []).filter((r) => !r.disabled && r.agent_id === agentId),
+    () => (routes ?? []).filter((r) => !r.disabled && r.agent_id === agentId && isCommonAgentRoute(r.protocol)),
     [routes, agentId],
   );
 
@@ -582,7 +585,7 @@ function ChatTab({ workspace, loading }: { workspace: AgentWorkspace | undefined
   if (!loadingRoutes && scopedRoutes.length === 0) {
     return (
       <Card className="p-8 text-center text-sm text-slate-500">
-        No enabled agent route targets this agent, so there is no data-plane path to chat over.{" "}
+        No enabled common-turn agent route targets this agent, so there is no data-plane path to chat over.{" "}
         <Link href="/dashboard/agents/routes" className="text-blue-400 hover:underline">Create one →</Link>
       </Card>
     );
@@ -854,7 +857,7 @@ function ConfigurationTab({ id, workspace }: { id: string; workspace: AgentWorks
             <KV label="Builtin LLM route" value={agent.runtime.builtin.model?.llm_route_id} mono />
           </>
         )}
-        {agent.runtime.http && <KV label="HTTP endpoint" value={agent.runtime.http.endpoint} mono />}
+        {agent.runtime.http && <KV label="Agent Card URL" value={agent.runtime.http.card_url} mono />}
         <KV label="Max agent depth" value={agent.policy.max_agent_depth} />
         <KV label="Max turns/day" value={agent.policy.budget?.max_turns_per_day} />
         <KV label="Max tokens/day" value={agent.policy.budget?.max_tokens_per_day} />

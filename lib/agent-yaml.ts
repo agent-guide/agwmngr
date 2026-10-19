@@ -6,6 +6,8 @@ import {
   type AgentRuntimeType,
 } from "@/lib/api";
 
+import { validateHTTPAgentConfig } from "./agent-http";
+
 type Mapping = Record<string, unknown>;
 
 const AGENT_FIELDS = new Set(["id", "name", "description", "runtime", "routes", "resources", "policy", "disabled"]);
@@ -112,9 +114,7 @@ export function parseAgentPayloadYaml(text: string): AgentPayload {
   } else if (runtimeType === "builtin") {
     validateBuiltin(runtimeConfig);
   } else {
-    knownFields(runtimeConfig, ["endpoint", "auth_ref"], "runtime.http");
-    nonEmptyString(runtimeConfig.endpoint, "runtime.http.endpoint");
-    optionalString(runtimeConfig.auth_ref, "runtime.http.auth_ref");
+    runtime.http = validateHTTPAgentConfig(runtimeConfig);
   }
 
   const routes = value.routes === undefined ? {} : mapping(value.routes, "routes");

@@ -1,3 +1,4 @@
+import { dataplaneFetch } from "@/lib/dataplane-fetch";
 import { requireGatewayAccess, finalizeAccess } from "@/lib/access";
 import {
   AgentRouteError,
@@ -53,7 +54,7 @@ const TURN_OPTIONS_VERSION = "v1";
 //   acp     → acpRuntimeOptionsV1; thread_id is mandatory (empty ⇒ 400)
 //   builtin → an empty struct; ANY key is rejected as unsupported_option, which
 //             surfaces as "runtime option is not supported"
-//   http    → not executable yet; the gateway answers 501
+//   http    → A2A common-turn adapter; omit ACP runtime options
 //
 // So the envelope has to be built per backend. Sending the ACP shape to a
 // builtin agent fails the whole turn.
@@ -189,7 +190,7 @@ export async function POST(req: Request): Promise<Response> {
     const url = `${base}${target.pathPrefix}/turn`;
     let upstream: Response;
     try {
-      upstream = await fetch(url, { method: "POST", headers, body: requestBody });
+      upstream = await dataplaneFetch(url, { method: "POST", headers, body: requestBody, signal: req.signal });
     } catch (e) {
       lastError = `data plane unreachable at ${url}: ${String(e)}`;
       continue;

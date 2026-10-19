@@ -1,3 +1,4 @@
+import { dataplaneFetch } from "@/lib/dataplane-fetch";
 import { requireGatewayAccess, finalizeAccess } from "@/lib/access";
 import { AgentRouteError, dataplaneCandidates, resolveAgentRouteTarget } from "@/lib/acp-dataplane";
 import { VirtualKeyError, resolveVirtualKeySecret } from "@/lib/virtual-key-secret";
@@ -90,7 +91,7 @@ export async function POST(req: Request): Promise<Response> {
     const url = `${base}${target.pathPrefix}/permission`;
     let upstream: Response;
     try {
-      upstream = await fetch(url, { method: "POST", headers, body: requestBody });
+      upstream = await dataplaneFetch(url, { method: "POST", headers, body: requestBody, signal: req.signal });
     } catch (e) {
       lastError = `data plane unreachable at ${url}: ${String(e)}`;
       continue;

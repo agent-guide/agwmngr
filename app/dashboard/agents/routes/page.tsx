@@ -48,6 +48,7 @@ export default function AgentRoutesPage() {
   const [formId, setFormId] = useState("");
   const [formDesc, setFormDesc] = useState("");
   const [formAgentId, setFormAgentId] = useState("");
+  const [formProtocol, setFormProtocol] = useState<"agent" | "a2a">("agent");
   const [formMatchHost, setFormMatchHost] = useState("");
   const [formMatchPathPrefix, setFormMatchPathPrefix] = useState("");
   const [formMatchMethods, setFormMatchMethods] = useState("");
@@ -87,6 +88,7 @@ export default function AgentRoutesPage() {
 
   const resetForm = () => {
     setFormId(""); setFormDesc(""); setFormAgentId("");
+    setFormProtocol("agent");
     setFormMatchHost(""); setFormMatchPathPrefix("/agents"); setFormMatchMethods("POST");
     setFormRequireVirtualKey(true);
   };
@@ -98,6 +100,7 @@ export default function AgentRoutesPage() {
     setFormId(route.id);
     setFormDesc(route.description ?? "");
     setFormAgentId(route.agent_id);
+    setFormProtocol(route.protocol ?? "agent");
     setFormMatchHost(route.match_policy?.host ?? "");
     setFormMatchPathPrefix(route.match_policy?.path_prefix ?? "");
     setFormMatchMethods((route.match_policy?.methods ?? []).join(" "));
@@ -121,6 +124,7 @@ export default function AgentRoutesPage() {
     const payload = {
       ...(formId.trim() && { id: formId.trim() }),
       ...(formDesc.trim() && { description: formDesc.trim() }),
+      protocol: formProtocol,
       disabled: false,
       match_policy: buildMatchPolicy(),
       auth_policy: { require_virtual_key: formRequireVirtualKey },
@@ -145,6 +149,7 @@ export default function AgentRoutesPage() {
     const payload: AgentRoutePayload = {
       id: editing.id,
       description: formDesc.trim() || undefined,
+      protocol: formProtocol,
       disabled: editing.disabled,
       match_policy: buildMatchPolicy(),
       auth_policy: { require_virtual_key: formRequireVirtualKey },
@@ -201,6 +206,24 @@ export default function AgentRoutesPage() {
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-300">Description</label>
           <Input name="description" value={formDesc} onChange={setFormDesc} placeholder="Optional description" />
+        </div>
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-slate-300">
+            Protocol
+            <HelpTooltip content="agent exposes the common /turn contract used by Chat. a2a exposes the remote Agent's native A2A 1.0 interface and Agent Card." />
+          </label>
+          <select
+            value={formProtocol}
+            onChange={(event) => {
+              const protocol = event.target.value as "agent" | "a2a";
+              setFormProtocol(protocol);
+              if (protocol === "a2a" && formMatchMethods.trim() === "POST") setFormMatchMethods("");
+            }}
+            className="w-full rounded-md border border-slate-700/70 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 focus:border-blue-500/60 focus:outline-none"
+          >
+            <option value="agent">agent — common /turn ingress</option>
+            <option value="a2a">a2a — native A2A 1.0 ingress</option>
+          </select>
         </div>
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-300">
@@ -338,6 +361,9 @@ export default function AgentRoutesPage() {
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-mono text-xs font-semibold text-slate-100">{route.id}</span>
+                      <span className="inline-flex rounded-sm border border-blue-500/30 bg-blue-500/10 px-1.5 py-0.5 font-mono text-[10px] text-blue-300">
+                        {route.protocol ?? "agent"}
+                      </span>
                       {target || agentsError ? (
                         <Link
                           href={`/dashboard/agents/${encodeURIComponent(route.agent_id)}`}

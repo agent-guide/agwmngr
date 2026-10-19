@@ -7,7 +7,9 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "test": "bun test"
+    "test": "bun test",
+    "typecheck": "bun --bun tsc --noEmit",
+    "smoke:http-agent": "bun scripts/smoke-http-agent.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -21,6 +23,7 @@
     "remark-gfm": "^4.0.1",
     "swr": "^2.4.1",
     "tailwind-merge": "^3.5.0",
+    "undici": "7.30.0",
     "yaml": "^2.9.0"
   },
   "devDependencies": {

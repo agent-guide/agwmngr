@@ -69,7 +69,7 @@ describe("bindBuiltinDependencies", () => {
   test("leaves non-builtin agents unchanged", () => {
     const payload: AgentPayload = {
       ...builtinPayload(),
-      runtime: { type: "http", http: { endpoint: "https://agent.example/run" } },
+      runtime: { type: "http", http: { card_url: "https://agent.example/card", protocol: "a2a" } },
     };
     expect(bindBuiltinDependencies(payload)).toBe(payload);
   });

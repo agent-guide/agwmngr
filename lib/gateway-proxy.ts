@@ -37,6 +37,10 @@ function basicAuthHeader(gateway: ResolvedGateway): string {
 }
 
 const SKIP_HEADERS = new Set([
+  // Use the selected upstream URL's authority. Bun 1.3.13 uses a supplied
+  // Host header as the connection destination, so forwarding the browser
+  // Host can send the Admin request back to the manager.
+  "host",
   "authorization",
   "connection",
   "te",

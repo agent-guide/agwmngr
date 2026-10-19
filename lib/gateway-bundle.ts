@@ -44,6 +44,7 @@ import {
   type VirtualKeyPayload,
 } from "@/lib/api";
 import { agentPayload } from "@/lib/agent-yaml";
+import { validateHTTPAgentConfig } from "@/lib/agent-http";
 
 export const GATEWAY_BUNDLE_API_VERSION = "gateway.agw/v1alpha1";
 export const GATEWAY_BUNDLE_KIND = "GatewayBundle";
@@ -136,6 +137,7 @@ function validateBundleItem(family: BundleFamily, item: BundleObject, path: stri
     const type = runtime.type as string;
     if (!(["acp", "builtin", "http"] as string[]).includes(type)) throw new Error(`${path}.runtime.type is unsupported: ${type}`);
     requiredMapping(runtime, type, `${path}.runtime`);
+    if (type === "http") validateHTTPAgentConfig(runtime.http as BundleObject);
   }
   if (family === "agentRoutes") {
     requiredString(item, "agent_id", path);
