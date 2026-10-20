@@ -23,7 +23,7 @@ function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-// Shared access guards (§5 of docs/multi-tenant-design.md). Platform actions
+// Shared access guards (§5 of docs/architecture/multi-tenant-design.md). Platform actions
 // (user/gateway management) resolve no gateway; gateway-scoped actions resolve
 // an active gateway, membership, role, and decrypted credentials. Both guards
 // emit audit rows (§5.1): every deny, plus every allow for mutating/sensitive

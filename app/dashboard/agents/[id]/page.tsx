@@ -49,7 +49,7 @@ type Tab = (typeof TABS)[number];
  * Tab visibility is capability-driven, not runtime.type-driven: the backend's
  * capabilities object is authoritative about what an agent actually supports, so
  * a builtin agent that streams turns gets a Chat tab and an ACP agent whose
- * backend is down does not (docs/v0.5-alignment-plan.md D4).
+ * backend is down does not (docs/plans/archive/gateway-v0.5-alignment-plan.md D4).
  */
 function visibleTabs(capabilities: AgentCapabilities | undefined): Tab[] {
   const chattable = supportsAgentChat(capabilities);

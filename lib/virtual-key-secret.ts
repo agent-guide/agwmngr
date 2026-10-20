@@ -2,7 +2,7 @@ import { gatewayRequestJSON } from "./gateway-proxy";
 import type { ResolvedGateway } from "./gateway-resolve";
 
 // Server-side Virtual Key resolution for the Chat data plane
-// (docs/resource-rbac-design.md §10.2).
+// (docs/architecture/resource-rbac-design.md §10.2).
 //
 // The browser used to hold the bearer: it read /admin/virtual_keys, kept the raw
 // value in component state, and posted it back on every turn. Once the Virtual

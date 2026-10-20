@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypto";
 import { getServerEnv } from "./server-env";
 
-// AES-256-GCM credential envelope (§4 of docs/multi-tenant-design.md).
+// AES-256-GCM credential envelope (§4 of docs/architecture/multi-tenant-design.md).
 //
 //   v1:<keyId>:<iv>:<tag>:<ciphertext>   (each segment base64)
 //

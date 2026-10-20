@@ -12,13 +12,34 @@ The manager provides a dashboard UI and a thin backend API layer (Next.js Route 
 
 The upstream agent-gateway Admin API reference is in `~/github/agent-guide/agent-gateway/README.md`.
 
-`docs/v0.2.0-release-plan.md` defines the Agent Gateway v0.7.0 compatibility and
-English/Simplified-Chinese UI boundary for the v0.2.0 release. Read it before
+`docs/README.md` defines document classes, authority, lifecycle and the current
+documentation index. Use it before adding or relocating documentation.
+
+`docs/plans/active/v0.1.0-release-plan.md` defines the Agent Gateway v0.7.0
+compatibility and English/Simplified-Chinese UI boundary for the tagged v0.1.0
+release baseline. Read it before
 changing HTTP Agent contracts, data-plane forwarding or localization behavior.
 
-The multi-user / multi-gateway design (data model, permission model, request flow, audit) is documented in `docs/multi-tenant-design.md` — read it before changing auth, the access guards, gateway resolution, or credential encryption.
+The multi-user / multi-gateway design (data model, permission model, request flow, audit) is documented in `docs/architecture/multi-tenant-design.md` — read it before changing auth, the access guards, gateway resolution, or credential encryption.
 
-`docs/resource-rbac-design.md` defines the evolution into hierarchical, resource-scoped RBAC. The Gateway-root `admin/member` membership model is implemented; domain/resource grants are not. Gateway Admin may manage ordinary gateway content, while Member has no implicit content access. Caddy, gateway connection credentials, and platform APIs remain Platform Admin-only until dedicated safe handlers exist. Provider/Credential/Virtual Key responses have manager-owned secret redaction, so Gateway Admin manages Virtual Keys too; only recovering an existing key's value stays Platform Admin-only. Read the design before touching `lib/access.ts`, `lib/proxy-action.ts`, the membership schema, or the Caddy/Virtual Key/Chat handlers.
+`docs/architecture/resource-rbac-design.md` defines the evolution into hierarchical, resource-scoped RBAC. The Gateway-root `admin/member` membership model is implemented; domain/resource grants are not. Gateway Admin may manage ordinary gateway content, while Member has no implicit content access. Caddy, gateway connection credentials, and platform APIs remain Platform Admin-only until dedicated safe handlers exist. Provider/Credential/Virtual Key responses have manager-owned secret redaction, so Gateway Admin manages Virtual Keys too; only recovering an existing key's value stays Platform Admin-only. Read the design before touching `lib/access.ts`, `lib/proxy-action.ts`, the membership schema, or the Caddy/Virtual Key/Chat handlers.
+
+## Agent resource platform documentation
+
+The accepted target, source allowlist and ordered rebuild are documented in
+`docs/architecture/agent-resource-platform-design.md`,
+`docs/plans/active/agent-resource-platform-source-inventory.md` and
+`docs/plans/active/agent-resource-platform-integration-plan.md`. The permission
+model and dashboard information architecture are in
+`docs/architecture/tenant-authorization-design.md` and
+`docs/architecture/dashboard-information-architecture.md`.
+
+The API ownership and capability documents under `docs/architecture/` and
+`docs/capabilities/` describe verified work on
+`rebuild/agent-resource-platform`; their presence on `dev` does not claim that
+the corresponding code is implemented on `dev`. Read the applicable documents
+before changing platform identities, Tenant resources, Agent publication,
+Gateway deployment authorization or canonical dashboard routes.
 
 ## Build and Run
 
@@ -73,7 +94,7 @@ manager/
 │   ├── layout.tsx                    ← Root layout (fonts, globals)
 │   └── page.tsx                      ← Redirects to /dashboard
 ├── components/
-│   ├── dashboard-*.tsx               ← Layout shell, nav (WORKSPACE zone always-visible + collapsible Resources/Configuration/Platform accordion, gated Platform), header (gateway switcher), user panel
+│   ├── dashboard-*.tsx               ← Layout shell, nav (WORKSPACE zone always-visible + collapsible LLM/MCP/Runtimes/Configuration/Platform groups; Configuration and Platform are Platform Admin-only), header (gateway switcher), user panel
 │   ├── used-by-agents.tsx            ← Compact "used by N agents" chip for resource rows (orphan signal + link to owning agent)
 │   ├── current-user-context.tsx     ← Current user + accessible gateways + active gateway + switchGateway()
 │   ├── gateway-switcher.tsx         ← Header dropdown to select the active gateway (reloads on switch)
@@ -152,7 +173,7 @@ All routes are under `/api/admin/`. Every route except `/api/admin/health` and `
 
 ### Access Control (two guards)
 
-Authorization is not funnelled through one proxy — several entry points reach a gateway. So `lib/access.ts` provides two shared guards every entry point calls (see `docs/multi-tenant-design.md` §5):
+Authorization is not funnelled through one proxy — several entry points reach a gateway. So `lib/access.ts` provides two shared guards every entry point calls (see `docs/architecture/multi-tenant-design.md` §5):
 
 - **`requirePlatformAccess(req)`** — for platform endpoints (users, gateways, memberships, audit). Requires a live session whose user is a platform admin. Resolves no gateway.
 - **`requireGatewayAccess(req, action)`** — for gateway-scoped endpoints. Resolves the active gateway (`X-Gateway-Id` header override, else `session.active_gateway_id`, self-healed to the user's first gateway if unset), enforces membership + role for the **action**, blocks disabled gateways, and decrypts admin credentials into a `ResolvedGateway` for forwarding. Returns `{ ok, ctx | res }`; `ctx.gateway` carries the decrypted creds + all three upstream addresses.
@@ -249,7 +270,7 @@ Driving an ACP conversation is a **data-plane** operation (on the runtime's publ
 | POST | `/api/admin/acp/chat/turn` | Resolve the **agent** route via the Admin API, then forward a turn to `<dataplane>/<route_path_prefix>/turn` and stream the SSE response back. The AgentRoute decoder is strict (`DisallowUnknownFields`): only `input`/`session_id`/`permission`/`options` are accepted, and `thread_id`/`cwd`/`model`/`fresh_session`/`config_overrides` must sit inside `options: {version: "v1", runtime: {…}}` — a flat body or a missing `options.version` is a hard 400. Either `input` or `permission` is required, not both |
 | POST | `/api/admin/acp/chat/permission` | Resolve an interactive permission at `<dataplane>/<route_path_prefix>/permission`. **Only valid for `resume_mode: active_stream`** — see below |
 
-Both guard with `requireGatewayAccess` (`runtime:chat` for turn, `runtime:permission_resolve` for permission), resolve the route's `path_prefix`/`host`/`require_virtual_key` server-side against the active gateway (`lib/acp-dataplane.ts` via `gatewayRequestJSON` with the `ResolvedGateway`), forward to the gateway's `dataplane_addr`, and inject the caller-selected virtual key as the data-plane `Authorization`. The browser sends `virtual_key_id`, **never** a bearer — it has none, since the Virtual Key read path is redacted — and `lib/virtual-key-secret.ts` resolves the ID server-side, rejecting a key that is disabled, expired, or whose allowlist does not cover the resolved route (`docs/resource-rbac-design.md` §10.2). A key ID is input to resolution, not authority: the session is already authorized for `runtime:chat` on the active gateway. The SSE event names are `session`, `delta`, `reasoning`, `content`, `plan`, `tool_call`, `usage`, `permission`, `done`, `error`, plus v0.5.0's `available_commands`, `session_info`, `mode`, `config_options` (see `lib/acp-chat-stream.ts`).
+Both guard with `requireGatewayAccess` (`runtime:chat` for turn, `runtime:permission_resolve` for permission), resolve the route's `path_prefix`/`host`/`require_virtual_key` server-side against the active gateway (`lib/acp-dataplane.ts` via `gatewayRequestJSON` with the `ResolvedGateway`), forward to the gateway's `dataplane_addr`, and inject the caller-selected virtual key as the data-plane `Authorization`. The browser sends `virtual_key_id`, **never** a bearer — it has none, since the Virtual Key read path is redacted — and `lib/virtual-key-secret.ts` resolves the ID server-side, rejecting a key that is disabled, expired, or whose allowlist does not cover the resolved route (`docs/architecture/resource-rbac-design.md` §10.2). A key ID is input to resolution, not authority: the session is already authorized for `runtime:chat` on the active gateway. The SSE event names are `session`, `delta`, `reasoning`, `content`, `plan`, `tool_call`, `usage`, `permission`, `done`, `error`, plus v0.5.0's `available_commands`, `session_info`, `mode`, `config_options` (see `lib/acp-chat-stream.ts`).
 
 **`options.runtime` is per-runtime, and so is permission resume.** Chat is not ACP-only — any runtime advertising `turn.streaming` is drivable — so neither the request shape nor the permission path may be hardcoded to ACP:
 
@@ -278,13 +299,13 @@ and stream-end audit finalization.
 
 The entry route (`/`) redirects to `/dashboard`, which redirects to `/dashboard/general/overview`.
 
-The UI is organized **agent-centric** (per `docs/ui-ux-improvement-plan.md`): the **Agents** section is the first-class, top-most nav group — it holds the agent itself, its ingress routes, and the day-to-day views for working with it (observability + the keys used to call it). The **LLM / MCP** sections below are the *shared infrastructure* that backs agents, not sub-items of any one agent.
+The current UI is organized **agent-centric**: the **Agents** section is the first-class, top-most nav group — it holds the agent itself, its ingress routes, and the day-to-day views for working with it (observability + the keys used to call it). The **LLM / MCP** sections below are the *shared infrastructure* that backs agents, not sub-items of any one agent. `docs/architecture/dashboard-information-architecture.md` defines the accepted resource-platform target; it does not describe the current `dev` navigation below.
 
-Since v0.5.0 the agent **is** the runtime: `Agent.runtime.<type>` inlines the execution config for exactly one backend (`acp` = gateway-pooled external process, `builtin` = in-process eino ADK definition, `http` = remote A2A service, executable on Gateway v0.7). There is no ACP "service" object. Ownership is one-way — an AgentRoute names its `agent_id`, never the reverse — so changing an agent's runtime preserves its route id, URL, and every virtual-key allowlist entry. See `docs/v0.5-alignment-plan.md`.
+Since v0.5.0 the agent **is** the runtime: `Agent.runtime.<type>` inlines the execution config for exactly one backend (`acp` = gateway-pooled external process, `builtin` = in-process eino ADK definition, `http` = remote A2A service, executable on Gateway v0.7). There is no ACP "service" object. Ownership is one-way — an AgentRoute names its `agent_id`, never the reverse — so changing an agent's runtime preserves its route id, URL, and every virtual-key allowlist entry. The superseded migration rationale remains in `docs/plans/archive/gateway-v0.5-alignment-plan.md`; it is not current API authority.
 
 > Navigation grouping ≠ URL path. `Overview` and `Virtual Keys` still live under `/dashboard/general/*` but are surfaced in the top-level **WORKSPACE** zone (with Agents/Interactions/Usage); the all-agents `Usage` page lives at `/dashboard/agents/usage`. There is no standalone "General" nav group.
 >
-> **Nav layout (`components/dashboard-nav.tsx`):** the sidebar is two-tier — the agent-centric administrator flow starts with Overview, Agents, Agent Routes, then the collapsible **Runtimes** diagnostics group, followed by Interactions, Usage, and Virtual Keys. Lower infrastructure uses independent collapsible **LLM**, **MCP**, **Configuration** (Bundle, Servers), and **Platform** (admin-gated) groups; there is no generic Resources wrapper. Group openness is **derived, not effect-synced**: `openGroups[key] ?? hasActive` — a group defaults open iff it owns the active route (longest-prefix match via `resolveActiveHref`), and an explicit user toggle (persisted to `localStorage` `dashboard.nav.groups`) then wins. The narrow collapsed rail flattens every item to an icon list in the same order (the accordion is unusable at that width).
+> **Nav layout (`components/dashboard-nav.tsx`):** the sidebar is two-tier — the agent-centric administrator flow starts with Overview, Agents, Agent Routes, then the collapsible **Runtimes** diagnostics group, followed by Interactions, Usage, and Virtual Keys. Lower infrastructure uses independent collapsible **LLM**, **MCP**, **Configuration** (Bundle, Servers), and **Platform** groups; Configuration and Platform are both Platform Admin-only, and there is no generic Resources wrapper. Group openness is **derived, not effect-synced**: `openGroups[key] ?? hasActive` — a group defaults open iff it owns the active route (longest-prefix match via `resolveActiveHref`), and an explicit user toggle (persisted to `localStorage` `dashboard.nav.groups`) then wins. The narrow collapsed rail flattens every item to an icon list in the same order (the accordion is unusable at that width).
 
 ### Navigation Structure
 
@@ -375,5 +396,5 @@ Backend handlers return `{ error: string }` JSON on failure:
 - **Deep resource health**: only shallow health is exposed (disabled flags, runtime counts, recent error rate). Upstream reachability / circuit-break / credential-expiry are not yet available from the gateway — the UI marks these as pending, it does not fake them. An ACP agent whose configured `cwd` no longer exists (a `/tmp` path wiped by a reboot is the common case) still reports `state: ready, healthy: true` while every spawn fails, so the manager cannot flag it: the gateway validates the directory only when it spawns the process, and answers the generic `turn_failed`.
 - **Agent tasks/schedules (P2) & workflows (P3)**: backend design-only; no task queue / schedule editor / workflow graph yet.
 - **Agent Form/YAML editing**: `agent-form.tsx` has a bidirectional Form ⇄ YAML switch. ACP is form-first; existing builtin agents are YAML-first, and selecting builtin moves the create flow into YAML. YAML edits the `POST /admin/agents` payload and also accepts a one-agent `agents:` fragment / GatewayBundle; referenced builtin LLM routes and MCP services are added to the submitted binding lists before save. Both modes verify that referenced resources exist before saving. This is an intentionally stricter Manager constraint than the Gateway API: dependency-catalog loading errors fail closed, and missing resources block save so a builtin agent cannot be persisted only to fail later during materialization. YAML warns when a previously derived exclusive LLM route remains bound after the builtin stops referencing it, but does not silently remove the route because persisted payloads do not retain binding provenance. Switching back validates and hydrates every form field while keeping derived bindings out of manual selection state. Switching Form away from builtin warns that derived bindings must be re-selected to remain explicit. `runtime.builtin` remains a raw JSON definition inside Form mode because recursive topology and middleware/permission/limit blocks do not yet have a visual editor.
-- **Bundle import/export UI**: not built yet. Planned to decompose a bundle into per-object Admin API calls (preserving RBAC + audit granularity) with a `create/update/skip` dry run — see `docs/v0.5-alignment-plan.md` D3. `credentials` are not covered by gateway bundles at all.
+- **Bundle import/export UI**: not built yet. Historical design proposed decomposing a bundle into per-object Admin API calls (preserving RBAC + audit granularity) with a `create/update/skip` dry run — see archived `docs/plans/archive/gateway-v0.5-alignment-plan.md` D3 for rationale only. `credentials` are not covered by gateway bundles at all.
 - **SWR migration**: `useAdminSWR` is the standard for new/observability pages; some older CRUD pages still use the legacy `useState/useEffect` pattern and can be migrated incrementally.

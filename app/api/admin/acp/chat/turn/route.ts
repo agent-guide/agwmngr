@@ -45,7 +45,7 @@ interface TurnBody {
 // input/session_id/permission/options, and every runtime-specific field must sit
 // inside the versioned options envelope. Sending the old flat body — or omitting
 // options.version — is a hard 400, not a silently ignored field.
-// See unified-agent-runtime.md §6.5 and docs/v0.5-alignment-plan.md §2.4.
+// See unified-agent-runtime.md §6.5 and docs/plans/archive/gateway-v0.5-alignment-plan.md §2.4.
 const TURN_OPTIONS_VERSION = "v1";
 
 // options.runtime is decoded by the *selected backend*, also with

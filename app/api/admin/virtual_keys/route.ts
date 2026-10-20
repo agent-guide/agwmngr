@@ -8,7 +8,7 @@ import { redactVirtualKeyResponse } from "@/lib/secret-resource";
 // because upstream list/get responses embed the bearer verbatim — so a Gateway
 // Admin could not open the page at all. With the response redacted here, reads
 // drop to `secrets:read-redacted` and writes to `gateway:write`, both of which a
-// Gateway Admin holds. See docs/resource-rbac-design.md §10.
+// Gateway Admin holds. See docs/architecture/resource-rbac-design.md §10.
 //
 // The catch-all keeps the raw-secret mapping as the deny-by-default backstop for
 // any Virtual Key subpath that has no explicit handler yet.

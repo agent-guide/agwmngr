@@ -86,7 +86,7 @@ function splitLines(text: string): string[] {
  * Starting point for a builtin definition. The builtin runtime is edited as raw
  * JSON in v0.5.0: its topology carries recursive inline sub-agents plus
  * middleware/permission/limit blocks, so a full visual editor is deferred (see
- * docs/v0.5-alignment-plan.md D1). JSON — not YAML — is the canonical form here
+ * docs/plans/archive/gateway-v0.5-alignment-plan.md D1). JSON — not YAML — is the canonical form here
  * because it is exactly the `POST /admin/agents` wire shape, and a bundle's
  * `agents:` entry decodes to the same structure.
  */

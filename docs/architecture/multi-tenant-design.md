@@ -1,10 +1,31 @@
 # Multi-User & Multi-Gateway Design
 
+- Document type: **normative**
+- Status: **current compatibility architecture**
+- Applies to: manager authentication, sessions and Gateway access
+- Last reviewed: 2026-10-20
+
 > Project: `agwmngr` (the web management frontend for agent-gateway)
 > Scope: introduce multiple manager users (with per-gateway roles) and management of multiple agent-gateways from one manager
 > Last updated: 2026-08-08
 
-> **Status: implemented and upgraded to Gateway-root `admin/member`.** Domain/resource grants remain proposed in `docs/resource-rbac-design.md`. One deviation from the locked storage decision: `bun:sqlite` is replaced by a runtime-agnostic adapter (`lib/sqlite.ts`) using `node:sqlite` on Node and `bun:sqlite` on Bun — because Next.js (`next dev`/`next start`) executes route handlers under Node.js even when launched via `bun run`, where `bun:sqlite` is unavailable.
+> **Implementation note:** Gateway-root `admin/member` is implemented.
+> Domain/resource grants remain proposed in
+> [Hierarchical Resource RBAC Design](resource-rbac-design.md). One deviation
+> from the locked storage decision is that `bun:sqlite` is wrapped by a
+> runtime-agnostic adapter (`lib/sqlite.ts`) that uses `node:sqlite` for the
+> current `next dev`/`next start` server path and retains `bun:sqlite` support
+> when the adapter runs under Bun. Server code must continue to import the
+> adapter rather than either runtime-specific module directly.
+
+> **Rebuild compatibility naming:** On `rebuild/agent-resource-platform`, Step
+> 2C retains this model only for existing Gateway screens and deliberately names
+> its entry points `requireGatewayCompatibilityAccess` and
+> `withGatewayCompatibilityAccess`, with a
+> `gateway_membership_compatibility` context. The current `dev` implementation
+> still uses `requireGatewayAccess` and `withGatewayAccess`. References below to
+> `requireGatewayAccess`/`withAccess` describe that same historical flow; they
+> are not Tenant Gateway grant authorization.
 
 ## 1. Core Assessment
 

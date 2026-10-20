@@ -2,6 +2,9 @@
 
 A Bun + Next.js full-stack management application for AGW. The backend API and frontend are served from the same Next.js process on the same port. There is no separate API server.
 
+Architecture, implemented capabilities, operational guidance and active or
+archived delivery plans are indexed in [docs/README.md](docs/README.md).
+
 ## Configuration
 
 Create a `.env.local` file in this directory:

@@ -1,5 +1,5 @@
 // Pure mapping from a proxied Admin API request (method + path) to the RBAC
-// action it requires (§2.1 of docs/multi-tenant-design.md). Deliberately kept
+// action it requires (§2.1 of docs/architecture/multi-tenant-design.md). Deliberately kept
 // free of any db/session imports so it can be unit-tested in isolation and
 // reasoned about as the security-critical override table.
 

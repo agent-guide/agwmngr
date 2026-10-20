@@ -18,7 +18,7 @@ function dbPath(): string {
 // Migrations are an ordered list of SQL scripts. The applied count is tracked
 // via PRAGMA user_version, so each script runs exactly once across restarts.
 const MIGRATIONS: string[] = [
-  // 1: initial multi-tenant schema (§3 of docs/multi-tenant-design.md)
+  // 1: initial multi-tenant schema (§3 of docs/architecture/multi-tenant-design.md)
   `
   CREATE TABLE users (
     id                INTEGER PRIMARY KEY,

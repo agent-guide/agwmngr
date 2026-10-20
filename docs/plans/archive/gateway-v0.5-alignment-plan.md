@@ -1,5 +1,16 @@
 # Gateway v0.5.0 Alignment Plan
 
+- Document type: **delivery**
+- Status: **archived; superseded by the Agent Gateway v0.7.0 baseline**
+- Applies to: historical v0.4.3 to v0.5.0 migration only
+- Last reviewed: 2026-10-20
+
+This document is retained as migration evidence. It is not a current API or
+implementation authority; use the
+[Manager v0.1.0 release plan](../active/v0.1.0-release-plan.md) for the Gateway
+v0.7.0 manager baseline and the current architecture/capability documents for
+the accepted resource-platform direction instead.
+
 Plan for updating the manager frontend from the agent-gateway **v0.4.3** Admin API
 surface to the **v0.5.0** unified agent runtime surface.
 

@@ -1,15 +1,13 @@
 # Hierarchical Resource RBAC Design
 
-> Project: `agwmngr`
-> Status: Gateway-root `admin/member`, Caddy/Virtual-Key hardening, and
-> Provider/Credential API-key redaction are implemented; domain/resource grants
-> remain proposed
-> Last updated: 2026-08-08
-> Scope: evolve the manager's platform/gateway RBAC into hierarchical,
-> resource-scoped authorization without changing the existing Platform Admin
-> behaviour
+- Document type: **normative**
+- Status: **current**
+- Applies to: `dev` Gateway compatibility authorization; Gateway-root controls
+  are implemented and domain/resource grants remain proposed
+- Last reviewed: 2026-10-20
 
-This document builds on `docs/multi-tenant-design.md`. That design established
+This document builds on [Multi-User & Multi-Gateway Design](multi-tenant-design.md).
+That design established
 authentication, durable sessions, active-gateway resolution, platform access,
 gateway membership, shared access guards, and audit finalization. This design
 keeps those foundations and adds authorization below the gateway boundary.
@@ -1142,10 +1140,12 @@ future endpoint that starts returning bearer or credential material.
   Admin ticket. The strict variant remains available by redacting `key` from the
   create response for non-platform actors.
 - `POST /admin/virtual_keys/{id}/reveal` is the audited raw path for recovering
-  an existing value. It takes `gateway:secrets_raw`, which `gateway-role.ts`
-  grants on the *actor* flag, so it is Platform Admin only, and it returns
-  `{id, key}` alone rather than the object — it must not become a second
-  unredacted read path.
+  an existing value. It takes `gateway:secrets_raw`, which
+  `lib/gateway-role.ts` grants on the *actor* flag on `dev`, so it is Platform
+  Admin only, and it returns `{id, key}` alone rather than the object — it must
+  not become a second unredacted read path. The rebuild branch moves the same
+  pure evaluation into `packages/platform/authorization/gateway.ts` without
+  changing this compatibility policy.
 - `actionForProxyPath` still maps the family to `gateway:secrets_raw`. That is
   now the deny-by-default backstop for any Virtual Key subpath without an
   explicit handler, not the policy for the whole family.

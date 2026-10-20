@@ -730,7 +730,7 @@ export async function deleteMCPRoute(id: string): Promise<void> {
 // on Agent.runtime.acp, ingress is one unified AgentRoute keyed by agent_id, and
 // session/transcript/permission/run operations are agent-scoped. Only genuinely
 // lower-level pool and host inspection stays under /admin/{acp,builtin}/runtime.
-// See docs/v0.5-alignment-plan.md §2 and unified-agent-runtime.md §6.7.
+// See docs/plans/archive/gateway-v0.5-alignment-plan.md §2 and unified-agent-runtime.md §6.7.
 // ============================================================================
 
 // ---- ACP execution config (inlined at Agent.runtime.acp) ----
@@ -958,7 +958,7 @@ export type AgentRoutePayload = Pick<
 //
 // The literal segment "routes" is a reserved agent id: the gateway dispatches
 // /admin/agents/routes* to a separate mux ahead of /admin/agents/{id}, so an
-// agent named "routes" would be shadowed (docs/v0.5-alignment-plan.md §8.4).
+// agent named "routes" would be shadowed (docs/plans/archive/gateway-v0.5-alignment-plan.md §8.4).
 
 export const RESERVED_AGENT_ID = "routes";
 
