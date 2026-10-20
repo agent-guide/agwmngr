@@ -126,6 +126,7 @@ try {
     "components",
     "hooks",
     "lib",
+    "packages",
     "public",
     "scripts",
     "package.json",
