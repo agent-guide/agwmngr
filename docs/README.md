@@ -52,6 +52,7 @@ into `dev` or `dev` otherwise advances to contain it.
 - [Tenant model definitions](capabilities/platform-tenant-models.md)
 - [Tenant tool definitions](capabilities/platform-tenant-tools.md)
 - [Platform Agent definitions and publication](capabilities/platform-agent-publication.md)
+- [Platform Agent deployments](capabilities/platform-agent-deployments.md)
 
 ## Active delivery documents
 

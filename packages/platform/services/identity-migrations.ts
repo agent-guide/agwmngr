@@ -468,6 +468,121 @@ const versionElevenStatements = [
     ON platform_agent_releases (tenant_id, definition_id, number)`,
 ];
 
+const versionTwelveStatements = [
+  `CREATE TABLE platform_agent_deployments (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    tenant_authority_epoch BIGINT NOT NULL CHECK (tenant_authority_epoch > 0),
+    definition_id TEXT NOT NULL REFERENCES platform_agent_definitions(id) ON DELETE RESTRICT,
+    requested_release_id TEXT NOT NULL REFERENCES platform_agent_releases(id) ON DELETE RESTRICT,
+    applied_release_id TEXT REFERENCES platform_agent_releases(id) ON DELETE RESTRICT,
+    gateway_id TEXT NOT NULL,
+    gateway_authority_epoch BIGINT NOT NULL CHECK (gateway_authority_epoch > 0),
+    gateway_agent_id TEXT NOT NULL,
+    gateway_route_id TEXT NOT NULL,
+    path_prefix TEXT NOT NULL,
+    desired_digest TEXT NOT NULL,
+    lifecycle_state TEXT NOT NULL CHECK (lifecycle_state IN
+      ('awaiting_key_binding','ready_to_apply','active','offline','partial_failure','deleting','deleted')),
+    operation_state TEXT NOT NULL CHECK (operation_state IN
+      ('stable','applying','reconciliation_required')),
+    invocation_epoch BIGINT NOT NULL CHECK (invocation_epoch > 0),
+    request_key TEXT NOT NULL,
+    current_operation_id TEXT,
+    last_verified_at TEXT,
+    failure_code TEXT,
+    created_by_principal_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (tenant_id, request_key),
+    UNIQUE (gateway_id, gateway_agent_id),
+    UNIQUE (gateway_id, gateway_route_id)
+  )`,
+  `CREATE INDEX platform_agent_deployments_tenant_state
+    ON platform_agent_deployments (tenant_id, lifecycle_state, updated_at, id)`,
+  `CREATE INDEX platform_agent_deployments_gateway_state
+    ON platform_agent_deployments (gateway_id, lifecycle_state, id)`,
+  `CREATE TABLE platform_deployment_operations (
+    id TEXT PRIMARY KEY,
+    deployment_id TEXT NOT NULL REFERENCES platform_agent_deployments(id) ON DELETE RESTRICT,
+    kind TEXT NOT NULL CHECK (kind IN
+      ('apply','retry','take_offline','online','rollback','verify','decommission')),
+    request_key TEXT NOT NULL,
+    release_id TEXT NOT NULL REFERENCES platform_agent_releases(id) ON DELETE RESTRICT,
+    sequence BIGINT NOT NULL CHECK (sequence > 0),
+    status TEXT NOT NULL CHECK (status IN ('applying','succeeded','failed')),
+    phase TEXT NOT NULL,
+    desired_agent_json TEXT NOT NULL,
+    desired_agent_digest TEXT NOT NULL,
+    desired_staging_route_json TEXT NOT NULL,
+    desired_staging_route_digest TEXT NOT NULL,
+    desired_final_route_json TEXT NOT NULL,
+    desired_final_route_digest TEXT NOT NULL,
+    observed_agent_json TEXT,
+    observed_route_json TEXT,
+    agent_write_attempted BIGINT NOT NULL DEFAULT 0 CHECK (agent_write_attempted IN (0,1)),
+    route_write_attempted BIGINT NOT NULL DEFAULT 0 CHECK (route_write_attempted IN (0,1)),
+    failure_code TEXT,
+    failure_message TEXT,
+    lease_until TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (deployment_id, request_key),
+    UNIQUE (deployment_id, sequence)
+  )`,
+  `CREATE INDEX platform_deployment_operations_deployment
+    ON platform_deployment_operations (deployment_id, sequence, status)`,
+  `CREATE TABLE platform_deployment_pair_fences (
+    gateway_id TEXT NOT NULL,
+    gateway_agent_id TEXT NOT NULL,
+    gateway_route_id TEXT NOT NULL,
+    deployment_id TEXT NOT NULL,
+    operation_id TEXT,
+    state TEXT NOT NULL CHECK (state IN ('provisional','promoted','quarantined','deleting')),
+    claim_epoch BIGINT NOT NULL CHECK (claim_epoch > 0),
+    agent_digest TEXT,
+    route_digest TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (gateway_id, gateway_agent_id),
+    UNIQUE (gateway_id, gateway_route_id)
+  )`,
+  `CREATE INDEX platform_deployment_pair_fences_deployment
+    ON platform_deployment_pair_fences (deployment_id, state)`,
+  `CREATE TABLE platform_gateway_operation_leases (
+    gateway_id TEXT NOT NULL,
+    lease_kind TEXT NOT NULL CHECK (lease_kind IN ('objects','key_policy')),
+    owner_token TEXT NOT NULL,
+    lease_epoch BIGINT NOT NULL CHECK (lease_epoch > 0),
+    lease_until TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (gateway_id, lease_kind)
+  )`,
+  `CREATE TABLE platform_deployment_key_bindings (
+    deployment_id TEXT PRIMARY KEY,
+    gateway_id TEXT NOT NULL,
+    key_id TEXT NOT NULL,
+    route_id TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN
+      ('binding','bound','cleanup_required','awaiting_key_restore')),
+    key_policy_epoch BIGINT NOT NULL CHECK (key_policy_epoch > 0),
+    key_policy_fingerprint TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (gateway_id, key_id, route_id)
+  )`,
+  `CREATE TABLE platform_deployment_route_reservations (
+    gateway_id TEXT NOT NULL,
+    route_id TEXT NOT NULL,
+    deployment_id TEXT NOT NULL,
+    operation_id TEXT,
+    state TEXT NOT NULL CHECK (state IN ('prepublication','provisional','quarantined')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (gateway_id, route_id)
+  )`,
+];
+
 export interface IdentityMigrationReport {
   from: number;
   to: number;
@@ -478,7 +593,7 @@ export async function migratePlatformIdentityDatabase(
   database: PlatformDatabase,
   dryRun = false,
 ): Promise<IdentityMigrationReport> {
-  let report: IdentityMigrationReport = { from: 0, to: 11, dryRun };
+  let report: IdentityMigrationReport = { from: 0, to: 12, dryRun };
   const rollback = new Error("platform identity migration dry-run rollback");
 
   try {
@@ -497,8 +612,8 @@ export async function migratePlatformIdentityDatabase(
         `SELECT version FROM platform_schema_lock WHERE id = 1${suffix}`,
       );
       const current = Number(row.version);
-      if (current > 11) throw new Error("platform schema is newer than this application");
-      report = { from: current, to: 11, dryRun };
+      if (current > 12) throw new Error("platform schema is newer than this application");
+      report = { from: current, to: 12, dryRun };
 
       if (current === 0) {
         for (const statement of versionOneStatements) await transaction.query(statement);
@@ -553,6 +668,11 @@ export async function migratePlatformIdentityDatabase(
       if (current < 11) {
         for (const statement of versionElevenStatements) await transaction.query(statement);
         await transaction.query("UPDATE platform_schema_lock SET version = 11 WHERE id = 1");
+      }
+
+      if (current < 12) {
+        for (const statement of versionTwelveStatements) await transaction.query(statement);
+        await transaction.query("UPDATE platform_schema_lock SET version = 12 WHERE id = 1");
       }
 
       await validatePlatformIdentityReferences(transaction);

@@ -1,9 +1,9 @@
 # Agent Resource Platform Design
 
 - Document type: **normative**
-- Status: **accepted target; Steps 0–5 implemented, deployment pending**
+- Status: **accepted target; Steps 0–5 and Step 6A implemented**
 - Applies to: `rebuild/agent-resource-platform`
-- Last reviewed: 2026-10-20
+- Last reviewed: 2026-10-21
 
 The historical replay started from a release candidate named `v0.2.0`. That tag
 was removed and its intermediate release commits were consolidated. As a

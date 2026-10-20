@@ -42,9 +42,11 @@ before changing platform identities, Tenant resources, Agent publication,
 Gateway deployment authorization or canonical dashboard routes.
 
 `docs/capabilities/platform-agent-publication.md` records the implemented Agent
-definition and immutable release boundary plus the still-pending deployment
-slice. Read it before changing Agent drafts, dependency snapshots, publication
-APIs or their Tenant projections.
+definition and immutable release boundary. Step 6A deployment intent allocation
+is documented in `docs/capabilities/platform-agent-deployments.md`; remote
+lifecycle, invocation and observation remain pending. Read both before changing
+Agent drafts, dependency snapshots, deployment mappings, Gateway adapters or
+their Tenant projections.
 
 ## Build and Run
 

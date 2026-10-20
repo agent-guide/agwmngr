@@ -19,7 +19,7 @@ async function verifyPersistence(
 ) {
   expect(await migratePlatformIdentityDatabase(database, true)).toEqual({
     from: 0,
-    to: 11,
+    to: 12,
     dryRun: true,
   });
   await expect(database.query("SELECT * FROM platform_principals")).rejects.toThrow();
@@ -28,7 +28,7 @@ async function verifyPersistence(
     migratePlatformIdentityDatabase(database),
     migratePlatformIdentityDatabase(database),
   ]);
-  expect((await migratePlatformIdentityDatabase(database)).from).toBe(11);
+  expect((await migratePlatformIdentityDatabase(database)).from).toBe(12);
   expect(await database.query("SELECT * FROM platform_catalog_offerings")).toEqual([]);
 
   const registry = new IdentityRegistry(database);
@@ -144,19 +144,25 @@ async function verifyPersistence(
   ).rejects.toThrow("rollback");
   expect(await restarted.tenant("alpha")).not.toBeNull();
 
-  // Rehearse the exact additive v10 -> v11 Agent-release upgrade on both adapters.
+  // Rehearse the additive v10 -> current Agent-release/deployment upgrade on both adapters.
+  await database.query("DROP TABLE platform_deployment_route_reservations");
+  await database.query("DROP TABLE platform_deployment_key_bindings");
+  await database.query("DROP TABLE platform_gateway_operation_leases");
+  await database.query("DROP TABLE platform_deployment_pair_fences");
+  await database.query("DROP TABLE platform_deployment_operations");
+  await database.query("DROP TABLE platform_agent_deployments");
   await database.query("DROP TABLE platform_agent_releases");
   await database.query("UPDATE platform_schema_lock SET version = 10 WHERE id = 1");
   expect(await migratePlatformIdentityDatabase(database, true)).toEqual({
     from: 10,
-    to: 11,
+    to: 12,
     dryRun: true,
   });
   await expect(database.query("SELECT * FROM platform_agent_releases")).rejects.toThrow();
   expect((await restarted.tenant("alpha"))?.name).toBe("Alpha");
   expect(await migratePlatformIdentityDatabase(database)).toEqual({
     from: 10,
-    to: 11,
+    to: 12,
     dryRun: false,
   });
   expect(await database.query("SELECT * FROM platform_agent_releases")).toEqual([]);

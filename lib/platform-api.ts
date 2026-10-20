@@ -54,6 +54,10 @@ import type {
   AgentRelease,
   SaveAgentDefinitionInput,
 } from "@/packages/contracts/platform/agents";
+import type {
+  AgentDeployment,
+  CreateAgentDeploymentInput,
+} from "@/packages/contracts/platform/deployments";
 
 export type {
   MembershipAddResolution,
@@ -121,6 +125,15 @@ export type {
   PlatformAgentRuntimeType,
   SaveAgentDefinitionInput,
 } from "@/packages/contracts/platform/agents";
+export type {
+  AgentDeployment,
+  AgentDeploymentOperation,
+  AgentDeploymentTarget,
+  CreateAgentDeploymentInput,
+  DeploymentLifecycleState,
+  DeploymentOperationKind,
+  DeploymentOperationState,
+} from "@/packages/contracts/platform/deployments";
 
 function tenantPath(tenantId: string, suffix: string): string {
   return `/api/platform/v1/tenants/${encodeURIComponent(tenantId)}${suffix}`;
@@ -868,5 +881,47 @@ export function createAgentRelease(
   ), {
     method: "POST",
     body: JSON.stringify({ expected_version: expectedVersion }),
+  });
+}
+
+function agentDeploymentsPath(tenantId: string, suffix = ""): string {
+  return tenantPath(tenantId, `/deployments${suffix}`);
+}
+
+export async function listAgentDeployments(tenantId: string): Promise<AgentDeployment[]> {
+  const result = await adminFetch<{ items: AgentDeployment[] }>(agentDeploymentsPath(tenantId));
+  return result.items ?? [];
+}
+
+export function getAgentDeployment(
+  tenantId: string,
+  deploymentId: string,
+): Promise<AgentDeployment> {
+  return adminFetch<AgentDeployment>(agentDeploymentsPath(
+    tenantId,
+    `/${encodeURIComponent(deploymentId)}`,
+  ));
+}
+
+export function createAgentDeployment(
+  tenantId: string,
+  input: CreateAgentDeploymentInput,
+): Promise<AgentDeployment> {
+  return adminFetch<AgentDeployment>(agentDeploymentsPath(tenantId), {
+    method: "POST",
+    body: JSON.stringify({
+      release_id: input.releaseId,
+      gateway_id: input.gatewayId,
+      request_key: input.requestKey,
+    }),
+  });
+}
+
+export async function cancelAgentDeployment(
+  tenantId: string,
+  deploymentId: string,
+): Promise<void> {
+  await adminFetch(agentDeploymentsPath(tenantId, `/${encodeURIComponent(deploymentId)}`), {
+    method: "DELETE",
   });
 }

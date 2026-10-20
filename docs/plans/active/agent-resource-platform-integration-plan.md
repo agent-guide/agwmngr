@@ -1,7 +1,7 @@
 # Agent Resource Platform Rebuild Plan
 
 - Document type: **delivery**
-- Status: **active; Steps 0–5 complete and Step 6 pending**
+- Status: **active; Steps 0–5 and Step 6A complete**
 - Applies to: `rebuild/agent-resource-platform`
 - Last reviewed: 2026-10-20
 
@@ -714,6 +714,19 @@ pass.
   quarantine blocking; neither retry nor compatibility may clear or edit it;
 - narrow Gateway apply/read/verify operations; and
 - durable operation/idempotency records with partial-failure state.
+
+Completed (2026-10-21): schema v12 now persists deployment intents, operation
+journals, pair fences, ordered per-Gateway lease records, deployment-key
+bindings and route-ID reservations. The explicit Tenant API allocates an
+idempotent `awaiting_key_binding` intent only for a live Tenant Admin
+`tenant_gateway:manage` grant, validates immutable Gateway-backed release
+sources, derives the deployment/Agent/route/path mapping server-side and stores
+the desired materialization digest. Allocation opens no operation, advances no
+post-creation invocation epoch and performs no Gateway read/write. Tenant
+list/get is filtered by the exact `view|manage` grant, unbound intents alone may
+be cancelled, and the server-only adapter exposes only the narrow Agent,
+Agent-route and non-secret Virtual-Key policy operations required by later
+slices. See [Platform Agent deployments](../../capabilities/platform-agent-deployments.md).
 
 ### 6B. Lifecycle operations
 
