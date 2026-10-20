@@ -19,7 +19,7 @@ async function verifyPersistence(
 ) {
   expect(await migratePlatformIdentityDatabase(database, true)).toEqual({
     from: 0,
-    to: 12,
+    to: 13,
     dryRun: true,
   });
   await expect(database.query("SELECT * FROM platform_principals")).rejects.toThrow();
@@ -28,7 +28,7 @@ async function verifyPersistence(
     migratePlatformIdentityDatabase(database),
     migratePlatformIdentityDatabase(database),
   ]);
-  expect((await migratePlatformIdentityDatabase(database)).from).toBe(12);
+  expect((await migratePlatformIdentityDatabase(database)).from).toBe(13);
   expect(await database.query("SELECT * FROM platform_catalog_offerings")).toEqual([]);
 
   const registry = new IdentityRegistry(database);
@@ -145,6 +145,8 @@ async function verifyPersistence(
   expect(await restarted.tenant("alpha")).not.toBeNull();
 
   // Rehearse the additive v10 -> current Agent-release/deployment upgrade on both adapters.
+  await database.query("DROP TABLE platform_deployment_invocation_contexts");
+  await database.query("DROP TABLE platform_gateway_virtual_key_policies");
   await database.query("DROP TABLE platform_deployment_route_reservations");
   await database.query("DROP TABLE platform_deployment_key_bindings");
   await database.query("DROP TABLE platform_gateway_operation_leases");
@@ -155,14 +157,14 @@ async function verifyPersistence(
   await database.query("UPDATE platform_schema_lock SET version = 10 WHERE id = 1");
   expect(await migratePlatformIdentityDatabase(database, true)).toEqual({
     from: 10,
-    to: 12,
+    to: 13,
     dryRun: true,
   });
   await expect(database.query("SELECT * FROM platform_agent_releases")).rejects.toThrow();
   expect((await restarted.tenant("alpha"))?.name).toBe("Alpha");
   expect(await migratePlatformIdentityDatabase(database)).toEqual({
     from: 10,
-    to: 12,
+    to: 13,
     dryRun: false,
   });
   expect(await database.query("SELECT * FROM platform_agent_releases")).toEqual([]);

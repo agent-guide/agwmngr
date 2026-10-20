@@ -78,6 +78,11 @@ const WORKSPACE_PRIMARY_ITEMS: NavItem[] = [
   { href: "/dashboard/agents/routes", labelKey: "nav.agentRoutes", icon: IconRoute },
 ];
 
+const ACCESS_ITEMS: NavItem[] = [
+  { href: "/dashboard/access/endpoints", labelKey: "nav.endpoints", icon: IconRoute },
+  { href: "/dashboard/access/keys", labelKey: "nav.invocationKeys", icon: IconKey },
+];
+
 const WORKSPACE_ACTIVITY_ITEMS: NavItem[] = [
   { href: "/dashboard/agents/interactions", labelKey: "nav.interactions", icon: IconActivity },
   { href: "/dashboard/agents/usage", labelKey: "nav.usage", icon: IconBarChart },
@@ -200,6 +205,7 @@ export function DashboardNav() {
     }
     return hasGatewayContentAccess;
   });
+  if (hasPlatformResourceAccess) workspacePrimaryItems.push(...ACCESS_ITEMS);
 
   // Virtual Keys is no longer Platform-Admin-only: the manager's own handlers
   // redact the bearer out of every list/get, so Gateway Admin may manage keys

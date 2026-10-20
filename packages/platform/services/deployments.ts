@@ -151,7 +151,10 @@ export function virtualKeyPolicyValue(value: GatewayVirtualKeyPolicy): GatewayVi
   };
 }
 
-function keyFingerprint(value: GatewayVirtualKeyPolicy, content: ContentRuntime): string {
+export function virtualKeyPolicyFingerprint(
+  value: GatewayVirtualKeyPolicy,
+  content: Pick<ContentRuntime, "hash">,
+): string {
   return content.hash(canonicalAgentValue(virtualKeyPolicyValue(value)));
 }
 
@@ -539,7 +542,7 @@ export class AgentDeploymentService {
       !key.allowed_route_ids.includes(deployment.target.gatewayRouteId)) {
       conflict("bound Virtual Key is not eligible for deployment");
     }
-    if (keyFingerprint(key, this.content) !== binding.keyPolicyFingerprint) {
+    if (virtualKeyPolicyFingerprint(key, this.content) !== binding.keyPolicyFingerprint) {
       conflict("bound Virtual Key policy changed; reconcile it before deployment");
     }
     return { binding, key };

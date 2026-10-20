@@ -1,4 +1,10 @@
-import { adminFetch, ApiError } from "./api";
+import {
+  adminFetch,
+  ApiError,
+  type CreatedVirtualKey,
+  type VirtualKeyItem,
+  type VirtualKeyPayload,
+} from "./api";
 import { API_BASE_URL, getToken } from "./auth";
 import type {
   MembershipAddResolution,
@@ -56,7 +62,12 @@ import type {
 } from "@/packages/contracts/platform/agents";
 import type {
   AgentDeployment,
+  AgentDeploymentEndpoint,
   AgentDeploymentOperation,
+  DeploymentInvocationContext,
+  DeploymentKeyBinding,
+  DeploymentKeyBindingCandidate,
+  DeploymentVirtualKeyReference,
   CreateAgentDeploymentInput,
 } from "@/packages/contracts/platform/deployments";
 
@@ -128,10 +139,15 @@ export type {
 } from "@/packages/contracts/platform/agents";
 export type {
   AgentDeployment,
+  AgentDeploymentEndpoint,
   AgentDeploymentOperation,
   AgentDeploymentTarget,
   CreateAgentDeploymentInput,
   DeploymentLifecycleState,
+  DeploymentInvocationContext,
+  DeploymentKeyBinding,
+  DeploymentKeyBindingCandidate,
+  DeploymentVirtualKeyReference,
   DeploymentOperationKind,
   DeploymentOperationState,
 } from "@/packages/contracts/platform/deployments";
@@ -984,3 +1000,132 @@ export const rollbackAgentDeployment = (
   releaseId: string,
   requestKey: string,
 ) => mutateAgentDeployment(tenantId, deploymentId, "rollback", requestKey, releaseId);
+
+export async function listTenantAgentEndpoints(
+  tenantId: string,
+): Promise<AgentDeploymentEndpoint[]> {
+  const result = await adminFetch<{ items: AgentDeploymentEndpoint[] }>(tenantPath(
+    tenantId,
+    "/endpoints",
+  ));
+  return result.items ?? [];
+}
+
+export function createDeploymentInvocation(
+  tenantId: string,
+  deploymentId: string,
+  keyId?: string,
+): Promise<DeploymentInvocationContext> {
+  return adminFetch<DeploymentInvocationContext>(agentDeploymentsPath(
+    tenantId,
+    `/${encodeURIComponent(deploymentId)}/invocations`,
+  ), {
+    method: "POST",
+    body: JSON.stringify(keyId ? { key_id: keyId } : {}),
+  });
+}
+
+function gatewayDeploymentBindingsPath(gatewayId: string, deploymentId = ""): string {
+  return `/api/platform/v1/gateways/${encodeURIComponent(gatewayId)}` +
+    `/deployment-key-bindings${deploymentId ? `/${encodeURIComponent(deploymentId)}` : ""}`;
+}
+
+export async function listDeploymentKeyBindings(gatewayId: string): Promise<{
+  items: DeploymentKeyBinding[];
+  candidates: DeploymentKeyBindingCandidate[];
+}> {
+  return adminFetch(gatewayDeploymentBindingsPath(gatewayId));
+}
+
+export function bindDeploymentKey(
+  gatewayId: string,
+  deploymentId: string,
+  keyId: string,
+): Promise<DeploymentKeyBinding> {
+  return adminFetch(gatewayDeploymentBindingsPath(gatewayId, deploymentId), {
+    method: "PUT",
+    body: JSON.stringify({ key_id: keyId }),
+  });
+}
+
+export async function unbindDeploymentKey(
+  gatewayId: string,
+  deploymentId: string,
+): Promise<void> {
+  await adminFetch(gatewayDeploymentBindingsPath(gatewayId, deploymentId), {
+    method: "DELETE",
+  });
+}
+
+export async function abandonDeploymentKeyBinding(
+  gatewayId: string,
+  deploymentId: string,
+): Promise<void> {
+  await adminFetch(`${gatewayDeploymentBindingsPath(gatewayId, deploymentId)}/abandon`, {
+    method: "POST",
+  });
+}
+
+export async function listPlatformGatewayVirtualKeys(
+  gatewayId: string,
+): Promise<VirtualKeyItem[]> {
+  const result = await adminFetch<{ items: VirtualKeyItem[] }>(
+    `/api/platform/v1/gateways/${encodeURIComponent(gatewayId)}/virtual-keys`,
+  );
+  return result.items ?? [];
+}
+
+export function setPlatformGatewayVirtualKeyEnabled(
+  gatewayId: string,
+  keyId: string,
+  enabled: boolean,
+): Promise<DeploymentVirtualKeyReference> {
+  return adminFetch(
+    `/api/platform/v1/gateways/${encodeURIComponent(gatewayId)}` +
+      `/virtual-keys/${encodeURIComponent(keyId)}/${enabled ? "enable" : "disable"}`,
+    { method: "POST" },
+  );
+}
+
+export function reconcilePlatformGatewayVirtualKeyContainment(
+  gatewayId: string,
+  keyId: string,
+): Promise<DeploymentVirtualKeyReference> {
+  return adminFetch(
+    `/api/platform/v1/gateways/${encodeURIComponent(gatewayId)}` +
+      `/virtual-keys/${encodeURIComponent(keyId)}/containment/reconcile`,
+    { method: "POST" },
+  );
+}
+
+export function createPlatformGatewayVirtualKey(
+  gatewayId: string,
+  payload: VirtualKeyPayload,
+): Promise<CreatedVirtualKey> {
+  return adminFetch(
+    `/api/platform/v1/gateways/${encodeURIComponent(gatewayId)}/virtual-keys`,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+export async function deletePlatformGatewayVirtualKey(
+  gatewayId: string,
+  keyId: string,
+): Promise<void> {
+  await adminFetch(
+    `/api/platform/v1/gateways/${encodeURIComponent(gatewayId)}` +
+      `/virtual-keys/${encodeURIComponent(keyId)}`,
+    { method: "DELETE" },
+  );
+}
+
+export function revealPlatformGatewayVirtualKey(
+  gatewayId: string,
+  keyId: string,
+): Promise<{ id: string; key: string }> {
+  return adminFetch(
+    `/api/platform/v1/gateways/${encodeURIComponent(gatewayId)}` +
+      `/virtual-keys/${encodeURIComponent(keyId)}/reveal`,
+    { method: "POST" },
+  );
+}

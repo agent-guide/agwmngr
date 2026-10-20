@@ -75,3 +75,61 @@ export interface AgentDeploymentOperation {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface DeploymentVirtualKeyReference {
+  id: string;
+  disabled: boolean;
+  expiresAt: string | null;
+  policyEpoch: number;
+  status: "stable" | "mutating" | "reconciliation_required" |
+    "containment_in_progress" | "containment_reconciling" |
+    "quarantined_contained" | "containment_failed";
+}
+
+export interface AgentDeploymentEndpoint {
+  deploymentId: string;
+  tenantId: string;
+  definitionId: string;
+  releaseId: string;
+  gatewayId: string;
+  gatewayAgentId: string;
+  gatewayRouteId: string;
+  pathPrefix: string;
+  protected: boolean;
+  invocable: boolean;
+  keys: DeploymentVirtualKeyReference[];
+}
+
+export interface DeploymentKeyBinding {
+  deploymentId: string;
+  tenantId: string;
+  gatewayId: string;
+  keyId: string;
+  routeId: string;
+  status: "binding" | "bound" | "cleanup_required" | "awaiting_key_restore";
+  keyPolicyEpoch: number;
+  keyPolicyStatus: DeploymentVirtualKeyReference["status"];
+  updatedAt: string;
+}
+
+export interface DeploymentKeyBindingCandidate {
+  deploymentId: string;
+  tenantId: string;
+  definitionId: string;
+  gatewayId: string;
+  gatewayRouteId: string;
+  lifecycleState: DeploymentLifecycleState;
+  bindingKeyId: string | null;
+}
+
+export interface DeploymentInvocationContext {
+  id: string;
+  deploymentId: string;
+  tenantId: string;
+  gatewayId: string;
+  gatewayAgentId: string;
+  gatewayRouteId: string;
+  keyId: string;
+  expiresAt: string;
+  completedAt: string | null;
+}

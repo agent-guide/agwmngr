@@ -105,6 +105,13 @@ export interface TenantGatewayAuthorization extends TenantAuthorization {
   grant: TenantGatewayGrant;
 }
 
+export interface TenantInvocationAuthorization extends TenantAuthorization {
+  principalAuthorityEpoch: number;
+  tenantAuthorityEpoch: number;
+  membershipAuthorityEpoch: number;
+  gateway: ManagerGatewayIdentity;
+}
+
 interface GrantAuthoritySnapshot {
   principal: Principal;
   local: LocalGrantAuthority;
@@ -208,6 +215,40 @@ export class PlatformIdentityService {
       throw new IdentityError("forbidden");
     }
     return { principal, tenant, membership };
+  }
+
+  async authorizeTenantInvocation(
+    actor: PlatformActorReference,
+    tenantId: string,
+    gatewayId: string,
+  ): Promise<TenantInvocationAuthorization> {
+    validateSlug(tenantId, "tenant ID");
+    validateSlug(gatewayId, "gateway ID");
+    const principal = await this.resolve(actor);
+    const local = await this.registry.localGrantAuthority(principal.id, tenantId);
+    if (!local || local.principal.status !== "active" || local.tenant.status !== "active") {
+      throw new IdentityError("forbidden", "active Tenant membership required");
+    }
+    let principalAuthorityEpoch = local.principalAuthorityEpoch;
+    if (local.principal.kind === "human") {
+      if (local.principal.userId === null) throw new Error("invalid stored human principal");
+      principalAuthorityEpoch = (await this.liveUser(local.principal.userId)).authorityEpoch;
+    }
+    if (!principalAuthorityEpoch) throw new Error("missing Principal authority fence");
+    const gateway = await this.directory.findGateway(gatewayId);
+    if (!gateway?.active || !Number.isSafeInteger(gateway.authorityEpoch) ||
+      gateway.authorityEpoch <= 0) {
+      throw new IdentityError("forbidden", "active Gateway required");
+    }
+    return {
+      principal,
+      tenant: local.tenant,
+      membership: local.membership,
+      principalAuthorityEpoch,
+      tenantAuthorityEpoch: local.tenantAuthorityEpoch,
+      membershipAuthorityEpoch: local.membershipAuthorityEpoch,
+      gateway,
+    };
   }
 
   async access(actor: PlatformActorReference): Promise<PlatformAccessProjection> {

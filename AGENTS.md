@@ -42,10 +42,10 @@ before changing platform identities, Tenant resources, Agent publication,
 Gateway deployment authorization or canonical dashboard routes.
 
 `docs/capabilities/platform-agent-publication.md` records the implemented Agent
-definition and immutable release boundary. Steps 6A–6B deployment intent and
-verified lifecycle behavior are documented in
-`docs/capabilities/platform-agent-deployments.md`; key binding, invocation and
-observation remain pending. Read both before changing
+definition and immutable release boundary. Steps 6A–6C deployment intent,
+verified lifecycle, key binding and server-managed invocation behavior are
+documented in `docs/capabilities/platform-agent-deployments.md`; scoped
+observation and runtime administration remain pending. Read both before changing
 Agent drafts, dependency snapshots, deployment mappings, Gateway adapters or
 their Tenant projections.
 

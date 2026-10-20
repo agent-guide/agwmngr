@@ -50,7 +50,15 @@ export interface GatewayDeploymentAdapter {
   listLLMRoutes(gatewayId: string): Promise<unknown[]>;
   listMCPRoutes(gatewayId: string): Promise<unknown[]>;
   listVirtualKeys(gatewayId: string): Promise<GatewayVirtualKeyPolicy[]>;
+  createVirtualKey(
+    gatewayId: string,
+    value: GatewayVirtualKeyPolicy,
+  ): Promise<{ policy: GatewayVirtualKeyPolicy; bearer: string }>;
   readVirtualKey(gatewayId: string, keyId: string): Promise<GatewayVirtualKeyPolicy | null>;
+  readVirtualKeySecret(
+    gatewayId: string,
+    keyId: string,
+  ): Promise<{ policy: GatewayVirtualKeyPolicy; bearer: string } | null>;
   updateVirtualKey(
     gatewayId: string,
     keyId: string,
@@ -61,4 +69,5 @@ export interface GatewayDeploymentAdapter {
     keyId: string,
     enabled: boolean,
   ): Promise<GatewayVirtualKeyPolicy>;
+  deleteVirtualKey(gatewayId: string, keyId: string): Promise<void>;
 }

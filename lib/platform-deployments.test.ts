@@ -11,6 +11,8 @@ import type {
 } from "@/packages/platform/ports/deployment";
 import { AgentReleaseRegistry } from "@/packages/platform/services/agent-release-registry";
 import { AgentDeploymentRegistry } from "@/packages/platform/services/deployment-registry";
+import { DeploymentAccessRegistry } from "@/packages/platform/services/deployment-access-registry";
+import { DeploymentAccessService } from "@/packages/platform/services/deployment-access";
 import {
   AgentDeploymentService,
   virtualKeyPolicyValue,
@@ -79,8 +81,17 @@ class MemoryDeploymentGateway implements GatewayDeploymentAdapter {
   async listLLMRoutes() { return []; }
   async listMCPRoutes() { return []; }
   async listVirtualKeys() { return [...this.keys.values()].map((value) => structuredClone(value)); }
+  async createVirtualKey(_gatewayId: string, value: GatewayVirtualKeyPolicy) {
+    this.writes.push(`create-key:${value.id}`);
+    this.keys.set(value.id, structuredClone(value));
+    return { policy: structuredClone(value), bearer: `bearer:${value.id}` };
+  }
   async readVirtualKey(_gatewayId: string, keyId: string) {
     return structuredClone(this.keys.get(keyId) ?? null);
+  }
+  async readVirtualKeySecret(_gatewayId: string, keyId: string) {
+    const policy = this.keys.get(keyId);
+    return policy ? { policy: structuredClone(policy), bearer: `bearer:${keyId}` } : null;
   }
   async updateVirtualKey(_gatewayId: string, keyId: string, value: GatewayVirtualKeyPolicy) {
     this.writes.push(`update-key:${keyId}`);
@@ -94,6 +105,10 @@ class MemoryDeploymentGateway implements GatewayDeploymentAdapter {
     this.writes.push(`${enabled ? "enable" : "disable"}-key:${keyId}`);
     this.keys.set(keyId, updated);
     return structuredClone(updated);
+  }
+  async deleteVirtualKey(_gatewayId: string, keyId: string) {
+    this.writes.push(`delete-key:${keyId}`);
+    this.keys.delete(keyId);
   }
 }
 
@@ -243,6 +258,13 @@ async function verifyDeploymentIntents(database: PlatformDatabase) {
     runtime,
     gateway,
   );
+  const deploymentAccess = new DeploymentAccessService(
+    new DeploymentAccessRegistry(database),
+    new AgentDeploymentRegistry(database),
+    identity,
+    runtime,
+    gateway,
+  );
 
   await expect(service.create(operator, "alpha", {
     releaseId: "release:one", gatewayId: "prod", requestKey: "operator-denied",
@@ -382,6 +404,130 @@ async function verifyDeploymentIntents(database: PlatformDatabase) {
     .rejects.toMatchObject({ code: "conflict" });
   expect(gateway.writes).toHaveLength(writesBefore);
   expect((await service.get(alice, "alpha", blocked.id)).invocationEpoch).toBe(1);
+
+  gateway.keys.delete("legacy-allow-all");
+  const accessible = await service.create(alice, "alpha", {
+    releaseId: "release:one", gatewayId: "prod", requestKey: "access-deploy",
+  });
+  gateway.keys.set("key:access", {
+    id: "key:access", disabled: false, allowed_route_ids: ["legacy:explicit"],
+  });
+  const binding = await deploymentAccess.bind(
+    operator,
+    "prod",
+    accessible.id,
+    "key:access",
+  );
+  expect(binding).toMatchObject({
+    deploymentId: accessible.id,
+    gatewayId: "prod",
+    keyId: "key:access",
+    routeId: accessible.target.gatewayRouteId,
+    status: "bound",
+    keyPolicyStatus: "stable",
+  });
+  expect(gateway.keys.get("key:access")).toMatchObject({
+    disabled: false,
+    allowed_route_ids: [accessible.target.gatewayRouteId, "legacy:explicit"].sort(),
+  });
+  expect(await service.apply(alice, "alpha", accessible.id, "apply-access"))
+    .toMatchObject({ status: "succeeded" });
+
+  const endpoints = await deploymentAccess.endpoints(bob, "alpha");
+  expect(endpoints.find((item) => item.deploymentId === accessible.id)).toMatchObject({
+    invocable: true,
+    protected: true,
+    keys: [{ id: "key:access", disabled: false, status: "stable" }],
+  });
+  const invocation = await deploymentAccess.createInvocationContext(
+    bob,
+    "alpha",
+    accessible.id,
+    "key:access",
+  );
+  expect(JSON.stringify(invocation)).not.toContain("bearer:key:access");
+  let forwardedBearer = "";
+  await deploymentAccess.withInvocation(bob, "alpha", invocation.id, async (authorized) => {
+    forwardedBearer = authorized.bearer;
+    expect(authorized.gatewayAgentId).toBe(accessible.target.gatewayAgentId);
+    return undefined;
+  });
+  expect(forwardedBearer).toBe("bearer:key:access");
+  await expect(deploymentAccess.createInvocationContext(
+    operator,
+    "alpha",
+    accessible.id,
+  )).rejects.toMatchObject({ code: "forbidden" });
+
+  const driftContext = await deploymentAccess.createInvocationContext(
+    bob,
+    "alpha",
+    accessible.id,
+  );
+  gateway.keys.set("key:access", {
+    ...gateway.keys.get("key:access")!,
+    allowed_route_ids: [accessible.target.gatewayRouteId, "external:drift"],
+  });
+  let driftForwarded = false;
+  await expect(deploymentAccess.withInvocation(
+    bob,
+    "alpha",
+    driftContext.id,
+    async () => { driftForwarded = true; },
+  )).rejects.toMatchObject({ code: "conflict" });
+  expect(driftForwarded).toBe(false);
+  expect(gateway.keys.get("key:access")?.disabled).toBe(true);
+  const [contained] = await database.query<{ state: string }>(
+    `SELECT state FROM platform_gateway_virtual_key_policies
+      WHERE gateway_id = 'prod' AND key_id = 'key:access'`,
+  );
+  expect(contained.state).toBe("quarantined_contained");
+  expect((await service.get(alice, "alpha", accessible.id)).operationState)
+    .toBe("reconciliation_required");
+  expect(await deploymentAccess.reconcileContainedKey(operator, "prod", "key:access"))
+    .toMatchObject({ id: "key:access", disabled: false, status: "stable" });
+  expect(gateway.keys.get("key:access")).toMatchObject({
+    disabled: false,
+    allowed_route_ids: [accessible.target.gatewayRouteId, "legacy:explicit"].sort(),
+  });
+  expect((await service.get(alice, "alpha", accessible.id)).operationState).toBe("stable");
+  await expect(deploymentAccess.withInvocation(
+    bob,
+    "alpha",
+    driftContext.id,
+    async () => undefined,
+  )).rejects.toMatchObject({ code: "forbidden" });
+  expect(await deploymentAccess.createInvocationContext(bob, "alpha", accessible.id))
+    .toMatchObject({ keyId: "key:access" });
+
+  const removable = await service.create(alice, "alpha", {
+    releaseId: "release:one", gatewayId: "prod", requestKey: "unbind-deploy",
+  });
+  gateway.keys.set("key:unbind", {
+    id: "key:unbind", disabled: false, allowed_route_ids: [],
+  });
+  await deploymentAccess.bind(operator, "prod", removable.id, "key:unbind");
+  await deploymentAccess.unbind(operator, "prod", removable.id);
+  expect(gateway.keys.get("key:unbind")).toMatchObject({
+    disabled: true,
+    allowed_route_ids: [],
+  });
+  expect((await service.get(alice, "alpha", removable.id)).lifecycleState)
+    .toBe("awaiting_key_binding");
+  await expect(deploymentAccess.setKeyEnabled(operator, "prod", "key:unbind", true))
+    .rejects.toMatchObject({ code: "conflict" });
+  await deploymentAccess.deleteKey(operator, "prod", "key:unbind");
+  expect(gateway.keys.has("key:unbind")).toBe(false);
+  const createdKey = await deploymentAccess.createKey(operator, "prod", {
+    id: "key:new", disabled: true, allowed_route_ids: [],
+  });
+  expect(createdKey).toMatchObject({
+    policy: { id: "key:new", disabled: true, allowed_route_ids: [] },
+    bearer: "bearer:key:new",
+  });
+  await expect(deploymentAccess.createKey(operator, "prod", {
+    id: "key:unsafe", disabled: false, allowed_route_ids: [],
+  })).rejects.toMatchObject({ code: "conflict" });
 }
 
 test("SQLite deployment intents are scoped, deterministic, idempotent, and local-only", async () => {

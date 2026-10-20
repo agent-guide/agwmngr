@@ -317,6 +317,12 @@ export default function GatewaysPage() {
                 >
                   {t("credentials.title")}
                 </Link>
+                <Link
+                  href={`/dashboard/platform/gateways/${encodeURIComponent(g.id)}/virtual-keys`}
+                  className="rounded-md border border-slate-600/60 bg-slate-800/40 px-2 py-1 text-xs font-medium text-slate-300 transition-colors hover:text-slate-100"
+                >
+                  {t("virtualKeys.title")}
+                </Link>
                 <Button variant="ghost" onClick={() => handleTestStored(g)} className="px-2 py-1 text-xs">{t("common.test")}</Button>
                 <Button variant="ghost" onClick={() => openMembers(g)} className="px-2 py-1 text-xs">{t("gateways.members")}</Button>
                 <Button variant="ghost" onClick={() => openEdit(g)} className="px-2 py-1 text-xs">{t("common.edit")}</Button>

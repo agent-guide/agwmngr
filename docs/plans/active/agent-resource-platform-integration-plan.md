@@ -1204,6 +1204,20 @@ following Step 6 slices and the final Step 6 gate does not pass yet. See
 - connect the canonical Access and Agent Test UI to those scoped APIs; and
 - keep persistent product chat/history outside this mandatory slice.
 
+Completed (2026-10-21): schema v13 now persists manager-owned key-policy state
+and expiring invocation contexts. Platform Admin has Gateway-qualified Virtual
+Key lifecycle and deployment-binding APIs, including safe disabled-empty
+bootstrap, separate enable/disable, zero-write abandon, audited reveal and
+reviewed containment restoration. Active Tenant members can discover eligible
+endpoint/key references and use opaque server-managed turn/permission contexts
+without receiving a bearer or requiring a `tenant_gateway` grant. Every forward
+rechecks the captured Principal, Tenant membership, deployment, Gateway, pair
+claim and key-policy authorities under ordered leases; live policy drift enters
+verified disable containment and fences related deployments. The Access UI and
+canonical Gateway key page consume these APIs. Startup-wide recovery, the
+remaining specialized retry paths, scoped observations/runtime actions and
+compatibility cutover remain in the following Step 6 work.
+
 ### 6D. Scoped Tenant observation and runtime-action replacement
 
 - deliver Tenant deployment activity, usage, interaction and health projections

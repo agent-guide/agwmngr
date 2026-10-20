@@ -2,6 +2,7 @@ import { withGatewayCompatibilityAccess } from "@/lib/access";
 import { gatewayRequestJSON } from "@/packages/gateway-client/admin";
 import { proxySecretResource } from "@/lib/secret-resource-proxy";
 import { redactVirtualKeyResponse } from "@/lib/secret-resource";
+import { legacyVirtualKeyMutationBlock } from "@/lib/platform-key-compatibility";
 
 // Explicit Virtual Key handlers. Before these existed the whole family fell to
 // the catch-all, which maps it to the Platform-Admin-only `gateway:secrets_raw`
@@ -26,6 +27,8 @@ export const GET = withGatewayCompatibilityAccess("secrets:read-redacted", (req,
  * `key_set`/`key_preview` consistent with every other Virtual Key response.
  */
 export const POST = withGatewayCompatibilityAccess("gateway:write", async (req, access) => {
+  const blocked = await legacyVirtualKeyMutationBlock(access.gateway.id);
+  if (blocked) return blocked;
   let body: unknown;
   try {
     body = await req.json();

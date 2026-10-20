@@ -1,4 +1,5 @@
 import { getPlatformDeployments } from "@/lib/platform-deployments";
+import { getPlatformDeploymentAccess } from "@/lib/platform-deployment-access";
 import { platformIdentityBody, requiredText, withPlatformIdentity } from "@/lib/platform-access";
 import { IdentityError } from "@/packages/platform/services/identity";
 
@@ -38,6 +39,24 @@ async function handler(request: Request, context: Context) {
       return Response.json({ items });
     }
     if (request.method === "POST" && path.length === 2) {
+      if (path[1] === "invocations") {
+        const body = await platformIdentityBody(request, ["key_id"]);
+        const keyId = body.key_id === undefined ? undefined : requiredText(body, "key_id");
+        const access = await getPlatformDeploymentAccess();
+        const item = await access.createInvocationContext(
+          actor,
+          tenantId,
+          path[0],
+          keyId,
+        );
+        audit.set({
+          action: "tenant:agent_invocation_create",
+          targetKind: "deployment_invocation",
+          targetId: item.id,
+          effectiveAccess: "member",
+        });
+        return Response.json(item, { status: 201 });
+      }
       const body = await platformIdentityBody(request, path[1] === "rollback"
         ? ["request_key", "release_id"] : ["request_key"]);
       const requestKey = requiredText(body, "request_key");

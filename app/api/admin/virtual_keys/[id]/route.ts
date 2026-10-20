@@ -1,5 +1,6 @@
 import { withGatewayCompatibilityAccess } from "@/lib/access";
 import { proxySecretResource } from "@/lib/secret-resource-proxy";
+import { legacyVirtualKeyMutationBlock } from "@/lib/platform-key-compatibility";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -20,11 +21,15 @@ export const GET = withGatewayCompatibilityAccess(
 );
 
 export const PUT = withGatewayCompatibilityAccess("gateway:write", async (req, access, { params }: Params) => {
+  const blocked = await legacyVirtualKeyMutationBlock(access.gateway.id);
+  if (blocked) return blocked;
   const { id } = await params;
   return proxySecretResource(req, access.gateway, path(id), "virtualKey", id);
 });
 
 export const DELETE = withGatewayCompatibilityAccess("gateway:write", async (req, access, { params }: Params) => {
+  const blocked = await legacyVirtualKeyMutationBlock(access.gateway.id);
+  if (blocked) return blocked;
   const { id } = await params;
   return proxySecretResource(req, access.gateway, path(id), "virtualKey", id);
 });

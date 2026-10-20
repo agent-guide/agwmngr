@@ -1,18 +1,20 @@
 # Platform Agent deployments
 
 - Document type: **normative**
-- Status: **Steps 6A–6B lifecycle API implemented; Access and invocation pending**
+- Status: **Steps 6A–6C deployment, scoped Access and invocation APIs implemented**
 - Applies to: `rebuild/agent-resource-platform` deployment-intent APIs
 - Last reviewed: 2026-10-21
 
 ## Implemented boundary
 
-Platform schema version 12 adds Tenant-owned deployment intents, durable
+Platform schema version 13 adds Tenant-owned deployment intents, durable
 operation journals, pair fences, per-Gateway lease records, deployment-key
-bindings and route-ID reservations. Step 6A exposes the local allocation
-boundary. Step 6B adds verified lifecycle operations over the server-only
-Gateway adapter. Key-binding administration, invocation and observations remain
-unavailable until their later Step 6 slices land.
+bindings, route-ID reservations, manager-owned Virtual Key policy state and
+expiring invocation contexts. Step 6A exposes the local allocation boundary,
+Step 6B adds verified lifecycle operations over the server-only Gateway adapter,
+and Step 6C supplies the binding and invocation boundary needed to use a
+verified deployment without disclosing its bearer. Deployment observations and
+runtime administration remain unavailable until their later Step 6 slices land.
 
 An active Tenant Admin with a live `tenant_gateway:manage` grant may create an
 intent for one immutable Agent release and one explicit active Gateway. Platform
@@ -54,6 +56,19 @@ upstream stable IDs, administrative credentials or bearer values.
 | `POST` | `/api/platform/v1/tenants/{tenant_id}/deployments/{deployment_id}/online` | Restore a verified offline pair to its protected final match |
 | `POST` | `/api/platform/v1/tenants/{tenant_id}/deployments/{deployment_id}/rollback` | Restore a journal-verified release using `{release_id,request_key}` |
 | `POST` | `/api/platform/v1/tenants/{tenant_id}/deployments/{deployment_id}/verify` | Compare the claimed Agent/route pair to its journaled desired state |
+| `GET` | `/api/platform/v1/tenants/{tenant_id}/endpoints` | Project invocable endpoints and eligible non-secret key references to active Tenant members |
+| `POST` | `/api/platform/v1/tenants/{tenant_id}/deployments/{deployment_id}/invocations` | Create an opaque expiring invocation context for an eligible bound key |
+| `POST` | `/api/platform/v1/tenants/{tenant_id}/invocations/{context_id}/turn` | Reauthorize the captured context and forward a streaming turn server-side |
+| `POST` | `/api/platform/v1/tenants/{tenant_id}/invocations/{context_id}/permission` | Reauthorize the captured context and forward a permission response server-side |
+| `GET/POST` | `/api/platform/v1/gateways/{gateway_id}/virtual-keys` | Platform Admin list/create; creation permits only the disabled-empty safe bootstrap or a non-empty allowlist |
+| `GET/PUT/DELETE` | `/api/platform/v1/gateways/{gateway_id}/virtual-keys/{key_id}` | Platform Admin path-scoped key lifecycle under the policy barrier |
+| `POST` | `/api/platform/v1/gateways/{gateway_id}/virtual-keys/{key_id}/enable` | Explicitly enable a safe non-empty policy |
+| `POST` | `/api/platform/v1/gateways/{gateway_id}/virtual-keys/{key_id}/disable` | Explicitly disable a key |
+| `POST` | `/api/platform/v1/gateways/{gateway_id}/virtual-keys/{key_id}/reveal` | Audited Platform Admin bearer recovery; never used by Tenant clients |
+| `POST` | `/api/platform/v1/gateways/{gateway_id}/virtual-keys/{key_id}/containment/reconcile` | Restore the last reviewed safe policy after verified drift containment |
+| `GET` | `/api/platform/v1/gateways/{gateway_id}/deployment-key-bindings` | Platform Admin binding state and eligible deployment candidates |
+| `PUT/DELETE` | `/api/platform/v1/gateways/{gateway_id}/deployment-key-bindings/{deployment_id}` | Bind or safely unbind the deployment's derived route ID |
+| `POST` | `/api/platform/v1/gateways/{gateway_id}/deployment-key-bindings/{deployment_id}/abandon` | Safely abandon a zero-write provisional binding |
 
 All mutation endpoints require a live Tenant Admin membership and the exact
 `tenant_gateway:manage` grant. Platform Admin status does not imply this
@@ -80,11 +95,33 @@ only move back to the non-public staging fingerprint and records either a
 contained quarantine or an unresolved containment failure. No lifecycle
 failure is reported as successful publication.
 
+## Scoped Access and invocation
+
+Any active member of the owning Tenant, including a Tenant User, may discover
+the Tenant's invocable endpoints and create an invocation context. This does not
+grant deployment observations or deployment administration and does not require
+a `tenant_gateway` grant. Platform Admin status alone is not Tenant membership.
+
+Platform Admin owns the Gateway-qualified Virtual Key lifecycle and non-secret
+deployment binding. An enabled key with an empty allowlist is rejected, removal
+of a bound route is rejected, and removing a final binding first verifies a
+disabled empty policy. The legacy active-Gateway Virtual Key writers fail closed
+after a platform reservation, binding or policy record claims that Gateway.
+
+An invocation context contains references and captured authority epochs only.
+Every turn or permission request reloads the Principal, Tenant membership,
+deployment, Gateway, pair claim, binding and live key policy while holding the
+Gateway object/key-policy leases. The bearer is resolved only inside that
+server-side critical section and retained through outbound acceptance; it is
+never returned to the browser or stored in the context. A live policy fingerprint
+mismatch synchronously disables and verifies the key, fences related deployments
+and leaves a Platform Admin-reviewed containment reconciliation as the only path
+back to eligibility.
+
 ## Deferred to the remaining Step 6 slices
 
 The Gateway adapter is server-only and exposes narrow Agent, Agent-route and
-Virtual-Key policy operations. Step 6C owns Platform Admin key binding and
-server-managed invocation. Steps 6D–6E own scoped observations, runtime actions,
-subject-wide remove-only decommission recovery and compatibility cutover. The
-6B lifecycle is intentionally unreachable through normal setup until the 6C
-binding handler can establish its verified non-secret key reservation.
+Virtual-Key policy operations. Steps 6D–6E own scoped observations, runtime
+actions, subject-wide remove-only decommission/startup recovery, the remaining
+specialized reconciliation paths and compatibility cutover. The final Step 6
+gate therefore does not pass yet.

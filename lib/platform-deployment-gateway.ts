@@ -75,6 +75,14 @@ function virtualKey(value: unknown): GatewayVirtualKeyPolicy {
   };
 }
 
+function virtualKeySecret(value: unknown): { policy: GatewayVirtualKeyPolicy; bearer: string } {
+  const row = object(value, "Virtual Key");
+  if (typeof row.key !== "string" || !row.key) {
+    throw new IdentityError("conflict", "Gateway Virtual Key has no stored bearer");
+  }
+  return { policy: virtualKey(row), bearer: row.key };
+}
+
 async function listItems(gatewayId: string, path: string): Promise<unknown[]> {
   const items: unknown[] = [];
   let cursor: string | undefined;
@@ -176,6 +184,9 @@ export const platformDeploymentGateway: GatewayDeploymentAdapter = {
   async listVirtualKeys(gatewayId) {
     return (await listItems(gatewayId, "/admin/virtual_keys")).map(virtualKey);
   },
+  async createVirtualKey(gatewayId, value) {
+    return virtualKeySecret(await request(gatewayId, "POST", "/admin/virtual_keys", value));
+  },
   async readVirtualKey(gatewayId, keyId) {
     const value = await request(
       gatewayId,
@@ -185,6 +196,16 @@ export const platformDeploymentGateway: GatewayDeploymentAdapter = {
       true,
     );
     return value === null ? null : virtualKey(value);
+  },
+  async readVirtualKeySecret(gatewayId, keyId) {
+    const value = await request(
+      gatewayId,
+      "GET",
+      `/admin/virtual_keys/${encodeURIComponent(keyId)}`,
+      undefined,
+      true,
+    );
+    return value === null ? null : virtualKeySecret(value);
   },
   async updateVirtualKey(gatewayId, keyId, value) {
     return virtualKey(await request(
@@ -200,5 +221,8 @@ export const platformDeploymentGateway: GatewayDeploymentAdapter = {
       "POST",
       `/admin/virtual_keys/${encodeURIComponent(keyId)}/${enabled ? "enable" : "disable"}`,
     ));
+  },
+  async deleteVirtualKey(gatewayId, keyId) {
+    await request(gatewayId, "DELETE", `/admin/virtual_keys/${encodeURIComponent(keyId)}`);
   },
 };
