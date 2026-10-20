@@ -1,7 +1,7 @@
 # Agent Resource Platform Rebuild Plan
 
 - Document type: **delivery**
-- Status: **active; Steps 0–4 complete and Step 5 pending**
+- Status: **active; Steps 0–5A complete and Step 5B pending**
 - Applies to: `rebuild/agent-resource-platform`
 - Last reviewed: 2026-10-20
 
@@ -494,6 +494,16 @@ service, Gateway, upstream-object and secret fields.
   advanced configuration;
 - references to exact accessible resources; and
 - lifecycle enforcement for editability.
+
+Completed (2026-10-20): platform schema v10, shared contracts and explicit
+Tenant-scoped APIs now persist optimistic mutable Agent definitions without any
+Gateway operation. Drafts use a runtime-neutral core plus strictly validated
+builtin/ACP/HTTP advanced configuration, reject unknown and secret-bearing
+fields, resolve exact accessible model/tool versions, Skill/instruction
+revisions and knowledge bases, and protect those references transactionally.
+The server returns deterministic draft digests and editability; active Tenant
+Admin and Tenant User membership is the only authoring authority. See
+[Platform Agent definitions and publication](../../capabilities/platform-agent-publication.md).
 
 ### 5B. Release
 

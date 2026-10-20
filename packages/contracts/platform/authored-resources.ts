@@ -62,6 +62,15 @@ export interface AuthoredResourceDetail {
   revisions: AuthoredResourceRevision[];
 }
 
+export interface AuthoredResourceRevisionReference {
+  resourceId: string;
+  kind: AuthoredResourceKind;
+  revisionId: string;
+  revisionNumber: number;
+  status: "draft" | "published";
+  contentHash: string;
+}
+
 export interface CreateAuthoredResourceInput {
   name: string;
   description: string;

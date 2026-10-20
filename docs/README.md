@@ -51,6 +51,7 @@ into `dev` or `dev` otherwise advances to contain it.
 - [Personal files](capabilities/platform-personal-files.md)
 - [Tenant model definitions](capabilities/platform-tenant-models.md)
 - [Tenant tool definitions](capabilities/platform-tenant-tools.md)
+- [Platform Agent definitions and publication](capabilities/platform-agent-publication.md)
 
 ## Active delivery documents
 

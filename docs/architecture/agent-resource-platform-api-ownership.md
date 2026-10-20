@@ -121,13 +121,14 @@ upstream bearer. Only its server-side Platform Admin projection contains the
 source Gateway ID and upstream stable ID. Tenant responses contain the offering
 ID, kind, version and digest but no infrastructure binding identifiers.
 
-## 4. What Steps 1B–4E do not establish
+## 4. What Steps 1B–5A do not establish
 
 The following remain unimplemented:
 
 - target deployment authorization (Tenant Gateway grant persistence and live
   evaluation are implemented, but no deployment service consumes them yet);
-- Agent definitions, immutable releases and deployment mappings;
+- immutable Agent releases and deployment mappings; Step 5A definitions are
+  owned by explicit Tenant-scoped handlers and platform services;
 - workers, jobs or remote object storage; and
 - target authorization coverage for Agent publication, deployment, Access,
   Workbench and Tenant-observability UI; delivered Step 3 administration and
@@ -151,5 +152,7 @@ services neither import it nor infer Tenant authority from its memberships.
 Step 3 projects the identity administration pages delivered by those
 foundations. Accepted Step 4 slices add their own Resource APIs and canonical
 Skills, Instructions, Knowledge bases, My files, Models and Tools pages. Agent
-publication/deployment, Access, Workbench and Tenant-observability routes remain
-unlinked until their own server-backed slices land.
+definition APIs are documented in
+[Platform Agent definitions and publication](../capabilities/platform-agent-publication.md).
+Immutable releases/deployment, Access, Workbench and Tenant-observability routes
+remain unlinked until their own server-backed slices land.

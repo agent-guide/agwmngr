@@ -48,6 +48,11 @@ import type {
   CreateTenantToolDefinitionInput,
   TenantToolDefinition,
 } from "@/packages/contracts/platform/tools";
+import type {
+  AgentDefinition,
+  AgentDefinitionDraft,
+  SaveAgentDefinitionInput,
+} from "@/packages/contracts/platform/agents";
 
 export type {
   MembershipAddResolution,
@@ -101,6 +106,19 @@ export type {
   TenantToolDefinition,
   TenantToolDefinitionReference,
 } from "@/packages/contracts/platform/tools";
+export type {
+  ACPAgentAdvancedConfiguration,
+  AgentDefinition,
+  AgentDefinitionDependency,
+  AgentDefinitionDraft,
+  AgentDefinitionResourceSelection,
+  BuiltinAgentAdvancedConfiguration,
+  HTTPAgentAdvancedConfiguration,
+  PlatformAgentPolicy,
+  PlatformAgentRuntime,
+  PlatformAgentRuntimeType,
+  SaveAgentDefinitionInput,
+} from "@/packages/contracts/platform/agents";
 
 function tenantPath(tenantId: string, suffix: string): string {
   return `/api/platform/v1/tenants/${encodeURIComponent(tenantId)}${suffix}`;
@@ -768,4 +786,49 @@ export function updateTenantToolDefinition(
 
 export async function deleteTenantToolDefinition(tenantId: string, id: string): Promise<void> {
   await adminFetch(toolDefinitionsPath(tenantId, `/${encodeURIComponent(id)}`), { method: "DELETE" });
+}
+
+function agentDefinitionsPath(tenantId: string, suffix = ""): string {
+  return tenantPath(tenantId, `/agents${suffix}`);
+}
+
+export async function listAgentDefinitions(tenantId: string): Promise<AgentDefinition[]> {
+  const result = await adminFetch<{ items: AgentDefinition[] }>(agentDefinitionsPath(tenantId));
+  return result.items ?? [];
+}
+
+export function getAgentDefinition(tenantId: string, id: string): Promise<AgentDefinition> {
+  return adminFetch<AgentDefinition>(agentDefinitionsPath(tenantId, `/${encodeURIComponent(id)}`));
+}
+
+export function createAgentDefinition(
+  tenantId: string,
+  input: SaveAgentDefinitionInput,
+): Promise<AgentDefinition> {
+  return adminFetch<AgentDefinition>(agentDefinitionsPath(tenantId), {
+    method: "POST",
+    body: JSON.stringify({
+      slug: input.slug,
+      expected_version: input.expectedVersion,
+      draft: input.draft,
+    }),
+  });
+}
+
+export function updateAgentDefinition(
+  tenantId: string,
+  id: string,
+  expectedVersion: number,
+  draft: AgentDefinitionDraft,
+): Promise<AgentDefinition> {
+  return adminFetch<AgentDefinition>(agentDefinitionsPath(tenantId, `/${encodeURIComponent(id)}`), {
+    method: "PUT",
+    body: JSON.stringify({ expected_version: expectedVersion, draft }),
+  });
+}
+
+export async function archiveAgentDefinition(tenantId: string, id: string): Promise<void> {
+  await adminFetch(agentDefinitionsPath(tenantId, `/${encodeURIComponent(id)}`), {
+    method: "DELETE",
+  });
 }

@@ -19,6 +19,11 @@ export interface KnowledgeBase {
   updatedAt: string;
 }
 
+export interface KnowledgeBaseReference {
+  knowledgeBaseId: string;
+  updatedAt: string;
+}
+
 export interface KnowledgeDocument {
   id: string;
   knowledgeBaseId: string;

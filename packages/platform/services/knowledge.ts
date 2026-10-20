@@ -4,6 +4,7 @@ import {
   maxDocumentBytes,
   type DocumentUploadRequest,
   type KnowledgeBase,
+  type KnowledgeBaseReference,
   type KnowledgeDocument,
 } from "../../contracts/platform/knowledge";
 import type { PlatformActorReference, Principal } from "../../contracts/platform/identity";
@@ -133,6 +134,16 @@ export class KnowledgeService {
 
   async get(actor: PlatformActorReference, tenantId: string, id: string): Promise<KnowledgeBase> {
     return this.knowledge((await this.visibleKnowledge(actor, tenantId, id)).record);
+  }
+
+  async resolveReference(
+    actor: PlatformActorReference,
+    tenantId: string,
+    id: string,
+  ): Promise<KnowledgeBaseReference> {
+    const item = this.knowledge((await this.visibleKnowledge(actor, tenantId, id, true)).record);
+    await this.identity.authorizeTenant(actor, tenantId);
+    return { knowledgeBaseId: item.id, updatedAt: item.updatedAt };
   }
 
   async create(

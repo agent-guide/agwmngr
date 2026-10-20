@@ -1,7 +1,7 @@
 # Agent Resource Platform Design
 
 - Document type: **normative**
-- Status: **accepted target; Steps 0–4 implemented, publication and deployment pending**
+- Status: **accepted target; Steps 0–5A implemented, releases and deployment pending**
 - Applies to: `rebuild/agent-resource-platform`
 - Last reviewed: 2026-10-20
 
@@ -22,10 +22,10 @@ each step live in
 
 The Bun runtime and shared contract/service boundaries described in Step 1,
 the Principal/Tenant/membership/grant foundation in Step 2, the canonical
-scope shell plus delivered administration pages in Step 3, and all Step 4
-resource slices are implemented on the rebuild branch. Agent definitions,
-immutable releases, publication and deployment remain pending; completed
-resource CRUD alone implies none of those later capabilities.
+scope shell plus delivered administration pages in Step 3, all Step 4 resource
+slices, and Step 5A Agent definitions are implemented on the rebuild branch.
+Immutable releases, publication and deployment remain pending; completed draft
+authoring alone implies none of those later capabilities.
 
 ## 1. Objective
 
