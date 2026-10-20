@@ -1,7 +1,14 @@
 import { getPlatformDeployments } from "@/lib/platform-deployments";
 import { getPlatformDeploymentAccess } from "@/lib/platform-deployment-access";
+import { getPlatformDeploymentObservability } from "@/lib/platform-deployment-observability";
+import { consumePlatformTurn, forwardPlatformTurn } from "@/lib/platform-invocation-forward";
+import { platformObservationQuery } from "@/lib/platform-observation-query";
 import { platformIdentityBody, requiredText, withPlatformIdentity } from "@/lib/platform-access";
 import { IdentityError } from "@/packages/platform/services/identity";
+import {
+  deploymentObservationKinds,
+  type DeploymentObservationKind,
+} from "@/packages/contracts/platform/deployments";
 
 export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ tenantId: string; path?: string[] }> };
@@ -37,6 +44,29 @@ async function handler(request: Request, context: Context) {
     if (request.method === "GET" && path.length === 2 && path[1] === "operations") {
       const items = await deployments.history(actor, tenantId, path[0]);
       return Response.json({ items });
+    }
+    if (request.method === "GET" && path.length === 2 &&
+      deploymentObservationKinds.includes(path[1] as DeploymentObservationKind)) {
+      const service = await getPlatformDeploymentObservability();
+      const item = await service.observation(
+        actor,
+        tenantId,
+        path[0],
+        path[1] as DeploymentObservationKind,
+        platformObservationQuery(request.url),
+      );
+      audit.set({
+        action: `tenant:deployment_observation_${path[1]}`,
+        gatewayId: item.gatewayId,
+        effectiveAccess: "view",
+      });
+      return Response.json(item);
+    }
+    if (request.method === "GET" && path.length === 2 && path[1] === "operational") {
+      const service = await getPlatformDeploymentObservability();
+      const item = await service.operationalMetadata(actor, tenantId, path[0]);
+      audit.set({ gatewayId: item.gatewayId, effectiveAccess: "view" });
+      return Response.json(item);
     }
     if (request.method === "POST" && path.length === 2) {
       if (path[1] === "invocations") {
@@ -84,6 +114,64 @@ async function handler(request: Request, context: Context) {
         audit.set({ targetId: deploymentId, effectiveAccess: "manage" });
         return Response.json(operation, { status: operation.status === "succeeded" ? 200 : 202 });
       }
+    }
+    if (request.method === "POST" && path.length === 3 && path[1] === "permissions") {
+      const body = await platformIdentityBody(request, ["outcome", "option_id", "decisions"]);
+      if (body.outcome !== "selected" && body.outcome !== "cancelled" &&
+        body.outcome !== "cancel" &&
+        !Array.isArray(body.decisions)) {
+        throw new IdentityError("invalid_input", "a permission decision is required");
+      }
+      const service = await getPlatformDeploymentObservability();
+      const result = await service.resolvePermission(
+        actor,
+        tenantId,
+        path[0],
+        path[2],
+        body,
+        async () => {
+          const access = await getPlatformDeploymentAccess();
+          const invocation = await access.createInvocationContext(actor, tenantId, path[0]);
+          try {
+            const upstream = await access.withInvocation(
+              actor,
+              tenantId,
+              invocation.id,
+              (authorized) => forwardPlatformTurn(authorized, {
+                input: "",
+                permission: { request_id: path[2], ...body },
+                options: { version: "v1" },
+              }, request.signal),
+            );
+            await consumePlatformTurn(upstream);
+            return { status: "resolved", request_id: path[2], resumed: true };
+          } finally {
+            await access.completeInvocation(actor, tenantId, invocation.id);
+          }
+        },
+      );
+      audit.set({
+        action: "tenant:deployment_permission_resolve",
+        effectiveAccess: "manage",
+        targetKind: "agent_permission",
+        targetId: path[2],
+      });
+      return Response.json(result);
+    }
+    if (request.method === "DELETE" && path.length === 3 && path[1] === "runs") {
+      const mode = new URL(request.url).searchParams.get("mode") ?? "force";
+      if (mode !== "force" && mode !== "graceful") {
+        throw new IdentityError("invalid_input", "mode must be force or graceful");
+      }
+      const service = await getPlatformDeploymentObservability();
+      const result = await service.cancelRun(actor, tenantId, path[0], path[2], mode);
+      audit.set({
+        action: "tenant:deployment_run_cancel",
+        effectiveAccess: "manage",
+        targetKind: "agent_run",
+        targetId: path[2],
+      });
+      return Response.json(result);
     }
     if (request.method === "DELETE" && path.length === 1) {
       await deployments.cancel(actor, tenantId, path[0]);

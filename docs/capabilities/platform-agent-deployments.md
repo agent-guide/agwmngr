@@ -1,7 +1,7 @@
 # Platform Agent deployments
 
 - Document type: **normative**
-- Status: **Steps 6A–6C deployment, scoped Access and invocation APIs implemented**
+- Status: **Steps 6A–6D deployment, invocation, observation and runtime APIs implemented**
 - Applies to: `rebuild/agent-resource-platform` deployment-intent APIs
 - Last reviewed: 2026-10-21
 
@@ -13,8 +13,10 @@ bindings, route-ID reservations, manager-owned Virtual Key policy state and
 expiring invocation contexts. Step 6A exposes the local allocation boundary,
 Step 6B adds verified lifecycle operations over the server-only Gateway adapter,
 and Step 6C supplies the binding and invocation boundary needed to use a
-verified deployment without disclosing its bearer. Deployment observations and
-runtime administration remain unavailable until their later Step 6 slices land.
+verified deployment without disclosing its bearer. Step 6D adds grant-filtered
+Tenant observations, redacted operational metadata/runtime actions, Tenant
+audit, and path-qualified Platform Admin diagnostics and Gateway-only Agent
+compatibility.
 
 An active Tenant Admin with a live `tenant_gateway:manage` grant may create an
 intent for one immutable Agent release and one explicit active Gateway. Platform
@@ -69,6 +71,15 @@ upstream stable IDs, administrative credentials or bearer values.
 | `GET` | `/api/platform/v1/gateways/{gateway_id}/deployment-key-bindings` | Platform Admin binding state and eligible deployment candidates |
 | `PUT/DELETE` | `/api/platform/v1/gateways/{gateway_id}/deployment-key-bindings/{deployment_id}` | Bind or safely unbind the deployment's derived route ID |
 | `POST` | `/api/platform/v1/gateways/{gateway_id}/deployment-key-bindings/{deployment_id}/abandon` | Safely abandon a zero-write provisional binding |
+| `GET` | `/api/platform/v1/tenants/{tenant_id}/observations/{activity\|usage\|interactions\|health}` | Aggregate only deployments visible through the exact Tenant/Gateway view predicate |
+| `GET` | `/api/platform/v1/tenants/{tenant_id}/deployments/{deployment_id}/{activity\|usage\|interactions\|health}` | Read one authorized deployment observation |
+| `GET` | `/api/platform/v1/tenants/{tenant_id}/deployments/{deployment_id}/operational` | Read redacted session/run/permission metadata with exact view authority |
+| `POST` | `/api/platform/v1/tenants/{tenant_id}/deployments/{deployment_id}/permissions/{request_id}` | Resolve after an immediate manage and capability recheck |
+| `DELETE` | `/api/platform/v1/tenants/{tenant_id}/deployments/{deployment_id}/runs/{run_id}` | Cancel after an immediate manage and advertised-mode recheck |
+| `GET` | `/api/platform/v1/tenants/{tenant_id}/runtime-attention` | Union the caller's minimal live contexts with manage-visible pending work |
+| `GET` | `/api/platform/v1/tenants/{tenant_id}/audit` | Tenant Admin-only redacted Tenant audit |
+| `GET/DELETE` | `/api/platform/v1/gateways/{gateway_id}/runtime/*` | Platform Admin-only path-scoped runtime diagnostics/recovery |
+| `GET/POST/PUT/DELETE` | `/api/platform/v1/gateways/{gateway_id}/agents/*` | Platform Admin Gateway-only Agent compatibility, filtered against deployment pair fences |
 
 All mutation endpoints require a live Tenant Admin membership and the exact
 `tenant_gateway:manage` grant. Platform Admin status does not imply this
@@ -120,8 +131,7 @@ back to eligibility.
 
 ## Deferred to the remaining Step 6 slices
 
-The Gateway adapter is server-only and exposes narrow Agent, Agent-route and
-Virtual-Key policy operations. Steps 6D–6E own scoped observations, runtime
-actions, subject-wide remove-only decommission/startup recovery, the remaining
-specialized reconciliation paths and compatibility cutover. The final Step 6
-gate therefore does not pass yet.
+The Gateway adapter is server-only and exposes narrow Agent, Agent-route,
+runtime and Virtual-Key policy operations. Step 6E owns the deny-before-forward
+compatibility cutover, subject-wide remove-only decommission/startup recovery,
+the remaining specialized reconciliation paths and the final release gate.

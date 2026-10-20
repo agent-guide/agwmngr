@@ -67,7 +67,13 @@ import type {
   DeploymentInvocationContext,
   DeploymentKeyBinding,
   DeploymentKeyBindingCandidate,
+  DeploymentObservation,
+  DeploymentObservationKind,
+  DeploymentOperationalMetadata,
   DeploymentVirtualKeyReference,
+  OwnInvocationMetadata,
+  ManagedRuntimeAttention,
+  TenantRuntimeAttention,
   CreateAgentDeploymentInput,
 } from "@/packages/contracts/platform/deployments";
 
@@ -147,9 +153,15 @@ export type {
   DeploymentInvocationContext,
   DeploymentKeyBinding,
   DeploymentKeyBindingCandidate,
+  DeploymentObservation,
+  DeploymentObservationKind,
+  DeploymentOperationalMetadata,
   DeploymentVirtualKeyReference,
   DeploymentOperationKind,
   DeploymentOperationState,
+  OwnInvocationMetadata,
+  ManagedRuntimeAttention,
+  TenantRuntimeAttention,
 } from "@/packages/contracts/platform/deployments";
 
 function tenantPath(tenantId: string, suffix: string): string {
@@ -1127,5 +1139,107 @@ export function revealPlatformGatewayVirtualKey(
     `/api/platform/v1/gateways/${encodeURIComponent(gatewayId)}` +
       `/virtual-keys/${encodeURIComponent(keyId)}/reveal`,
     { method: "POST" },
+  );
+}
+
+export async function listDeploymentObservations(
+  tenantId: string,
+  kind: DeploymentObservationKind,
+): Promise<DeploymentObservation[]> {
+  const result = await adminFetch<{ items: DeploymentObservation[] }>(tenantPath(
+    tenantId,
+    `/observations/${kind}`,
+  ));
+  return result.items ?? [];
+}
+
+export function getDeploymentOperationalMetadata(
+  tenantId: string,
+  deploymentId: string,
+): Promise<DeploymentOperationalMetadata> {
+  return adminFetch(agentDeploymentsPath(
+    tenantId,
+    `/${encodeURIComponent(deploymentId)}/operational`,
+  ));
+}
+
+export function resolveDeploymentPermission(
+  tenantId: string,
+  deploymentId: string,
+  requestId: string,
+  decision: Record<string, unknown>,
+): Promise<unknown> {
+  return adminFetch(agentDeploymentsPath(
+    tenantId,
+    `/${encodeURIComponent(deploymentId)}/permissions/${encodeURIComponent(requestId)}`,
+  ), { method: "POST", body: JSON.stringify(decision) });
+}
+
+export function cancelDeploymentRun(
+  tenantId: string,
+  deploymentId: string,
+  runId: string,
+  mode: "force" | "graceful" = "force",
+): Promise<unknown> {
+  return adminFetch(agentDeploymentsPath(
+    tenantId,
+    `/${encodeURIComponent(deploymentId)}/runs/${encodeURIComponent(runId)}?mode=${mode}`,
+  ), { method: "DELETE" });
+}
+
+export async function listOwnInvocationMetadata(
+  tenantId: string,
+): Promise<OwnInvocationMetadata[]> {
+  const result = await adminFetch<{ own_invocations: OwnInvocationMetadata[] }>(tenantPath(
+    tenantId,
+    "/runtime-attention",
+  ));
+  return result.own_invocations ?? [];
+}
+
+export async function getTenantRuntimeAttention(
+  tenantId: string,
+): Promise<TenantRuntimeAttention> {
+  const result = await adminFetch<{
+    own_invocations: OwnInvocationMetadata[];
+    managed: ManagedRuntimeAttention[];
+  }>(tenantPath(tenantId, "/runtime-attention"));
+  return {
+    ownInvocations: result.own_invocations ?? [],
+    managed: result.managed ?? [],
+  };
+}
+
+export interface TenantAuditEntry {
+  id: number;
+  ts: string;
+  actor_principal_id: string | null;
+  effective_access: string | null;
+  action: string | null;
+  method: string | null;
+  target_kind: string | null;
+  target_id: string | null;
+  decision: "allow" | "deny";
+  failure_reason: string | null;
+  http_status: number | null;
+}
+
+export async function listTenantAudit(
+  tenantId: string,
+  limit = 100,
+): Promise<TenantAuditEntry[]> {
+  const result = await adminFetch<{ items: TenantAuditEntry[] }>(tenantPath(
+    tenantId,
+    `/audit?limit=${limit}`,
+  ));
+  return result.items ?? [];
+}
+
+export function getPlatformGatewayRuntime(
+  gatewayId: string,
+  runtime: "acp" | "builtin" | "mcp",
+): Promise<unknown> {
+  return adminFetch(
+    `/api/platform/v1/gateways/${encodeURIComponent(gatewayId)}/runtime/${runtime}`,
   );
 }

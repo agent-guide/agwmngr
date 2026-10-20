@@ -340,6 +340,36 @@ export class AgentDeploymentRegistry {
     } : null;
   }
 
+  async pairFencesForGateway(gatewayId: string): Promise<DeploymentPairFence[]> {
+    const rows = await this.database.query<{
+      gateway_id: string;
+      gateway_agent_id: string;
+      gateway_route_id: string;
+      deployment_id: string;
+      operation_id: string | null;
+      state: DeploymentPairFence["state"];
+      claim_epoch: number;
+      agent_digest: string | null;
+      route_digest: string | null;
+    }>(
+      `SELECT gateway_id, gateway_agent_id, gateway_route_id, deployment_id,
+              operation_id, state, claim_epoch, agent_digest, route_digest
+         FROM platform_deployment_pair_fences WHERE gateway_id = ?`,
+      [gatewayId],
+    );
+    return rows.map((row) => ({
+      gatewayId: row.gateway_id,
+      gatewayAgentId: row.gateway_agent_id,
+      gatewayRouteId: row.gateway_route_id,
+      deploymentId: row.deployment_id,
+      operationId: row.operation_id,
+      state: row.state,
+      claimEpoch: Number(row.claim_epoch),
+      agentDigest: row.agent_digest,
+      routeDigest: row.route_digest,
+    }));
+  }
+
   async operation(
     id: string,
     session: DatabaseSession = this.database,

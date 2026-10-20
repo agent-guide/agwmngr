@@ -1,12 +1,13 @@
 import { getGateway } from "./db";
 import { resolveGateway } from "./gateway-resolve";
-import type { AgentPayload } from "@/packages/contracts/gateway/agents";
+import type { AgentCapabilities, AgentPayload } from "@/packages/contracts/gateway/agents";
 import { gatewayRequestJSON } from "@/packages/gateway-client/admin";
 import type {
   GatewayAgentRouteDocument,
   GatewayDeploymentAdapter,
   GatewayVirtualKeyPolicy,
 } from "@/packages/platform/ports/deployment";
+import type { GatewayDeploymentRuntimeAdapter } from "@/packages/platform/ports/deployment-runtime";
 import { IdentityError } from "@/packages/platform/services/identity";
 
 const timeoutMs = 10_000;
@@ -125,7 +126,7 @@ function writableRoute(value: GatewayAgentRouteDocument) {
   };
 }
 
-export const platformDeploymentGateway: GatewayDeploymentAdapter = {
+export const platformDeploymentGateway: GatewayDeploymentAdapter & GatewayDeploymentRuntimeAdapter = {
   async readAgent(gatewayId, agentId) {
     return await request(
       gatewayId,
@@ -224,5 +225,34 @@ export const platformDeploymentGateway: GatewayDeploymentAdapter = {
   },
   async deleteVirtualKey(gatewayId, keyId) {
     await request(gatewayId, "DELETE", `/admin/virtual_keys/${encodeURIComponent(keyId)}`);
+  },
+  async readAgentResource(gatewayId, agentId, resource, query = "") {
+    return await request(
+      gatewayId,
+      "GET",
+      `/admin/agents/${encodeURIComponent(agentId)}/${resource}${query}`,
+    );
+  },
+  async readAgentCapabilities(gatewayId, agentId) {
+    return object(await request(
+      gatewayId,
+      "GET",
+      `/admin/agents/${encodeURIComponent(agentId)}/capabilities`,
+    ), "Agent capabilities") as unknown as AgentCapabilities;
+  },
+  async resolveAgentPermission(gatewayId, agentId, requestId, decision) {
+    return await request(
+      gatewayId,
+      "POST",
+      `/admin/agents/${encodeURIComponent(agentId)}/permissions/${encodeURIComponent(requestId)}`,
+      decision,
+    );
+  },
+  async cancelAgentRun(gatewayId, agentId, runId, mode) {
+    return await request(
+      gatewayId,
+      "DELETE",
+      `/admin/agents/${encodeURIComponent(agentId)}/runs/${encodeURIComponent(runId)}?mode=${mode}`,
+    );
   },
 };

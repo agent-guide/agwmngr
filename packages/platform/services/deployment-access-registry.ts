@@ -154,6 +154,19 @@ export class DeploymentAccessRegistry {
     return row ? keyPolicy(row) : null;
   }
 
+  async invocationContextsForPrincipal(
+    principalId: string,
+    tenantId: string,
+  ): Promise<StoredInvocationContext[]> {
+    return (await this.database.query<ContextRow>(
+      `SELECT ${contextColumns} FROM platform_deployment_invocation_contexts
+        WHERE principal_id = ? AND tenant_id = ?
+          AND completed_at IS NULL
+        ORDER BY created_at DESC`,
+      [principalId, tenantId],
+    )).map(invocationContext);
+  }
+
   async beginKeyMutation(input: {
     gatewayId: string;
     keyId: string;

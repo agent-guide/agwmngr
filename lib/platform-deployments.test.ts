@@ -9,10 +9,12 @@ import type {
   GatewayDeploymentAdapter,
   GatewayVirtualKeyPolicy,
 } from "@/packages/platform/ports/deployment";
+import type { GatewayDeploymentRuntimeAdapter } from "@/packages/platform/ports/deployment-runtime";
 import { AgentReleaseRegistry } from "@/packages/platform/services/agent-release-registry";
 import { AgentDeploymentRegistry } from "@/packages/platform/services/deployment-registry";
 import { DeploymentAccessRegistry } from "@/packages/platform/services/deployment-access-registry";
 import { DeploymentAccessService } from "@/packages/platform/services/deployment-access";
+import { DeploymentObservabilityService } from "@/packages/platform/services/deployment-observability";
 import {
   AgentDeploymentService,
   virtualKeyPolicyValue,
@@ -28,12 +30,14 @@ const operator: PlatformActorReference = { kind: "human", userId: 1 };
 const alice: PlatformActorReference = { kind: "human", userId: 2 };
 const bob: PlatformActorReference = { kind: "human", userId: 3 };
 
-class MemoryDeploymentGateway implements GatewayDeploymentAdapter {
+class MemoryDeploymentGateway implements GatewayDeploymentAdapter, GatewayDeploymentRuntimeAdapter {
   readonly agents = new Map<string, AgentPayload>();
   readonly routes = new Map<string, GatewayAgentRouteDocument>();
   readonly keys = new Map<string, GatewayVirtualKeyPolicy>();
   readonly writes: string[] = [];
   failNextRouteCreate = false;
+  sessionListingSupported = true;
+  permissionResumeMode: "active_stream" | "new_stream" = "new_stream";
 
   async readAgent(_gatewayId: string, agentId: string) {
     return structuredClone(this.agents.get(agentId) ?? null);
@@ -109,6 +113,57 @@ class MemoryDeploymentGateway implements GatewayDeploymentAdapter {
   async deleteVirtualKey(_gatewayId: string, keyId: string) {
     this.writes.push(`delete-key:${keyId}`);
     this.keys.delete(keyId);
+  }
+  async readAgentResource(
+    _gatewayId: string,
+    agentId: string,
+    resource: "activity" | "usage" | "interactions" | "health" |
+      "sessions" | "runs" | "permissions",
+  ) {
+    if (resource === "health") return { agent_id: agentId, healthy: true };
+    if (resource === "sessions") {
+      if (!this.sessionListingSupported) throw new Error("session listing is not supported");
+      return { sessions: [{ session_id: "session:one", title: "private title", details: { secret: true } }] };
+    }
+    if (resource === "runs") {
+      return { items: [{ run_id: "run:one", session_id: "session:one", state: "running", started_at: "now", input: "secret" }] };
+    }
+    if (resource === "permissions") {
+      return { items: [{
+        request_id: "permission:one",
+        run_id: "run:one",
+        resume_mode: this.permissionResumeMode,
+        actions: this.permissionResumeMode === "new_stream"
+          ? [{ action_id: "call:one", name: "Read file" }]
+          : undefined,
+        options: this.permissionResumeMode === "active_stream"
+          ? [{ option_id: "allow-once", name: "Allow once" }]
+          : undefined,
+      }] };
+    }
+    if (resource === "activity") {
+      return {
+        interactions: [{ id: "interaction:one" }],
+        pending_permissions: [{ request_id: "permission:one", run_id: "run:one" }],
+      };
+    }
+    return { items: [{ agent_id: agentId, resource }] };
+  }
+  async readAgentCapabilities() {
+    return {
+      executable: true,
+      sessions: { resume: true, list: this.sessionListingSupported },
+      permissions: { interactive: true, resume_mode: this.permissionResumeMode },
+      cancellation: { force: true, graceful: false },
+    };
+  }
+  async resolveAgentPermission(_gatewayId: string, agentId: string, requestId: string) {
+    this.writes.push(`resolve-permission:${agentId}:${requestId}`);
+    return { status: "resolved" };
+  }
+  async cancelAgentRun(_gatewayId: string, agentId: string, runId: string, mode: "force" | "graceful") {
+    this.writes.push(`cancel-run:${agentId}:${runId}:${mode}`);
+    return { run_id: runId, state: "cancelled" };
   }
 }
 
@@ -263,6 +318,12 @@ async function verifyDeploymentIntents(database: PlatformDatabase) {
     new AgentDeploymentRegistry(database),
     identity,
     runtime,
+    gateway,
+  );
+  const observability = new DeploymentObservabilityService(
+    service,
+    new DeploymentAccessRegistry(database),
+    identity,
     gateway,
   );
 
@@ -453,6 +514,79 @@ async function verifyDeploymentIntents(database: PlatformDatabase) {
     return undefined;
   });
   expect(forwardedBearer).toBe("bearer:key:access");
+  expect(await observability.observations(alice, "alpha", "health")).toContainEqual(
+    expect.objectContaining({
+      deploymentId: accessible.id,
+      gatewayId: "prod",
+      data: { agent_id: accessible.target.gatewayAgentId, healthy: true },
+    }),
+  );
+  expect(await observability.observations(alice, "alpha", "activity")).toContainEqual(
+    expect.objectContaining({
+      deploymentId: accessible.id,
+      data: expect.objectContaining({
+        pending_permissions: [expect.objectContaining({ request_id: "permission:one" })],
+      }),
+    }),
+  );
+  await identity.setTenantGatewayGrant(operator, "user:2", "alpha", "prod", "view");
+  const viewActivity = (await observability.observations(alice, "alpha", "activity"))
+    .find((item) => item.deploymentId === accessible.id);
+  expect(viewActivity?.data).toEqual({ interactions: [{ id: "interaction:one" }] });
+  expect((await observability.operationalMetadata(alice, "alpha", accessible.id)).permissions)
+    .toEqual([]);
+  await identity.setTenantGatewayGrant(operator, "user:2", "alpha", "prod", "manage");
+  await expect(observability.observations(bob, "alpha", "health"))
+    .rejects.toMatchObject({ code: "forbidden" });
+  await expect(observability.observations(operator, "alpha", "health"))
+    .rejects.toMatchObject({ code: "forbidden" });
+  expect(await observability.ownInvocations(bob, "alpha")).toContainEqual(
+    expect.objectContaining({ contextId: invocation.id, deploymentId: accessible.id }),
+  );
+  expect(await observability.runtimeAttention(bob, "alpha")).toMatchObject({
+    ownInvocations: [expect.objectContaining({ contextId: invocation.id })],
+    managed: [],
+  });
+  expect((await observability.runtimeAttention(alice, "alpha")).managed).toContainEqual(
+    expect.objectContaining({
+      deploymentId: accessible.id,
+      pendingPermissions: [expect.objectContaining({ request_id: "permission:one" })],
+      runningRuns: [expect.objectContaining({ run_id: "run:one" })],
+    }),
+  );
+  const operational = await observability.operationalMetadata(alice, "alpha", accessible.id);
+  expect(operational.sessions).toEqual([{
+    session_id: "session:one", updated_at: undefined,
+  }]);
+  expect(JSON.stringify(operational)).not.toContain("secret");
+  gateway.sessionListingSupported = false;
+  expect((await observability.operationalMetadata(alice, "alpha", accessible.id)).sessions)
+    .toEqual([]);
+  gateway.sessionListingSupported = true;
+  await expect(observability.resolvePermission(
+    alice, "alpha", accessible.id, "permission:one", {
+      decisions: [{ action_id: "call:one", outcome: "allow" }],
+    },
+  )).rejects.toMatchObject({ code: "conflict" });
+  let resumed = false;
+  await observability.resolvePermission(
+    alice, "alpha", accessible.id, "permission:one", {
+      decisions: [{ action_id: "call:one", outcome: "allow" }],
+    }, async () => { resumed = true; return { status: "resolved" }; },
+  );
+  expect(resumed).toBe(true);
+  expect(gateway.writes).not.toContain(`resolve-permission:${accessible.target.gatewayAgentId}:permission:one`);
+  gateway.permissionResumeMode = "active_stream";
+  await observability.resolvePermission(
+    alice, "alpha", accessible.id, "permission:one", {
+      outcome: "selected", option_id: "allow-once",
+    },
+  );
+  await observability.cancelRun(alice, "alpha", accessible.id, "run:one", "force");
+  await expect(observability.cancelRun(alice, "alpha", accessible.id, "run:one", "graceful"))
+    .rejects.toMatchObject({ code: "conflict" });
+  expect(gateway.writes).toContain(`resolve-permission:${accessible.target.gatewayAgentId}:permission:one`);
+  expect(gateway.writes).toContain(`cancel-run:${accessible.target.gatewayAgentId}:run:one:force`);
   await expect(deploymentAccess.createInvocationContext(
     operator,
     "alpha",

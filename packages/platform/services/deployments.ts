@@ -722,6 +722,16 @@ export class AgentDeploymentService {
     return projection(item);
   }
 
+  async authorizeRuntime(
+    actor: PlatformActorReference,
+    tenantId: string,
+    deploymentId: string,
+    access: "view" | "manage",
+  ): Promise<AgentDeployment> {
+    await this.identity.authorizeTenant(actor, tenantId, "admin");
+    return projection(await this.managed(actor, tenantId, deploymentId, access));
+  }
+
   async history(
     actor: PlatformActorReference,
     tenantId: string,

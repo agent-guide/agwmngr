@@ -133,3 +133,58 @@ export interface DeploymentInvocationContext {
   expiresAt: string;
   completedAt: string | null;
 }
+
+export const deploymentObservationKinds = [
+  "activity",
+  "usage",
+  "interactions",
+  "health",
+] as const;
+
+export type DeploymentObservationKind = (typeof deploymentObservationKinds)[number];
+
+export interface DeploymentObservation {
+  deploymentId: string;
+  tenantId: string;
+  definitionId: string;
+  releaseId: string | null;
+  gatewayId: string;
+  gatewayAgentId: string;
+  kind: DeploymentObservationKind;
+  data: unknown;
+}
+
+export interface DeploymentOperationalMetadata {
+  deploymentId: string;
+  tenantId: string;
+  gatewayId: string;
+  gatewayAgentId: string;
+  sessions: unknown[];
+  runs: unknown[];
+  permissions: unknown[];
+}
+
+export interface OwnInvocationMetadata {
+  contextId: string;
+  deploymentId: string;
+  tenantId: string;
+  gatewayId: string;
+  gatewayAgentId: string;
+  keyId: string;
+  expiresAt: string;
+  completedAt: string | null;
+}
+
+export interface ManagedRuntimeAttention {
+  deploymentId: string;
+  tenantId: string;
+  gatewayId: string;
+  gatewayAgentId: string;
+  pendingPermissions: unknown[];
+  runningRuns: unknown[];
+}
+
+export interface TenantRuntimeAttention {
+  ownInvocations: OwnInvocationMetadata[];
+  managed: ManagedRuntimeAttention[];
+}

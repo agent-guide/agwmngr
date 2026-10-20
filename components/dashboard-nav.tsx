@@ -239,6 +239,14 @@ export function DashboardNav() {
           href: `/dashboard/tenant/${encodeURIComponent(tenantAdminId)}/members`,
           labelKey: "nav.members",
           icon: IconUsers,
+        }, {
+          href: `/dashboard/tenant/${encodeURIComponent(tenantAdminId)}/observability`,
+          labelKey: "nav.observability",
+          icon: IconActivity,
+        }, {
+          href: `/dashboard/tenant/${encodeURIComponent(tenantAdminId)}/audit`,
+          labelKey: "nav.auditLog",
+          icon: IconActivity,
         }],
       }
     : null;

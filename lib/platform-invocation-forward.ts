@@ -71,3 +71,70 @@ export function forwardPlatformPermission(
 ): Promise<Response> {
   return forward(authorized, "/permission", body, signal);
 }
+
+function turnError(frame: string): string | null {
+  let event = "message";
+  const data: string[] = [];
+  for (const line of frame.split("\n")) {
+    if (line.startsWith("event:")) event = line.slice("event:".length).trim();
+    if (line.startsWith("data:")) data.push(line.slice("data:".length).trim());
+  }
+  if (event !== "error") return null;
+  try {
+    const value = JSON.parse(data.join("\n")) as { message?: unknown; error?: unknown };
+    if (typeof value.message === "string" && value.message) return value.message;
+    if (typeof value.error === "string" && value.error) return value.error;
+  } catch {
+    // Fall through to the stable public error below.
+  }
+  return "Agent permission continuation failed";
+}
+
+/**
+ * Fully consume a new-stream permission continuation. Operational callers do
+ * not own the original browser stream, but the Gateway still requires the SSE
+ * response to be driven to completion before the suspended builtin run resumes.
+ */
+export async function consumePlatformTurn(response: Response): Promise<void> {
+  if (!response.ok || !response.body) {
+    let message = `Agent permission continuation failed (${response.status})`;
+    try {
+      const value = await response.json() as { message?: unknown; error?: unknown };
+      if (typeof value.message === "string" && value.message) message = value.message;
+      else if (typeof value.error === "string" && value.error) message = value.error;
+    } catch {
+      // Keep the bounded status-only fallback.
+    }
+    throw new IdentityError("conflict", message);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+      if (buffer.length > 1024 * 1024 && !buffer.includes("\n\n")) {
+        throw new IdentityError("conflict", "Agent permission continuation emitted an oversized event");
+      }
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() ?? "";
+      for (const frame of frames) {
+        const message = turnError(frame);
+        if (message) throw new IdentityError("conflict", message);
+      }
+    }
+    buffer += decoder.decode().replace(/\r\n/g, "\n");
+    if (buffer.trim()) {
+      const message = turnError(buffer);
+      if (message) throw new IdentityError("conflict", message);
+    }
+  } catch (error) {
+    await reader.cancel(error).catch(() => {});
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+}

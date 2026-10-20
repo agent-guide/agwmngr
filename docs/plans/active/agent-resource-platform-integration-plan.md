@@ -1312,6 +1312,20 @@ compatibility cutover remain in the following Step 6 work.
 - connect the canonical Tenant observation, audit and Workbench UI before
   removing its legacy data source.
 
+Completed (2026-10-21): Tenant aggregate and per-deployment activity, usage,
+interaction and health endpoints now reuse the exact Tenant Admin plus
+Tenant/Gateway `view|manage` predicate. Redacted session/run/permission metadata
+and capability-checked permission/run mutations use deployment IDs rather than
+accepting Gateway Agent IDs. Runtime attention keeps a Tenant member's own
+minimal invocation contexts separate from other-Principals' records, which are
+included only with `manage`. Tenant audit is path-qualified, Tenant Admin-only
+and omits infrastructure/request/secret fields. Platform Admin runtime
+diagnostics and Gateway-only Agent/route compatibility are explicitly scoped by
+the URL Gateway and filter all current deployment pair fences after upstream
+collection. Canonical Tenant observation/audit, Workbench attention and Gateway
+runtime pages consume these APIs. The Step 6E allowlist cutover and final
+recovery/reconciliation gate remain pending.
+
 ### 6E. Target access cutover
 
 - expose Tenant deployment views through APIs that enforce the exact

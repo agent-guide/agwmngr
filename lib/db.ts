@@ -912,5 +912,41 @@ export function listAudit(filters: AuditFilters = {}): AuditRow[] {
   );
 }
 
+export interface TenantAuditRow {
+  id: number;
+  ts: string;
+  actor_principal_id: string | null;
+  effective_access: string | null;
+  action: string | null;
+  method: string | null;
+  target_kind: string | null;
+  target_id: string | null;
+  decision: "allow" | "deny";
+  failure_reason: string | null;
+  http_status: number | null;
+}
+
+export function listTenantAudit(
+  tenantId: string,
+  options: { before?: number; limit?: number } = {},
+): TenantAuditRow[] {
+  const limit = Math.min(Math.max(options.limit ?? 100, 1), 300);
+  const params: unknown[] = [tenantId];
+  const before = options.before && Number.isSafeInteger(options.before) && options.before > 0
+    ? " AND id < ?" : "";
+  if (before) params.push(options.before);
+  params.push(limit);
+  return getDb().all<TenantAuditRow>(
+    `SELECT id, ts, actor_principal_id, effective_access, action, method,
+            target_kind, target_id, decision, failure_reason, http_status
+       FROM audit_log
+      WHERE tenant_id = ?${before}
+        AND action NOT LIKE 'platform:%'
+      ORDER BY id DESC
+      LIMIT ?`,
+    params,
+  );
+}
+
 // Re-export bcrypt so callers needing to hash on write share one implementation.
 export { bcrypt };
