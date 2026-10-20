@@ -72,6 +72,7 @@ type NavGroup = {
 // The WORKSPACE zone is the agent-centric focus: the agent itself plus the
 // day-to-day views for working with it. It stays always-visible at the top.
 const WORKSPACE_PRIMARY_ITEMS: NavItem[] = [
+  { href: "/dashboard", labelKey: "nav.workbench", icon: IconHome },
   { href: "/dashboard/general/overview", labelKey: "nav.overview", icon: IconHome },
   { href: "/dashboard/agents", labelKey: "nav.agents", icon: IconAgent },
   { href: "/dashboard/agents/routes", labelKey: "nav.agentRoutes", icon: IconRoute },
@@ -192,7 +193,13 @@ export function DashboardNav() {
   const hasGatewayContentAccess = Boolean(
     user?.is_platform_admin || activeGateway?.role === "admin",
   );
-  const workspacePrimaryItems = hasGatewayContentAccess ? WORKSPACE_PRIMARY_ITEMS : [];
+  const hasPlatformResourceAccess = Boolean(platformAccess?.memberships.length);
+  const workspacePrimaryItems = WORKSPACE_PRIMARY_ITEMS.filter((item) => {
+    if (item.href === "/dashboard" || item.href === "/dashboard/agents") {
+      return hasPlatformResourceAccess || hasGatewayContentAccess;
+    }
+    return hasGatewayContentAccess;
+  });
 
   // Virtual Keys is no longer Platform-Admin-only: the manager's own handlers
   // redact the bearer out of every list/get, so Gateway Admin may manage keys

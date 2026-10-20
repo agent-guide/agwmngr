@@ -41,9 +41,10 @@ the corresponding code is implemented on `dev`. Read the applicable documents
 before changing platform identities, Tenant resources, Agent publication,
 Gateway deployment authorization or canonical dashboard routes.
 
-`docs/capabilities/platform-agent-publication.md` records the implemented
-Agent-definition boundary and the still-pending release/publication slice. Read
-it before changing Agent drafts, dependency snapshots or publication APIs.
+`docs/capabilities/platform-agent-publication.md` records the implemented Agent
+definition and immutable release boundary plus the still-pending deployment
+slice. Read it before changing Agent drafts, dependency snapshots, publication
+APIs or their Tenant projections.
 
 ## Build and Run
 

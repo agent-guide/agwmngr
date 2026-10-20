@@ -545,7 +545,7 @@ export default function ApiKeysPage() {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="truncate font-mono text-xs font-medium text-slate-100">{apiKey.id}</p>
-                    <UsedByAgents agentIds={attribution?.virtualKey[apiKey.id]} />
+                    <UsedByAgents agentIds={attribution?.virtualKey[apiKey.id]} source="gateway" />
                   </div>
                   <p className="mt-0.5 truncate font-mono text-xs text-slate-400">{keyLabel(apiKey, t("virtualKeys.noStoredKey"), t("virtualKeys.keyHidden"))}</p>
                   {rateLimitSummary(apiKey.rate_limits, t("virtualKeys.burst")) && (

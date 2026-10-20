@@ -8,6 +8,7 @@ import {
   type AuthoredResourceKind,
   type AuthoredResourceRevision,
   type AuthoredResourceRevisionReference,
+  type AuthoredResourceRevisionSnapshot,
   type CreateAuthoredResourceInput,
 } from "../../contracts/platform/authored-resources";
 import {
@@ -259,6 +260,36 @@ export class AuthoredResourceService {
     }
     await this.identity.authorizeTenant(actor, tenantId);
     throw new IdentityError("not_found", `${kind} revision not found`);
+  }
+
+  async resolvePublishedRevision(
+    actor: PlatformActorReference,
+    tenantId: string,
+    kind: AuthoredResourceKind,
+    revisionId: string,
+  ): Promise<AuthoredResourceRevisionSnapshot> {
+    await this.identity.authorizeTenant(actor, tenantId);
+    const resources = await this.registry.listForTenant(tenantId, resourceKind(kind));
+    for (const resource of resources) {
+      const revision = (await this.registry.revisions(resource.id)).find(
+        (candidate) => candidate.id === revisionId && candidate.status === "published",
+      );
+      if (!revision) continue;
+      await this.identity.authorizeTenant(actor, tenantId);
+      return {
+        resourceId: resource.id,
+        kind: resource.kind,
+        revisionId: revision.id,
+        revisionNumber: revision.number,
+        status: "published",
+        contentHash: revision.contentHash,
+        name: resource.name,
+        description: resource.description,
+        content: JSON.parse(revision.contentJson) as AuthoredResourceContent,
+      };
+    }
+    await this.identity.authorizeTenant(actor, tenantId);
+    throw new IdentityError("conflict", `${kind} revision is missing, archived or unpublished`);
   }
 
   private async visibleTenantRecord(actor: PlatformActorReference, tenantId: string, kind: AuthoredResourceKind, id: string): Promise<StoredAuthoredResource> {

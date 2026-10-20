@@ -127,3 +127,17 @@ export interface SaveAgentDefinitionInput {
   expectedVersion: number;
   draft: AgentDefinitionDraft;
 }
+
+export interface AgentRelease {
+  id: string;
+  definitionId: string;
+  tenantId: string;
+  number: number;
+  draftVersion: number;
+  snapshot: AgentDefinitionDraft;
+  dependencies: AgentDefinitionDependency[];
+  runtimeType: "builtin";
+  digest: string;
+  createdByPrincipalId: string;
+  createdAt: string;
+}

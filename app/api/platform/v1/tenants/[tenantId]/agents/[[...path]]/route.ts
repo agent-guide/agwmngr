@@ -1,4 +1,4 @@
-import { getPlatformAgentDefinitions } from "@/lib/platform-agent-definitions";
+import { getPlatformAgentDefinitions, getPlatformAgentReleases } from "@/lib/platform-agent-definitions";
 import { platformIdentityBody, requiredText, withPlatformIdentity } from "@/lib/platform-access";
 import type { AgentDefinitionDraft } from "@/packages/contracts/platform/agents";
 import { IdentityError } from "@/packages/platform/services/identity";
@@ -31,6 +31,23 @@ async function handler(request: Request, context: Context) {
     }
     if (request.method === "GET" && path.length === 1) {
       return Response.json(await service.get(actor, tenantId, path[0]));
+    }
+    if (request.method === "GET" && path.length === 2 && path[1] === "releases") {
+      audit.set({ action: "tenant:agent_release_get", targetKind: "agent_release" });
+      return Response.json({ items: await (await getPlatformAgentReleases()).list(actor, tenantId, path[0]) });
+    }
+    if (request.method === "POST" && path.length === 2 && path[1] === "releases") {
+      audit.set({ action: "tenant:agent_release_post", targetKind: "agent_release" });
+      const body = await platformIdentityBody(request, ["expected_version"]);
+      const item = await (await getPlatformAgentReleases()).create(
+        actor, tenantId, path[0], body.expected_version as number,
+      );
+      audit.set({ targetId: item.id });
+      return Response.json(item, { status: 201 });
+    }
+    if (request.method === "GET" && path.length === 3 && path[1] === "releases") {
+      audit.set({ action: "tenant:agent_release_get", targetKind: "agent_release", targetId: path[2] });
+      return Response.json(await (await getPlatformAgentReleases()).get(actor, tenantId, path[0], path[2]));
     }
     if (request.method === "PUT" && path.length === 1) {
       const body = await platformIdentityBody(request, ["expected_version", "draft"]);

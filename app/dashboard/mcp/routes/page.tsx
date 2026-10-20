@@ -275,7 +275,7 @@ export default function MCPRoutesPage() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-xs font-semibold text-slate-100">{route.id}</span>
-                    <UsedByAgents agentIds={attribution?.mcpRoute[route.id]} />
+                    <UsedByAgents agentIds={attribution?.mcpRoute[route.id]} source="gateway" />
                     <span className="inline-flex items-center gap-1 rounded-sm border border-slate-700/60 bg-slate-800/50 px-1.5 py-0.5 font-mono text-[10px] text-slate-300">
                       <span className="text-slate-600">service:</span>{route.service_id}
                     </span>

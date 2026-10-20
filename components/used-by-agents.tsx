@@ -10,9 +10,21 @@ import { useI18n } from "@/components/i18n-provider";
  * direct link to the sole owning agent when there is exactly one, and a
  * tooltip listing all owners otherwise.
  */
-export function UsedByAgents({ agentIds, className }: { agentIds?: string[]; className?: string }) {
+export function UsedByAgents({
+  agentIds,
+  className,
+  source,
+}: {
+  agentIds?: string[] | null;
+  className?: string;
+  source?: "platform" | "gateway";
+}) {
   const ids = agentIds ?? [];
   const { t } = useI18n();
+
+  if (agentIds === null) {
+    return <span className={className ?? "text-[10px] uppercase tracking-wide text-slate-600"}>—</span>;
+  }
 
   if (ids.length === 0) {
     return <span className={className ?? "text-[10px] uppercase tracking-wide text-slate-600"}>{t("attribution.unused")}</span>;
@@ -26,7 +38,7 @@ export function UsedByAgents({ agentIds, className }: { agentIds?: string[]; cla
 
   if (ids.length === 1) {
     return (
-      <Link href={`/dashboard/agents/${encodeURIComponent(ids[0])}`} className={className} title={t("attribution.usedBy", { agents: ids[0] })}>
+      <Link href={`/dashboard/agents/${encodeURIComponent(ids[0])}${source === "gateway" ? "?source=gateway" : ""}`} className={className} title={t("attribution.usedBy", { agents: ids[0] })}>
         {chip}
       </Link>
     );

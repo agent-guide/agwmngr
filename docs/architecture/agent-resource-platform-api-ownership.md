@@ -121,19 +121,19 @@ upstream bearer. Only its server-side Platform Admin projection contains the
 source Gateway ID and upstream stable ID. Tenant responses contain the offering
 ID, kind, version and digest but no infrastructure binding identifiers.
 
-## 4. What Steps 1B–5A do not establish
+## 4. What Steps 1B–5 do not establish
 
 The following remain unimplemented:
 
 - target deployment authorization (Tenant Gateway grant persistence and live
   evaluation are implemented, but no deployment service consumes them yet);
-- immutable Agent releases and deployment mappings; Step 5A definitions are
-  owned by explicit Tenant-scoped handlers and platform services;
+- deployment mappings; Step 5 definitions and immutable releases are owned by
+  explicit Tenant-scoped handlers and platform services;
 - workers, jobs or remote object storage; and
-- target authorization coverage for Agent publication, deployment, Access,
-  Workbench and Tenant-observability UI; delivered Step 3 administration and
-  Step 4 Resource surfaces already use the target vocabulary within their
-  implemented slices.
+- target authorization coverage for deployment, Access and Tenant-observability
+  UI; Agent publication and Workbench now use Tenant-readable platform APIs,
+  while delivered Step 3 administration and Step 4 Resource surfaces already
+  use the target vocabulary within their implemented slices.
 
 The old feature commit `ca12d554385efe84296bbd2b228d2190f5427ba3` was used as
 structural evidence. Its premature platform-resource types and its dependency on
@@ -154,5 +154,6 @@ foundations. Accepted Step 4 slices add their own Resource APIs and canonical
 Skills, Instructions, Knowledge bases, My files, Models and Tools pages. Agent
 definition APIs are documented in
 [Platform Agent definitions and publication](../capabilities/platform-agent-publication.md).
-Immutable releases/deployment, Access, Workbench and Tenant-observability routes
-remain unlinked until their own server-backed slices land.
+Deployment, Access and Tenant-observability routes remain unlinked until their
+own server-backed slices land. Immutable release and Workbench surfaces landed
+in Step 5.

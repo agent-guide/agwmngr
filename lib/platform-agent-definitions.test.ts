@@ -5,7 +5,9 @@ import type { PlatformActorReference } from "@/packages/contracts/platform/ident
 import type { PlatformDatabase } from "@/packages/platform/ports/database";
 import type { ObjectStore } from "@/packages/platform/ports/objects";
 import { AgentDefinitionRegistry } from "@/packages/platform/services/agent-definition-registry";
-import { AgentDefinitionService } from "@/packages/platform/services/agent-definitions";
+import { AgentDefinitionService, canonicalAgentValue } from "@/packages/platform/services/agent-definitions";
+import { AgentReleaseRegistry } from "@/packages/platform/services/agent-release-registry";
+import { AgentReleaseService } from "@/packages/platform/services/agent-releases";
 import { AuthoredResourceRegistry } from "@/packages/platform/services/authored-resource-registry";
 import { AuthoredResourceService } from "@/packages/platform/services/authored-resources";
 import { CatalogRegistry } from "@/packages/platform/services/catalog-registry";
@@ -77,7 +79,7 @@ async function verifyAgentDefinitions(database: PlatformDatabase) {
       async findUser(id) { return users.get(id) ?? null; },
       async findUserByUsername(username) { return [...users.values()].find((user) => user.username === username) ?? null; },
       async listUsers() { return [...users.values()]; },
-      async findGateway() { return null; },
+      async findGateway(id) { return id === "prod" ? { id, active: true, authorityEpoch: 1 } : null; },
     },
     { digest: (token) => `digest:${token}`, issue: () => ({ id: "credential:test", token: `agwmngr_svc_${"1".repeat(64)}`, digest: "digest:test" }) },
     { digest: (token) => `receipt:${token}`, issue: () => ({ token: `agwmngr_member_${"2".repeat(64)}`, digest: "receipt:test" }) },
@@ -85,7 +87,7 @@ async function verifyAgentDefinitions(database: PlatformDatabase) {
   );
   const catalog = new PlatformCatalogService(
     new CatalogRegistry(database), identity,
-    { async findGateway() { return null; } },
+    { async findGateway(id) { return id === "prod" ? { id, active: true, authorityEpoch: 1 } : null; } },
     { digest: runtime.hash, now: runtime.now },
   );
   const capabilities = { async check() { return { available: true as const }; } };
@@ -100,6 +102,9 @@ async function verifyAgentDefinitions(database: PlatformDatabase) {
   const agents = new AgentDefinitionService(
     new AgentDefinitionRegistry(database), identity, authored, knowledge, models, tools, runtime,
   );
+  const releases = new AgentReleaseService(
+    new AgentReleaseRegistry(database), identity, agents, authored, models, tools, catalog, runtime,
+  );
   const operator: PlatformActorReference = { kind: "human", userId: 1 };
   const alice: PlatformActorReference = { kind: "human", userId: 2 };
   const bob: PlatformActorReference = { kind: "human", userId: 3 };
@@ -110,7 +115,9 @@ async function verifyAgentDefinitions(database: PlatformDatabase) {
 
   for (const [offeringId, category] of [["chat-model", "model"], ["search-tool", "tool"]] as const) {
     await catalog.createOffering(operator, {
-      offeringId, category, name: offeringId, description: "", kind: "platform-native",
+      offeringId, category, name: offeringId, description: "", kind: "gateway-backed",
+      sourceGatewayId: "prod",
+      upstreamStableId: category === "model" ? "chat-route" : "mcp:search:query",
       availability: { mode: "tenant-allowlist", tenantIds: ["alpha"] },
     });
     await catalog.approveOffering(operator, offeringId);
@@ -178,14 +185,36 @@ async function verifyAgentDefinitions(database: PlatformDatabase) {
   await expect(models.remove(alice, "alpha", model.id)).rejects.toMatchObject({ code: "conflict" });
   await expect(knowledge.remove(alice, "alpha", knowledgeBase.id)).rejects.toMatchObject({ code: "conflict" });
 
+  await expect(releases.create(alice, "alpha", created.id, 1))
+    .rejects.toMatchObject({ code: "conflict", message: "knowledge retrieval is unavailable for Agent releases" });
+  const unpublished = await agents.create(alice, "alpha", {
+    slug: "unpublished", expectedVersion: 0, draft: builtinDraft({ resources: {
+      modelDefinitionId: model.id,
+      toolDefinitionIds: [], skillRevisionIds: [skill.revisions[0].id],
+      instructionRevisionIds: [], knowledgeBaseIds: [],
+    } }),
+  });
+  await expect(releases.create(alice, "alpha", unpublished.id, 1))
+    .rejects.toMatchObject({ code: "conflict", message: "skill revision is missing, archived or unpublished" });
+  const httpDefinition = await agents.create(alice, "alpha", {
+    slug: "remote", expectedVersion: 0, draft: builtinDraft({
+      runtime: { type: "http", advanced: { cardUrl: "https://example.test/card.json" } },
+    }),
+  });
+  await expect(releases.create(alice, "alpha", httpDefinition.id, 1))
+    .rejects.toMatchObject({ code: "conflict", message: "only builtin Agent definitions can create releases in Step 5" });
+  await authored.setRevisionStatus(
+    alice, "alpha", "skill", skill.resource.id, skill.revisions[0].id, "published",
+  );
+  await authored.setRevisionStatus(
+    alice, "alpha", "instruction", instruction.resource.id, instruction.revisions[0].id, "published",
+  );
+
   now = new Date("2026-10-20T01:00:00.000Z");
   const updated = await agents.update(alice, "alpha", created.id, {
     expectedVersion: 1,
     draft: { ...draft, name: "Research assistant v2", resources: {
-      modelDefinitionId: null,
-      toolDefinitionIds: [],
-      skillRevisionIds: [],
-      instructionRevisionIds: [],
+      ...draft.resources,
       knowledgeBaseIds: [],
     } },
   });
@@ -194,13 +223,77 @@ async function verifyAgentDefinitions(database: PlatformDatabase) {
   await expect(agents.update(alice, "alpha", created.id, {
     expectedVersion: 1, draft: updated.draft,
   })).rejects.toMatchObject({ code: "conflict" });
-  await models.remove(alice, "alpha", model.id);
+
+  const release = await releases.create(alice, "alpha", created.id, 2);
+  expect(release).toMatchObject({
+    definitionId: created.id,
+    tenantId: "alpha",
+    number: 1,
+    draftVersion: 2,
+    runtimeType: "builtin",
+    snapshot: { name: "Research assistant v2" },
+  });
+  expect(release.digest).toHaveLength(64);
+  expect(JSON.stringify(release)).not.toMatch(/sourceGateway|upstreamStable|chat-route|mcp:search:query/);
+  const [storedRelease] = await database.query<{
+    internal_dependencies_json: string;
+    execution_json: string;
+  }>(
+    "SELECT internal_dependencies_json, execution_json FROM platform_agent_releases WHERE id = ?", [release.id],
+  );
+  expect(storedRelease.internal_dependencies_json).toContain("sourceGatewayId");
+  expect(storedRelease.internal_dependencies_json).toContain("prod");
+  expect(release.digest).toBe(runtime.hash(canonicalAgentValue({
+    definitionId: created.id,
+    draftVersion: release.draftVersion,
+    snapshot: release.snapshot,
+    dependencies: JSON.parse(storedRelease.internal_dependencies_json),
+    execution: JSON.parse(storedRelease.execution_json),
+  })));
+  await expect(releases.get(bob, "beta", created.id, release.id))
+    .rejects.toMatchObject({ code: "not_found" });
+  await expect(releases.create(alice, "alpha", created.id, 2))
+    .rejects.toMatchObject({ code: "conflict", message: "an identical immutable release already exists" });
+
+  const detached = await agents.update(alice, "alpha", created.id, {
+    expectedVersion: 2,
+    draft: { ...updated.draft, name: "Draft after release", resources: {
+      modelDefinitionId: null,
+      toolDefinitionIds: [],
+      skillRevisionIds: [],
+      instructionRevisionIds: [],
+      knowledgeBaseIds: [],
+    } },
+  });
+  expect(detached.version).toBe(3);
+  expect((await releases.get(alice, "alpha", created.id, release.id)).snapshot.name)
+    .toBe("Research assistant v2");
+  expect((await releases.list(alice, "alpha", created.id)).map((item) => item.id)).toEqual([release.id]);
+  await expect(models.remove(alice, "alpha", model.id)).rejects.toMatchObject({ code: "conflict" });
+  await expect(authored.setRevisionStatus(
+    alice, "alpha", "skill", skill.resource.id, skill.revisions[0].id, "archived",
+  )).rejects.toMatchObject({ code: "conflict" });
   await knowledge.remove(alice, "alpha", knowledgeBase.id);
+
+  const currentModel = await models.update(alice, "alpha", model.id, {
+    name: "Chat model v2", description: "", offeringId: "chat-model",
+  });
+  const staleDefinition = await agents.create(alice, "alpha", {
+    slug: "stale", expectedVersion: 0, draft: builtinDraft({ resources: {
+      modelDefinitionId: currentModel.id,
+      toolDefinitionIds: [], skillRevisionIds: [], instructionRevisionIds: [], knowledgeBaseIds: [],
+    } }),
+  });
+  await models.update(alice, "alpha", model.id, {
+    name: "Chat model v3", description: "", offeringId: "chat-model",
+  });
+  await expect(releases.create(alice, "alpha", staleDefinition.id, 1))
+    .rejects.toMatchObject({ code: "conflict", message: "model definition changed after the draft was saved" });
 
   await agents.remove(alice, "alpha", created.id);
   expect(await agents.get(alice, "alpha", created.id)).toMatchObject({ status: "archived", editable: false });
   await expect(agents.update(alice, "alpha", created.id, {
-    expectedVersion: 2, draft: updated.draft,
+    expectedVersion: 3, draft: updated.draft,
   })).rejects.toMatchObject({ code: "conflict" });
 
   const retained = await agents.create(alice, "alpha", {
@@ -208,7 +301,9 @@ async function verifyAgentDefinitions(database: PlatformDatabase) {
   });
   await identity.deleteTenant(operator, "alpha");
   expect(await database.query("SELECT id FROM platform_agent_definitions WHERE id = ?", [retained.id])).toHaveLength(1);
+  expect(await database.query("SELECT id FROM platform_agent_releases WHERE id = ?", [release.id])).toHaveLength(1);
   await expect(agents.list(alice, "alpha")).rejects.toMatchObject({ code: "forbidden" });
+  await expect(releases.list(alice, "alpha", created.id)).rejects.toMatchObject({ code: "forbidden" });
 }
 
 test("SQLite Agent definitions enforce Tenant ownership, exact references, and optimistic drafts", async () => {

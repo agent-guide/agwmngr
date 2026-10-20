@@ -482,7 +482,7 @@ export default function MCPServicesPage() {
                     <span className="text-sm font-semibold text-slate-100">{svc.name}</span>
                     <span className="font-mono text-[10px] text-slate-500">{svc.id}</span>
                     <span className={`inline-flex rounded-sm px-1.5 py-0.5 text-[10px] font-medium ${TRANSPORT_COLORS[svc.transport] ?? "bg-slate-700/40 text-slate-400"}`}>{svc.transport}</span>
-                    <UsedByAgents agentIds={attribution?.mcpService[svc.id]} />
+                    <UsedByAgents agentIds={attribution?.mcpService[svc.id]} source="gateway" />
                     {svc.disabled && <span className="inline-flex rounded-sm bg-slate-700/40 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">{t("common.disabled")}</span>}
                     {svc.read_only && <span className="inline-flex rounded-sm bg-slate-700/40 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">{t("agentRoutes.readOnly")}</span>}
                   </div>

@@ -445,6 +445,29 @@ const versionTenStatements = [
     ON platform_agent_definitions (tenant_id, status, updated_at, id)`,
 ];
 
+const versionElevenStatements = [
+  `CREATE TABLE platform_agent_releases (
+    id TEXT PRIMARY KEY,
+    definition_id TEXT NOT NULL REFERENCES platform_agent_definitions(id) ON DELETE RESTRICT,
+    tenant_id TEXT NOT NULL,
+    tenant_authority_epoch BIGINT NOT NULL CHECK (tenant_authority_epoch > 0),
+    number BIGINT NOT NULL CHECK (number > 0),
+    draft_version BIGINT NOT NULL CHECK (draft_version > 0),
+    snapshot_json TEXT NOT NULL,
+    dependencies_json TEXT NOT NULL,
+    internal_dependencies_json TEXT NOT NULL,
+    execution_json TEXT NOT NULL,
+    runtime_type TEXT NOT NULL CHECK (runtime_type = 'builtin'),
+    digest TEXT NOT NULL,
+    created_by_principal_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (definition_id, number),
+    UNIQUE (definition_id, digest)
+  )`,
+  `CREATE INDEX platform_agent_releases_tenant_definition
+    ON platform_agent_releases (tenant_id, definition_id, number)`,
+];
+
 export interface IdentityMigrationReport {
   from: number;
   to: number;
@@ -455,7 +478,7 @@ export async function migratePlatformIdentityDatabase(
   database: PlatformDatabase,
   dryRun = false,
 ): Promise<IdentityMigrationReport> {
-  let report: IdentityMigrationReport = { from: 0, to: 10, dryRun };
+  let report: IdentityMigrationReport = { from: 0, to: 11, dryRun };
   const rollback = new Error("platform identity migration dry-run rollback");
 
   try {
@@ -474,8 +497,8 @@ export async function migratePlatformIdentityDatabase(
         `SELECT version FROM platform_schema_lock WHERE id = 1${suffix}`,
       );
       const current = Number(row.version);
-      if (current > 10) throw new Error("platform schema is newer than this application");
-      report = { from: current, to: 10, dryRun };
+      if (current > 11) throw new Error("platform schema is newer than this application");
+      report = { from: current, to: 11, dryRun };
 
       if (current === 0) {
         for (const statement of versionOneStatements) await transaction.query(statement);
@@ -525,6 +548,11 @@ export async function migratePlatformIdentityDatabase(
       if (current < 10) {
         for (const statement of versionTenStatements) await transaction.query(statement);
         await transaction.query("UPDATE platform_schema_lock SET version = 10 WHERE id = 1");
+      }
+
+      if (current < 11) {
+        for (const statement of versionElevenStatements) await transaction.query(statement);
+        await transaction.query("UPDATE platform_schema_lock SET version = 11 WHERE id = 1");
       }
 
       await validatePlatformIdentityReferences(transaction);

@@ -1,7 +1,7 @@
 # Agent Resource Platform Rebuild Plan
 
 - Document type: **delivery**
-- Status: **active; Steps 0–5A complete and Step 5B pending**
+- Status: **active; Steps 0–5 complete and Step 6 pending**
 - Applies to: `rebuild/agent-resource-platform`
 - Last reviewed: 2026-10-20
 
@@ -514,6 +514,18 @@ Admin and Tenant User membership is the only authoring authority. See
   combination; and
 - create wizard, Agent inventory, Configuration and Releases UI.
 
+Completed (2026-10-20): platform schema v11 now persists immutable numbered
+releases with deterministic draft/dependency/execution digests. Publication
+re-authorizes the Tenant actor, re-resolves exact references, freezes internal
+Gateway-backed source bindings without returning them in Tenant projections,
+and rejects stale, unpublished, unavailable or unsupported inputs. The initial
+safe release subset is builtin/single with one model, optional tools and
+published Skills/instructions; ACP, HTTP, other topologies and knowledge remain
+draft-only. The four-step create flow, combined platform/Gateway inventory,
+Configuration/Releases detail, Workbench recent activity and resource
+attribution are backed by these Tenant APIs. No Gateway grant or remote write is
+performed.
+
 After these slices provide a real Tenant-readable source, link Workbench and
 populate it with recently edited accessible definitions/releases plus authorized
 create/open actions. It must not fall back to the legacy general Gateway proxy;
@@ -522,7 +534,7 @@ deployment, health and permission attention is added by Step 6D.
 Tenant Admin and Tenant User may perform both slices. No Gateway grant is used
 until deployment.
 
-Gate: cross-Tenant denial, deleted-Tenant retained definition/release
+Gate passed: cross-Tenant denial, deleted-Tenant retained definition/release
 inaccessibility, secret-field rejection, stale/missing dependency failure,
 release immutability, deterministic hash and unsupported runtime/resource tests
 pass.

@@ -71,6 +71,12 @@ export interface AuthoredResourceRevisionReference {
   contentHash: string;
 }
 
+export interface AuthoredResourceRevisionSnapshot extends AuthoredResourceRevisionReference {
+  name: string;
+  description: string;
+  content: AuthoredResourceContent;
+}
+
 export interface CreateAuthoredResourceInput {
   name: string;
   description: string;

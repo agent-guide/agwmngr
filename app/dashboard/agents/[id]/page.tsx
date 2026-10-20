@@ -4,7 +4,7 @@ import { isCommonAgentRoute, supportsAgentChat } from "@/lib/agent-http";
 
 import Link from "next/link";
 import { use, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
@@ -41,6 +41,8 @@ import {
 import { AcpChat } from "@/components/acp-chat/acp-chat";
 import { PendingPermissions, normalizeACPPoolPermission } from "@/components/acp-pending-permissions";
 import { useI18n } from "@/components/i18n-provider";
+import { PlatformAgentDetail } from "@/components/platform-agent-detail";
+import { platformAgentTenantId } from "@/lib/platform-agent-ui";
 
 const TABS = ["Overview", "Chat", "Runs", "Resources", "Health", "Configuration"] as const;
 type Tab = (typeof TABS)[number];
@@ -63,6 +65,12 @@ function visibleTabs(capabilities: AgentCapabilities | undefined): Tab[] {
 
 export default function AgentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const source = useSearchParams().get("source");
+  const tenantId = source === "gateway" ? null : platformAgentTenantId(id);
+  return tenantId ? <PlatformAgentDetail tenantId={tenantId} id={id} /> : <GatewayAgentDetail id={id} />;
+}
+
+function GatewayAgentDetail({ id }: { id: string }) {
   const router = useRouter();
   const { showToast } = useToast();
   const { t } = useI18n();
@@ -111,7 +119,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
             <AutoRefreshControl lastUpdated={ws.lastUpdated} onRefresh={() => void ws.mutate()} refreshing={ws.isValidating} />
             <Link href={`/dashboard/agents/usage?agent=${encodeURIComponent(id)}`}><Button variant="secondary" className="px-2.5 py-1 text-xs">{t("nav.usage")}</Button></Link>
             <Link href={`/dashboard/agents/interactions?agent=${encodeURIComponent(id)}`}><Button variant="secondary" className="px-2.5 py-1 text-xs">{t("nav.interactions")}</Button></Link>
-            <Link href={`/dashboard/agents/${encodeURIComponent(id)}/edit`}><Button variant="secondary" className="px-2.5 py-1 text-xs">{t("common.edit")}</Button></Link>
+            <Link href={`/dashboard/agents/${encodeURIComponent(id)}/edit?source=gateway`}><Button variant="secondary" className="px-2.5 py-1 text-xs">{t("common.edit")}</Button></Link>
             <Button variant="danger" className="px-2.5 py-1 text-xs" onClick={() => setConfirmDelete(true)}>{t("common.delete")}</Button>
           </>
         }
@@ -900,7 +908,7 @@ function ConfigurationTab({ id, workspace }: { id: string; workspace: AgentWorks
         </p>
       </Card>
       <div className="flex justify-end">
-        <Link href={`/dashboard/agents/${encodeURIComponent(id)}/edit`}><Button className="px-3 py-1.5 text-xs">{t("agentDetail.editConfiguration")}</Button></Link>
+        <Link href={`/dashboard/agents/${encodeURIComponent(id)}/edit?source=gateway`}><Button className="px-3 py-1.5 text-xs">{t("agentDetail.editConfiguration")}</Button></Link>
       </div>
     </div>
   );

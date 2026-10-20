@@ -10,6 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Modal, ModalContent, ModalFooter, ModalHeader, ModalTitle } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
+import { UsedByAgents } from "@/components/used-by-agents";
+import { usePlatformAgentAttribution } from "@/hooks/use-platform-agent-attribution";
 import { loadFailureFrom, type LoadFailure } from "@/lib/ui-load-error";
 import {
   contentFromAuthoredResourceEditor,
@@ -70,6 +72,9 @@ export function AuthoredResourcePage({ kind }: { kind: AuthoredResourceKind }) {
     : effectiveScope === "__platform__"
       ? { platform: true }
       : { tenantId: effectiveScope };
+  const attribution = usePlatformAgentAttribution(effectiveScope === "__platform__"
+    ? (platformAccess?.memberships ?? []).map((membership) => membership.tenantId)
+    : effectiveScope ? [effectiveScope] : []);
 
   const load = useCallback(async () => {
     if (!effectiveScope) {
@@ -243,7 +248,7 @@ export function AuthoredResourcePage({ kind }: { kind: AuthoredResourceKind }) {
             <div className="flex items-start justify-between gap-3"><div><h2 className="text-lg font-semibold text-slate-100">{selected.resource.name}</h2><p className="font-mono text-[10px] text-slate-500">{selected.resource.id}</p></div><Badge tone={selected.resource.owner.kind === "platform" ? "violet" : "blue"}>{t(selected.resource.owner.kind === "platform" ? "authored.platform" : "authored.tenant")}</Badge></div>
             <p className="text-sm text-slate-400">{selected.resource.description || t("authored.noDescription")}</p>
             <div className="flex flex-wrap gap-2"><Button variant="secondary" onClick={openEdit} disabled={mutating || selected.resource.owner.kind !== ("platform" in (scope ?? {}) ? "platform" : "tenant")}>{t("authored.editMetadata")}</Button><Button onClick={openRevision} disabled={mutating || selected.resource.owner.kind !== ("platform" in (scope ?? {}) ? "platform" : "tenant")}>{t("authored.newRevision")}</Button><Button variant="danger" onClick={() => setPendingDelete(selected.resource)} disabled={mutating || selected.resource.owner.kind !== ("platform" in (scope ?? {}) ? "platform" : "tenant")}>{t(selected.resource.owner.kind === "platform" ? "authored.archive" : "common.delete")}</Button></div>
-            <div className="space-y-2 border-t border-slate-700/60 pt-4">{selected.revisions.map((revision) => <div key={revision.id} className="rounded-md border border-slate-700/70 p-3"><div className="flex items-center justify-between gap-2"><span className="text-sm font-medium text-slate-200">{t("authored.revision", { number: revision.number })}</span><Badge tone={revision.status === "published" ? "green" : revision.status === "draft" ? "amber" : "neutral"}>{t(revision.status === "published" ? "authored.published" : revision.status === "draft" ? "authored.draft" : "authored.archived")}</Badge></div><p className="mt-1 font-mono text-[10px] text-slate-500">sha256:{revision.contentHash.slice(0, 16)} · {revision.createdAt}</p><p className="mt-2 line-clamp-3 whitespace-pre-wrap text-xs text-slate-400">{textFromAuthoredResourceContent(kind, revision.content)}</p>{revision.status !== "archived" && selected.resource.owner.kind === ("platform" in (scope ?? {}) ? "platform" : "tenant") && <div className="mt-3 flex gap-2">{revision.status === "draft" && <Button className="px-2 py-1 text-xs" onClick={() => void setRevision(revision.id, "published")} disabled={mutating}>{t("authored.publish")}</Button>}<Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => void setRevision(revision.id, "archived")} disabled={mutating}>{t("authored.archive")}</Button></div>}</div>)}</div>
+            <div className="space-y-2 border-t border-slate-700/60 pt-4">{selected.revisions.map((revision) => <div key={revision.id} className="rounded-md border border-slate-700/70 p-3"><div className="flex items-center justify-between gap-2"><span className="flex items-center gap-2 text-sm font-medium text-slate-200">{t("authored.revision", { number: revision.number })}<UsedByAgents agentIds={(kind === "skill" ? attribution?.skillRevision : attribution?.instructionRevision)?.[revision.id]} /></span><Badge tone={revision.status === "published" ? "green" : revision.status === "draft" ? "amber" : "neutral"}>{t(revision.status === "published" ? "authored.published" : revision.status === "draft" ? "authored.draft" : "authored.archived")}</Badge></div><p className="mt-1 font-mono text-[10px] text-slate-500">sha256:{revision.contentHash.slice(0, 16)} · {revision.createdAt}</p><p className="mt-2 line-clamp-3 whitespace-pre-wrap text-xs text-slate-400">{textFromAuthoredResourceContent(kind, revision.content)}</p>{revision.status !== "archived" && selected.resource.owner.kind === ("platform" in (scope ?? {}) ? "platform" : "tenant") && <div className="mt-3 flex gap-2">{revision.status === "draft" && <Button className="px-2 py-1 text-xs" onClick={() => void setRevision(revision.id, "published")} disabled={mutating}>{t("authored.publish")}</Button>}<Button variant="ghost" className="px-2 py-1 text-xs" onClick={() => void setRevision(revision.id, "archived")} disabled={mutating}>{t("authored.archive")}</Button></div>}</div>)}</div>
           </div>}
         </section>
       </div>

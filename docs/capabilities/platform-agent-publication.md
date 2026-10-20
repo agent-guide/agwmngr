@@ -1,13 +1,14 @@
 # Platform Agent definitions and publication
 
 - Document type: **normative**
-- Status: **Step 5A definition authoring implemented; releases pending**
-- Applies to: `rebuild/agent-resource-platform` Agent definition APIs
+- Status: **Step 5 implemented; deployment pending**
+- Applies to: `rebuild/agent-resource-platform` Agent definition and release APIs
 - Last reviewed: 2026-10-20
 
 ## Implemented definition contract
 
-Platform schema version 10 adds Tenant-owned `AgentDefinition` records. An
+Platform schema version 10 adds Tenant-owned `AgentDefinition` records and
+version 11 adds immutable `AgentRelease` records. An
 active Tenant Admin or Tenant User may create, list, read, update and archive a
 definition in their own Tenant. Platform Admin status alone grants no access.
 Service Principals use the same live membership rule. Retained rows become
@@ -40,8 +41,30 @@ snapshot:
 The same transaction rechecks those records against the live Tenant epoch and
 writes the existing resource reference tables. A referenced model/tool version,
 authored revision or knowledge base cannot be archived. Replacing a mutable
-draft releases only its superseded draft references; immutable release
-references will be independent in Step 5B.
+draft releases only its superseded draft references. Every immutable release
+adds independent permanent references, so later draft edits cannot make its
+model/tool versions or authored revisions removable.
+
+## Immutable release contract
+
+Creating a release re-authorizes the Tenant actor and re-resolves every exact
+dependency against current state in the same serialized write. It rejects a
+stale draft, missing/unavailable model or tool, unpublished/archived authored
+revision, inactive Tenant, and unsupported runtime/resource combination.
+
+The currently executable publication subset is deliberately narrow: builtin
+runtime, `single` topology, one available model, zero or more available tools,
+published root-`SKILL.md` Skill revisions, published instruction revisions and
+no knowledge base. ACP, HTTP, other builtin topologies and knowledge retrieval
+remain valid draft shapes but are not releasable until their safe execution
+contracts exist.
+
+The release freezes the normalized draft, Tenant-visible dependency snapshot,
+runtime type, deterministic digest, author and creation time. Its internal
+execution snapshot additionally records exact Gateway-backed offering source
+Gateway IDs, upstream stable IDs and authority epochs. Those internal bindings
+are server-only: list/get/create Tenant projections never return them or any
+credential/secret value.
 
 ## HTTP API
 
@@ -56,16 +79,23 @@ catch-all:
 | `GET` | `/{definition_id}` | Read one membership-visible definition |
 | `PUT` | `/{definition_id}` | Save `{expected_version, draft}` |
 | `DELETE` | `/{definition_id}` | Archive an editable definition |
+| `GET` | `/{definition_id}/releases` | List immutable releases newest first |
+| `POST` | `/{definition_id}/releases` | Create from `{expected_version}` after publication validation |
+| `GET` | `/{definition_id}/releases/{release_id}` | Read one immutable Tenant-redacted snapshot |
 
 The response includes the normalized draft, exact Tenant-redacted dependency
 snapshot, SHA-256 draft digest, version and server-computed `editable` flag.
 
-## Pending Step 5B boundary
+## Delivered UI and remaining boundary
 
-No immutable `AgentRelease` exists yet. Definition dependencies may therefore
-include draft authored revisions and knowledge references, but Step 5B must
-re-resolve them at release time, require published content, capture internal
-Gateway-backed offering bindings only in the secret-redacted immutable release,
-reject stale/missing dependencies and reject unsupported runtime/resource
-combinations. The Agent wizard, inventory, Configuration and Releases UI also
-remain pending until that server contract lands.
+The default New Agent flow is a Tenant-aware Identity → Runtime → Resources →
+Review wizard. The Agent inventory labels platform definitions separately from
+legacy Gateway-managed instances; the detail surface exposes Configuration and
+Releases without treating a release as a deployment. Workbench shows recently
+edited accessible definitions/releases, and resource pages derive “Used by
+Agents” links from Tenant-readable definitions. Advanced direct Gateway Agent
+creation remains an explicitly labelled compatibility entry.
+
+No release is deployed or made invocable by Step 5. Gateway target selection,
+Tenant Gateway grant evaluation, remote apply/verification, Agent routes,
+Virtual Keys and operational attention remain Step 6 responsibilities.

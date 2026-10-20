@@ -234,7 +234,7 @@ export default function ProvidersPage() {
             >
               <div className="min-w-0">
                 <p className="truncate text-xs font-medium text-slate-100">{provider.id}</p>
-                <div className="mt-0.5"><UsedByAgents agentIds={attribution?.provider[provider.id]} /></div>
+                <div className="mt-0.5"><UsedByAgents agentIds={attribution?.provider[provider.id]} source="gateway" /></div>
               </div>
               <span className="text-xs text-slate-400 font-mono">{provider.provider_type}</span>
               <span className="truncate text-xs text-slate-400 font-mono">{getBaseUrl(provider)}</span>

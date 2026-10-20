@@ -51,6 +51,7 @@ import type {
 import type {
   AgentDefinition,
   AgentDefinitionDraft,
+  AgentRelease,
   SaveAgentDefinitionInput,
 } from "@/packages/contracts/platform/agents";
 
@@ -112,6 +113,7 @@ export type {
   AgentDefinitionDependency,
   AgentDefinitionDraft,
   AgentDefinitionResourceSelection,
+  AgentRelease,
   BuiltinAgentAdvancedConfiguration,
   HTTPAgentAdvancedConfiguration,
   PlatformAgentPolicy,
@@ -830,5 +832,41 @@ export function updateAgentDefinition(
 export async function archiveAgentDefinition(tenantId: string, id: string): Promise<void> {
   await adminFetch(agentDefinitionsPath(tenantId, `/${encodeURIComponent(id)}`), {
     method: "DELETE",
+  });
+}
+
+export async function listAgentReleases(
+  tenantId: string,
+  definitionId: string,
+): Promise<AgentRelease[]> {
+  const result = await adminFetch<{ items: AgentRelease[] }>(agentDefinitionsPath(
+    tenantId,
+    `/${encodeURIComponent(definitionId)}/releases`,
+  ));
+  return result.items ?? [];
+}
+
+export function getAgentRelease(
+  tenantId: string,
+  definitionId: string,
+  releaseId: string,
+): Promise<AgentRelease> {
+  return adminFetch<AgentRelease>(agentDefinitionsPath(
+    tenantId,
+    `/${encodeURIComponent(definitionId)}/releases/${encodeURIComponent(releaseId)}`,
+  ));
+}
+
+export function createAgentRelease(
+  tenantId: string,
+  definitionId: string,
+  expectedVersion: number,
+): Promise<AgentRelease> {
+  return adminFetch<AgentRelease>(agentDefinitionsPath(
+    tenantId,
+    `/${encodeURIComponent(definitionId)}/releases`,
+  ), {
+    method: "POST",
+    body: JSON.stringify({ expected_version: expectedVersion }),
   });
 }
