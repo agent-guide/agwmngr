@@ -154,9 +154,10 @@ foundations. Accepted Step 4 slices add their own Resource APIs and canonical
 Skills, Instructions, Knowledge bases, My files, Models and Tools pages. Agent
 definition APIs are documented in
 [Platform Agent definitions and publication](../capabilities/platform-agent-publication.md).
-Step 6A adds explicit Tenant-qualified deployment-intent handlers and the
-server-only Gateway deployment adapter documented in
+Steps 6A–6B add explicit Tenant-qualified deployment-intent/lifecycle handlers,
+durable operation journals and the server-only Gateway deployment adapter documented in
 [Platform Agent deployments](../capabilities/platform-agent-deployments.md).
-Allocation is local-only; Access, invocation, remote lifecycle and
+Allocation remains local-only; only an explicit lifecycle request can use the
+adapter, and it requires a verified binding record. Access, invocation and
 Tenant-observability routes remain unlinked until their server-backed slices
 land. Immutable release and Workbench surfaces landed in Step 5.

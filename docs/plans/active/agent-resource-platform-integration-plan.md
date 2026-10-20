@@ -1,7 +1,7 @@
 # Agent Resource Platform Rebuild Plan
 
 - Document type: **delivery**
-- Status: **active; Steps 0–5 and Step 6A complete**
+- Status: **active; Steps 0–5 and Steps 6A–6B lifecycle core complete**
 - Applies to: `rebuild/agent-resource-platform`
 - Last reviewed: 2026-10-20
 
@@ -983,6 +983,21 @@ slices. See [Platform Agent deployments](../../capabilities/platform-agent-deplo
   and decommission-cleanup operations are the complete supported Virtual Key writer set; every writer uses the same
   lease, desired/observed journal and operation-token guard; and
 - release/deployment correlation in Gateway interactions.
+
+Completed lifecycle core (2026-10-21): explicit grant-scoped handlers now
+apply, retry, take a deployment offline, restore it online, verify drift and
+roll back to a journal-verified release. They use ordered Gateway object/key
+leases, immutable source validation, allow-all-key rejection, cross-family
+route-winner checks, write-ahead operation phases, provisional/promoted pair
+fences and observed-state verification. Initial publication creates a disabled
+non-public protected staging route before activating that same route; partial
+publication remains fenced and retry creates only a journal-proven missing
+object. Offline/online and rollback mutate the claimed pair in place, operation
+request keys are idempotent, and an observed unprotected public route enters
+remove-only containment/quarantine. Platform Admin key binding, startup-wide
+recovery/decommission and all invocation/observation/cutover work remain in the
+following Step 6 slices and the final Step 6 gate does not pass yet. See
+[Platform Agent deployments](../../capabilities/platform-agent-deployments.md).
 
 ### 6C. Scoped Access and invocation replacement
 

@@ -56,6 +56,7 @@ import type {
 } from "@/packages/contracts/platform/agents";
 import type {
   AgentDeployment,
+  AgentDeploymentOperation,
   CreateAgentDeploymentInput,
 } from "@/packages/contracts/platform/deployments";
 
@@ -925,3 +926,61 @@ export async function cancelAgentDeployment(
     method: "DELETE",
   });
 }
+
+export async function listAgentDeploymentOperations(
+  tenantId: string,
+  deploymentId: string,
+): Promise<AgentDeploymentOperation[]> {
+  const result = await adminFetch<{ items: AgentDeploymentOperation[] }>(agentDeploymentsPath(
+    tenantId,
+    `/${encodeURIComponent(deploymentId)}/operations`,
+  ));
+  return result.items ?? [];
+}
+
+function mutateAgentDeployment(
+  tenantId: string,
+  deploymentId: string,
+  action: "apply" | "retry" | "take-offline" | "online" | "verify" | "rollback",
+  requestKey: string,
+  releaseId?: string,
+): Promise<AgentDeploymentOperation> {
+  return adminFetch<AgentDeploymentOperation>(agentDeploymentsPath(
+    tenantId,
+    `/${encodeURIComponent(deploymentId)}/${action}`,
+  ), {
+    method: "POST",
+    body: JSON.stringify({
+      request_key: requestKey,
+      ...(releaseId ? { release_id: releaseId } : {}),
+    }),
+  });
+}
+
+export const applyAgentDeployment = (tenantId: string, deploymentId: string, requestKey: string) =>
+  mutateAgentDeployment(tenantId, deploymentId, "apply", requestKey);
+
+export const retryAgentDeployment = (tenantId: string, deploymentId: string, requestKey: string) =>
+  mutateAgentDeployment(tenantId, deploymentId, "retry", requestKey);
+
+export const takeAgentDeploymentOffline = (
+  tenantId: string,
+  deploymentId: string,
+  requestKey: string,
+) => mutateAgentDeployment(tenantId, deploymentId, "take-offline", requestKey);
+
+export const bringAgentDeploymentOnline = (
+  tenantId: string,
+  deploymentId: string,
+  requestKey: string,
+) => mutateAgentDeployment(tenantId, deploymentId, "online", requestKey);
+
+export const verifyAgentDeployment = (tenantId: string, deploymentId: string, requestKey: string) =>
+  mutateAgentDeployment(tenantId, deploymentId, "verify", requestKey);
+
+export const rollbackAgentDeployment = (
+  tenantId: string,
+  deploymentId: string,
+  releaseId: string,
+  requestKey: string,
+) => mutateAgentDeployment(tenantId, deploymentId, "rollback", requestKey, releaseId);

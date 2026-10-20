@@ -3,6 +3,7 @@ import { getPlatformRuntime } from "./platform-identity";
 import { AgentReleaseRegistry } from "@/packages/platform/services/agent-release-registry";
 import { AgentDeploymentRegistry } from "@/packages/platform/services/deployment-registry";
 import { AgentDeploymentService } from "@/packages/platform/services/deployments";
+import { platformDeploymentGateway } from "./platform-deployment-gateway";
 
 const state = globalThis as typeof globalThis & {
   __platformDeployments?: Promise<AgentDeploymentService>;
@@ -24,6 +25,7 @@ export function getPlatformDeployments(): Promise<AgentDeploymentService> {
           decodeBase64: (value) => Buffer.from(value, "base64"),
           encodeBase64: (value) => Buffer.from(value).toString("base64"),
         },
+        platformDeploymentGateway,
       );
     })().catch((error) => {
       delete state.__platformDeployments;

@@ -1,7 +1,7 @@
 # Platform Agent definitions and publication
 
 - Document type: **normative**
-- Status: **Step 5 implemented; Step 6A intent allocation implemented**
+- Status: **Step 5 implemented; Steps 6A–6B deployment lifecycle core implemented**
 - Applies to: `rebuild/agent-resource-platform` Agent definition and release APIs
 - Last reviewed: 2026-10-21
 
@@ -96,8 +96,10 @@ edited accessible definitions/releases, and resource pages derive “Used by
 Agents” links from Tenant-readable definitions. Advanced direct Gateway Agent
 creation remains an explicitly labelled compatibility entry.
 
-No release is deployed or made invocable by Step 5. Step 6A now allocates a
-local, grant-scoped deployment intent with deterministic Gateway Agent/route
-mapping and no Gateway call. Remote apply/verification, Virtual Keys and
-operational attention remain later Step 6 responsibilities. See
+No release is deployed or made invocable by Step 5. Step 6A allocates a local,
+grant-scoped deployment intent with deterministic Gateway Agent/route mapping
+and no Gateway call; Step 6B provides the verified remote lifecycle once a
+later binding path has established its required key policy. Virtual-Key
+administration, invocation and operational attention remain later Step 6
+responsibilities. See
 [Platform Agent deployments](platform-agent-deployments.md).

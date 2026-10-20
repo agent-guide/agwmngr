@@ -1,7 +1,7 @@
 # Agent Resource Platform Design
 
 - Document type: **normative**
-- Status: **accepted target; Steps 0–5 and Step 6A implemented**
+- Status: **accepted target; Steps 0–5 and Steps 6A–6B lifecycle core implemented**
 - Applies to: `rebuild/agent-resource-platform`
 - Last reviewed: 2026-10-21
 
@@ -23,9 +23,10 @@ each step live in
 The Bun runtime and shared contract/service boundaries described in Step 1,
 the Principal/Tenant/membership/grant foundation in Step 2, the canonical
 scope shell plus delivered administration pages in Step 3, all Step 4 resource
-slices, and Step 5 Agent definitions and immutable releases are implemented on
-the rebuild branch. Deployment remains pending; a completed release alone does
-not create a Gateway Agent, route, key or executable endpoint.
+slices, Step 5 Agent definitions and immutable releases, and the Step 6A–6B
+deployment intent/lifecycle service are implemented on the rebuild branch. A
+completed release alone still creates no Gateway object, and the lifecycle is
+not normally reachable until Step 6C supplies the explicit key-binding path.
 
 ## 1. Objective
 

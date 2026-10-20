@@ -33,6 +33,39 @@ async function handler(request: Request, context: Context) {
       audit.set({ gatewayId: item.target.gatewayId, effectiveAccess: "view" });
       return Response.json(item);
     }
+    if (request.method === "GET" && path.length === 2 && path[1] === "operations") {
+      const items = await deployments.history(actor, tenantId, path[0]);
+      return Response.json({ items });
+    }
+    if (request.method === "POST" && path.length === 2) {
+      const body = await platformIdentityBody(request, path[1] === "rollback"
+        ? ["request_key", "release_id"] : ["request_key"]);
+      const requestKey = requiredText(body, "request_key");
+      const deploymentId = path[0];
+      const operation = path[1] === "apply"
+        ? await deployments.apply(actor, tenantId, deploymentId, requestKey)
+        : path[1] === "retry"
+          ? await deployments.retry(actor, tenantId, deploymentId, requestKey)
+          : path[1] === "take-offline"
+            ? await deployments.takeOffline(actor, tenantId, deploymentId, requestKey)
+            : path[1] === "online"
+              ? await deployments.online(actor, tenantId, deploymentId, requestKey)
+              : path[1] === "verify"
+                ? await deployments.verify(actor, tenantId, deploymentId, requestKey)
+                : path[1] === "rollback"
+                  ? await deployments.rollback(
+                    actor,
+                    tenantId,
+                    deploymentId,
+                    requiredText(body, "release_id"),
+                    requestKey,
+                  )
+                  : null;
+      if (operation) {
+        audit.set({ targetId: deploymentId, effectiveAccess: "manage" });
+        return Response.json(operation, { status: operation.status === "succeeded" ? 200 : 202 });
+      }
+    }
     if (request.method === "DELETE" && path.length === 1) {
       await deployments.cancel(actor, tenantId, path[0]);
       return new Response(null, { status: 204 });
