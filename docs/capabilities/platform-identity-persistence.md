@@ -2,7 +2,7 @@
 
 - Document type: **normative**
 - Status: **current; Steps 2A–3 identity and administration surfaces implemented**
-- Applies to: `rebuild/agent-resource-platform` identity, Tenant membership and service credentials
+- Applies to: `feature/agent-resource-platform` identity, Tenant membership and service credentials
 - Last reviewed: 2026-10-19
 
 This document defines the implemented Principal, Tenant and Tenant-membership

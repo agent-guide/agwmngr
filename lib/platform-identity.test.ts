@@ -117,6 +117,14 @@ test("live Principal, Tenant, and membership state is revalidated on every opera
     .toBe("manage");
   expect((await service.authorizeTenantGateway(alice, "alpha", "prod", "manage")).gateway.id)
     .toBe("prod");
+  expect((await service.access(alice)).gatewayGrants).toEqual([
+    expect.objectContaining({
+      principalId: "user:2",
+      tenantId: "alpha",
+      gatewayId: "prod",
+      access: "manage",
+    }),
+  ]);
   await service.removeTenantGatewayGrant(platformAdmin, "user:2", "alpha", "prod");
   await expect(service.authorizeTenantGateway(alice, "alpha", "prod", "view"))
     .rejects.toMatchObject({ code: "forbidden" });

@@ -311,7 +311,31 @@ export class PlatformIdentityService {
       const tenant = await this.registry.tenant(membership.tenantId);
       if (tenant?.status === "active") active.push({ ...membership, tenant });
     }
-    return { principal, memberships: active };
+    const activeTenantIds = new Set(active.map((membership) => membership.tenantId));
+    const gatewayGrants: TenantGatewayGrant[] = [];
+    for (const grant of await this.registry.tenantGatewayGrants({ principalId: principal.id })) {
+      if (!activeTenantIds.has(grant.tenantId)) {
+        await this.discardStaleGrant(grant);
+        continue;
+      }
+      try {
+        const authority = await this.grantAuthoritySnapshot(
+          grant.principalId,
+          grant.tenantId,
+          grant.gatewayId,
+          "forbidden",
+        );
+        if (this.grantMatchesAuthority(grant, authority)) {
+          gatewayGrants.push(this.publicGrant(grant));
+        } else {
+          await this.discardStaleGrant(grant);
+        }
+      } catch (error) {
+        if (!isIdentityError(error)) throw error;
+        await this.discardStaleGrant(grant);
+      }
+    }
+    return { principal, memberships: active, gatewayGrants };
   }
 
   async listPrincipals(actor: PlatformActorReference): Promise<Principal[]> {

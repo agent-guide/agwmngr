@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { platformAgentHref } from "@/lib/platform-agent-ui";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useI18n } from "@/components/i18n-provider";
 
@@ -37,7 +38,7 @@ export function UsedByAgents({
   );
 
   if (ids.length === 1 && source !== "gateway") {
-    const href = `/dashboard/agents/${encodeURIComponent(ids[0])}`;
+    const href = platformAgentHref(ids[0]);
     return (
       <Link href={href} className={className} title={t("attribution.usedBy", { agents: ids[0] })}>
         {chip}

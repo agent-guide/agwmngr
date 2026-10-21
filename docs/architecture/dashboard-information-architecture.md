@@ -1,14 +1,20 @@
 # Agent Management Platform UI Architecture
 
 - Document type: **normative**
-- Status: **accepted target; Step 3 shell and delivered administration surfaces implemented**
-- Applies to: `rebuild/agent-resource-platform` canonical dashboard routes and navigation
-- Last reviewed: 2026-10-18
+- Status: **accepted target; Step 7 canonical operational UI implemented**
+- Applies to: `feature/agent-resource-platform` canonical dashboard routes and navigation
+- Last reviewed: 2026-10-21
 
 This document owns the target information architecture, scope display, page
 responsibilities and canonical URLs. It does not grant authority; every visible
 action is a projection of the server policy in
 [Tenant Authorization Model](tenant-authorization-design.md).
+
+Step 7 implements the Agent contextual workspace, membership-scoped Access and
+Test, Tenant Workbench/Observability journeys, and the Platform Admin
+Gateway-qualified infrastructure and observability workspace described here.
+Legacy LLM/MCP/credential entry points now navigate to the canonical Gateway
+path before loading data.
 
 ## 1. Product model
 

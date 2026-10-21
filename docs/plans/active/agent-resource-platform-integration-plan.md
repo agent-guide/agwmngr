@@ -1,7 +1,7 @@
 # Agent Resource Platform Rebuild Plan
 
 - Document type: **delivery**
-- Status: **active; Steps 0–6E and the Step 6 real-Gateway gate are complete; Steps 7 and 9 remain**
+- Status: **active; Steps 0–7 are complete; Step 9 remains**
 - Applies to: `feature/agent-resource-platform`
 - Last reviewed: 2026-10-21
 
@@ -1883,6 +1883,35 @@ Overview, Releases & deployments and Observability tabs plus Workbench
 deployment attention, and confirms Tenant roles never receive Gateway-managed
 inventory rows. Separate Access tests retain owning-Tenant membership discovery
 and first-invocation success without a Gateway grant.
+
+Completed (2026-10-21): the canonical Agent workspace now provides Overview,
+Configuration, Releases & deployments, Access, Observability and Test tabs.
+Deployment rows and runtime actions use the live self-projected exact Gateway
+grants; Tenant Users and no-grant Tenant Admins receive no deployment
+observations, while Access and Test retain owning-Tenant membership semantics.
+Workbench projects recent Agent/release activity, own invocation contexts and
+only grant-visible deployment/runtime attention. Canonical Tenant Overview,
+Calls and Usage pages consume only the scoped observation APIs.
+
+Platform Admin Gateway workspaces now expose path-qualified Providers and
+provider types, Models (discovered, managed and logical), LLM routes and API
+handler types, MCP services/routes, Agents, credentials, Virtual Keys, runtime
+and read-only observability. The new infrastructure adapter accepts only a
+reviewed method/path matrix and resolves the Gateway exclusively from the URL;
+legacy LLM/MCP and credential URLs redirect to the canonical Gateway path before
+queries run. The global Agent inventory unions Tenant-owned rows with explicit
+Gateway-managed rows only for an actor independently holding both authorities.
+Superseded LLM/MCP/Credentials navigation was removed after those redirects and
+replacement pages were present. The legacy Configuration entries remain until
+Bundle and HTTP Servers receive equivalent Gateway-qualified replacements.
+
+Acceptance passed ESLint, application and isolated-contract TypeScript,
+package-boundary checks, the production build, and 133 Bun tests (9 optional
+PostgreSQL tests skipped). Route/helper tests cover the canonical Agent tabs,
+longest-match navigation, Tenant/Gateway path retention and the strict Gateway
+infrastructure allowlist. The Step 6 service suite continues to prove the
+server-side deployment-read and runtime-action permission matrix used by these
+views.
 
 ## 10. Step 8 — optional chat/history and controlled execution
 

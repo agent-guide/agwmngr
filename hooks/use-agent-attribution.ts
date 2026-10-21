@@ -53,24 +53,25 @@ function buildMap(agents: Agent[]): AttributionMap {
   return map;
 }
 
-export function useAgentAttribution(): AttributionMap | null {
+export function useAgentAttribution(gatewayId?: string): AttributionMap | null {
   const { activeGatewayId } = useCurrentUser();
+  const scopedGatewayId = gatewayId ?? activeGatewayId ?? undefined;
   const [result, setResult] = useState<{
     gatewayId: string;
     map: AttributionMap | null;
   } | null>(null);
   useEffect(() => {
     let alive = true;
-    if (!activeGatewayId) return () => { alive = false; };
+    if (!scopedGatewayId) return () => { alive = false; };
     // Attribution must include deployment-claimed agents as well as unfenced
     // compatibility agents; both can reference shared Gateway infrastructure.
-    listPlatformGatewayAgents(activeGatewayId, { includeClaimed: true })
+    listPlatformGatewayAgents(scopedGatewayId, { includeClaimed: true })
       .then((agents) => {
-        if (alive) setResult({ gatewayId: activeGatewayId, map: buildMap(agents) });
+        if (alive) setResult({ gatewayId: scopedGatewayId, map: buildMap(agents) });
       })
       // Unknown attribution must not be rendered as a confident "unused".
-      .catch(() => { if (alive) setResult({ gatewayId: activeGatewayId, map: null }); });
+      .catch(() => { if (alive) setResult({ gatewayId: scopedGatewayId, map: null }); });
     return () => { alive = false; };
-  }, [activeGatewayId]);
-  return result?.gatewayId === activeGatewayId ? result.map : null;
+  }, [scopedGatewayId]);
+  return result && result.gatewayId === scopedGatewayId ? result.map : null;
 }

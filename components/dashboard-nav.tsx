@@ -25,9 +25,6 @@ function IconActivity({ className }: { className?: string }) {
 function IconBrain({ className }: { className?: string }) {
   return <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z" /><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z" /></svg>;
 }
-function IconCredential({ className }: { className?: string }) {
-  return <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>;
-}
 function IconRoute({ className }: { className?: string }) {
   return <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="19" r="2" /><circle cx="18" cy="5" r="2" /><path d="M6 17V9a6 6 0 0 1 6-6h1" /><path d="M18 7v8a6 6 0 0 1-6 6H11" /></svg>;
 }
@@ -69,7 +66,7 @@ type NavGroup = {
 // The WORKSPACE zone is the agent-centric focus: the agent itself plus the
 // day-to-day views for working with it. It stays always-visible at the top.
 const WORKSPACE_PRIMARY_ITEMS: NavItem[] = [
-  { href: "/dashboard", labelKey: "nav.workbench", icon: IconHome },
+  { href: "/dashboard/workbench", labelKey: "nav.workbench", icon: IconHome },
   { href: "/dashboard/agents", labelKey: "nav.agents", icon: IconAgent },
 ];
 
@@ -79,14 +76,6 @@ const ACCESS_ITEMS: NavItem[] = [
 ];
 
 const WORKSPACE_ACTIVITY_ITEMS: NavItem[] = [];
-
-// Credentials are shared by LLM, MCP, and other gateway capabilities, so they
-// live alongside the protocol groups instead of belonging to the LLM group.
-const CREDENTIALS_ITEM: NavItem = {
-  href: "/dashboard/llm/credentials",
-  labelKey: "nav.credentials",
-  icon: IconCredential,
-};
 
 // Platform-authored resources and Gateway infrastructure use separate
 // disclosure groups so their independent authority contexts stay visible.
@@ -106,23 +95,11 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    key: "llm",
-    labelKey: "nav.llm",
-    icon: IconLayers,
-    items: [
-      { href: "/dashboard/llm/providers", labelKey: "nav.providers", icon: IconLayers },
-      { href: "/dashboard/llm/models", labelKey: "nav.models", icon: IconBrain },
-      { href: "/dashboard/llm/routes", labelKey: "nav.routes", icon: IconRoute },
-    ],
-  },
-  {
-    key: "mcp",
-    labelKey: "nav.mcp",
-    icon: IconPlug,
-    items: [
-      { href: "/dashboard/mcp/services", labelKey: "nav.services", icon: IconPlug },
-      { href: "/dashboard/mcp/routes", labelKey: "nav.routes", icon: IconRoute },
-    ],
+    key: "access",
+    labelKey: "nav.access",
+    icon: IconKey,
+    resourceScope: true,
+    items: ACCESS_ITEMS,
   },
   {
     key: "configuration",
@@ -164,12 +141,21 @@ const STORAGE_KEY = "dashboard.nav.groups";
  */
 export function resolveActiveHref(pathname: string, allHrefs: string[]): string | null {
   let best: string | null = null;
+  let bestPathLength = -1;
   for (const href of allHrefs) {
-    if (pathname === href || pathname.startsWith(href + "/")) {
-      if (!best || href.length > best.length) best = href;
+    const hrefPath = href.split("?", 1)[0];
+    if (pathname === hrefPath || pathname.startsWith(hrefPath + "/")) {
+      if (hrefPath.length > bestPathLength) {
+        best = href;
+        bestPathLength = hrefPath.length;
+      }
     }
   }
   return best;
+}
+
+export function tenantObservabilityHref(path: string, tenantId: string): string {
+  return `${path}?tenant=${encodeURIComponent(tenantId)}`;
 }
 
 export function DashboardNav() {
@@ -180,12 +166,11 @@ export function DashboardNav() {
   const hasGatewayContentAccess = Boolean(user?.is_platform_admin);
   const hasPlatformResourceAccess = Boolean(platformAccess?.memberships.length);
   const workspacePrimaryItems = WORKSPACE_PRIMARY_ITEMS.filter((item) => {
-    if (item.href === "/dashboard" || item.href === "/dashboard/agents") {
+    if (item.href === "/dashboard/workbench" || item.href === "/dashboard/agents") {
       return hasPlatformResourceAccess || hasGatewayContentAccess;
     }
     return hasGatewayContentAccess;
   });
-  if (hasPlatformResourceAccess) workspacePrimaryItems.push(...ACCESS_ITEMS);
 
   // Step 6E removed legacy Gateway activity links from the workspace. Scoped
   // invocation endpoints/keys are added above for Tenant members; Gateway
@@ -219,18 +204,38 @@ export function DashboardNav() {
           labelKey: "nav.members",
           icon: IconUsers,
         }, {
-          href: `/dashboard/tenant/${encodeURIComponent(tenantAdminId)}/observability`,
-          labelKey: "nav.observability",
-          icon: IconActivity,
-        }, {
           href: `/dashboard/tenant/${encodeURIComponent(tenantAdminId)}/audit`,
           labelKey: "nav.auditLog",
           icon: IconActivity,
         }],
       }
     : null;
+  const observabilityGroup: NavGroup | null = tenantAdminId
+    ? {
+        key: "observability",
+        labelKey: "nav.observability",
+        icon: IconActivity,
+        items: [
+          {
+            href: tenantObservabilityHref("/dashboard/observability/overview", tenantAdminId),
+            labelKey: "nav.overview",
+            icon: IconActivity,
+          },
+          {
+            href: tenantObservabilityHref("/dashboard/observability/calls", tenantAdminId),
+            labelKey: "nav.calls",
+            icon: IconRoute,
+          },
+          {
+            href: tenantObservabilityHref("/dashboard/observability/usage", tenantAdminId),
+            labelKey: "nav.usage",
+            icon: IconActivity,
+          },
+        ],
+      }
+    : null;
   const platformIndex = baseGroups.findIndex((group) => group.key === "platform");
-  const groups = tenantGroup
+  const groupsWithTenant = tenantGroup
     ? platformIndex === -1
       ? [...baseGroups, tenantGroup]
       : [
@@ -239,13 +244,22 @@ export function DashboardNav() {
           ...baseGroups.slice(platformIndex),
         ]
     : baseGroups;
+  const tenantIndex = groupsWithTenant.findIndex((group) => group.key === "tenant");
+  const groups = observabilityGroup
+    ? tenantIndex === -1
+      ? [...groupsWithTenant, observabilityGroup]
+      : [
+          ...groupsWithTenant.slice(0, tenantIndex),
+          observabilityGroup,
+          ...groupsWithTenant.slice(tenantIndex),
+        ]
+    : groupsWithTenant;
   const runtimeGroup = groups.find((g) => g.key === "runtimes");
   const lowerGroups = groups.filter((g) => g.key !== "runtimes");
 
   const allHrefs = [
     ...workspacePrimaryItems.map((i) => i.href),
     ...workspaceActivityItems.map((i) => i.href),
-    ...(hasGatewayContentAccess ? [CREDENTIALS_ITEM.href] : []),
     ...groups.flatMap((g) => groupItems(g).map((i) => i.href)),
   ];
   const activeHref = resolveActiveHref(pathname, allHrefs);
@@ -382,11 +396,7 @@ export function DashboardNav() {
             {runtimeGroup && groupItems(runtimeGroup).map(renderLink)}
             {workspaceActivityItems.map(renderLink)}
             <li className="my-2 border-t border-slate-700/50" aria-hidden="true" />
-            {lowerGroups.flatMap((group) =>
-              group.key === "mcp"
-                ? [...groupItems(group), CREDENTIALS_ITEM]
-                : groupItems(group)
-            ).map(renderLink)}
+            {lowerGroups.flatMap((group) => groupItems(group)).map(renderLink)}
           </ul>
         ) : (
           <div className="space-y-4">
@@ -399,11 +409,7 @@ export function DashboardNav() {
 
             {/* Collapsible infrastructure groups */}
             <ul className="space-y-1">
-              {lowerGroups.flatMap((group) =>
-                group.key === "mcp"
-                  ? [renderGroup(group), renderLink(CREDENTIALS_ITEM)]
-                  : [renderGroup(group)]
-              )}
+              {lowerGroups.map(renderGroup)}
             </ul>
           </div>
         )}

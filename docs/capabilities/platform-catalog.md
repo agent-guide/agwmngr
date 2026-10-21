@@ -2,7 +2,7 @@
 
 - Document type: **normative**
 - Status: **current; Step 4 catalog foundation and model/tool consumers implemented**
-- Applies to: `rebuild/agent-resource-platform` shared model and tool offerings
+- Applies to: `feature/agent-resource-platform` shared model and tool offerings
 - Last reviewed: 2026-10-19
 
 The shared catalog is the Platform Admin-owned bridge between infrastructure

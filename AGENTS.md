@@ -36,10 +36,10 @@ model and dashboard information architecture are in
 
 The API ownership and capability documents under `docs/architecture/` and
 `docs/capabilities/` describe verified work on
-`rebuild/agent-resource-platform`; their presence on `dev` does not claim that
-the corresponding code is implemented on `dev`. Read the applicable documents
-before changing platform identities, Tenant resources, Agent publication,
-Gateway deployment authorization or canonical dashboard routes.
+`feature/agent-resource-platform`; their presence on another branch does not
+claim that the corresponding code is implemented there. Read the applicable
+documents before changing platform identities, Tenant resources, Agent
+publication, Gateway deployment authorization or canonical dashboard routes.
 
 `docs/capabilities/platform-agent-publication.md` records the implemented Agent
 definition and immutable release boundary. Steps 6A–6E deployment intent,
@@ -47,7 +47,7 @@ verified lifecycle, key binding, server-managed invocation, scoped observation
 runtime administration, compatibility cutover, recovery and remove-only
 decommission are documented in
 `docs/capabilities/platform-agent-deployments.md`; the real-Gateway release gate
-remains pending. Read both before changing
+and the Step 7 canonical operational UI are complete. Read both before changing
 Agent drafts, dependency snapshots, deployment mappings, Gateway adapters or
 their Tenant projections.
 

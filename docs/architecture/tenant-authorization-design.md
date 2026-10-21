@@ -2,12 +2,12 @@
 
 - Document type: **normative**
 - Status: **accepted target; implemented through scoped Gateway cutover on the rebuild branch**
-- Applies to: accepted target on `rebuild/agent-resource-platform`; `dev` only
+- Applies to: accepted target on `feature/agent-resource-platform`; `dev` only
   after it contains the corresponding server-side migration
 - Last reviewed: 2026-10-17
 
 This document defines the authorization model implemented on
-`rebuild/agent-resource-platform`. Step 6E retires user-facing Gateway
+`feature/agent-resource-platform`. Step 6E retires user-facing Gateway
 `admin/member` authority there; retained Gateway infrastructure and compatibility
 APIs require Platform Admin, while Tenant deployment authority uses live Tenant
 membership and exact per-admin Gateway grants. `dev` remains governed by the

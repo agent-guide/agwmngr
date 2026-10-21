@@ -1,5 +1,5 @@
-import { WorkbenchPage } from "@/components/workbench-page";
+import { redirect } from "next/navigation";
 
 export default function DashboardIndexPage() {
-  return <WorkbenchPage />;
+  redirect("/dashboard/workbench");
 }

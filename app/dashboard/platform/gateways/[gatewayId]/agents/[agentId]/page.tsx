@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
+import { StructuredDataView } from "@/components/structured-data-view";
 import { API_BASE_URL, getToken } from "@/lib/auth";
 import {
   createGatewayCompatibilityInvocation,
@@ -162,7 +163,7 @@ export default function GatewayAgentDetailPage() {
     <Card><CardHeader><CardTitle>{t("gatewayAgentDetail.configuration")}</CardTitle>
       <Badge tone={agent?.disabled ? "neutral" : "green"}>{agent?.disabled
         ? t("common.disabled") : t("common.enabled")}</Badge></CardHeader>
-      <pre className="max-h-80 overflow-auto rounded-md border border-slate-700/70 bg-slate-950/50 p-3 text-[11px] text-slate-300">{agent ? JSON.stringify(agent, null, 2) : t("common.loading")}</pre>
+      {agent ? <StructuredDataView data={agent} /> : <p className="text-sm text-slate-400">{t("common.loading")}</p>}
     </Card>
     <Card><CardHeader><CardTitle>{t("gatewayAgentDetail.test")}</CardTitle></CardHeader>
       <div className="grid gap-3 md:grid-cols-2">

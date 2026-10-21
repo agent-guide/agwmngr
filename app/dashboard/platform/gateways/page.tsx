@@ -312,6 +312,12 @@ export default function GatewaysPage() {
               <span><HealthBadge health={g.health_status} /></span>
               <div className="flex flex-wrap gap-1">
                 <Link
+                  href={`/dashboard/platform/gateways/${encodeURIComponent(g.id)}/providers`}
+                  className="rounded-md border border-blue-500/30 bg-blue-500/10 px-2 py-1 text-xs font-medium text-blue-300 transition-colors hover:text-blue-100"
+                >
+                  {t("gateways.openWorkspace")}
+                </Link>
+                <Link
                   href={`/dashboard/platform/gateways/${encodeURIComponent(g.id)}/credentials`}
                   className="rounded-md border border-slate-600/60 bg-slate-800/40 px-2 py-1 text-xs font-medium text-slate-300 transition-colors hover:text-slate-100"
                 >

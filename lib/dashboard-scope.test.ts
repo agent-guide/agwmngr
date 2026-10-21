@@ -25,5 +25,8 @@ test("canonical Gateway scope is derived only from the URL path", () => {
   expect(
     gatewayEquivalentPath("/dashboard/platform/gateways/prod/credentials", "stage"),
   ).toBe("/dashboard/platform/gateways/stage/credentials");
+  expect(
+    gatewayEquivalentPath("/dashboard/platform/gateways/prod/mcp-services", "stage"),
+  ).toBe("/dashboard/platform/gateways/stage/mcp-services");
   expect(gatewayPathScope("/dashboard/llm/credentials")).toBeNull();
 });

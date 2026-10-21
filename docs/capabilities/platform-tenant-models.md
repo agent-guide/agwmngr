@@ -2,7 +2,7 @@
 
 - Document type: **normative**
 - Status: **current; Step 4D implemented**
-- Applies to: `rebuild/agent-resource-platform` Tenant model definitions
+- Applies to: `feature/agent-resource-platform` Tenant model definitions
 - Last reviewed: 2026-10-19
 
 This slice adds Tenant-owned model authoring records above the Platform shared

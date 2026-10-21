@@ -72,6 +72,12 @@ export interface TenantMember extends TenantMembership {
 export interface PlatformAccessProjection {
   principal: Principal;
   memberships: Array<TenantMembership & { tenant: Tenant }>;
+  /**
+   * Live grants held by this Principal. This is a self projection used to
+   * decide which Gateway-targeted deployment controls the UI may offer; it is
+   * not a grant directory and never includes another Principal's grants.
+   */
+  gatewayGrants: TenantGatewayGrant[];
 }
 
 export interface ServicePrincipalCreation {

@@ -22,6 +22,7 @@ import {
   type AgentDefinition,
   type AgentDefinitionDraft,
 } from "@/lib/platform-api";
+import { platformAgentHref } from "@/lib/platform-agent-ui";
 
 type ResourceChoices = {
   models: MultiOption[];
@@ -164,7 +165,7 @@ export function PlatformAgentForm({ initial }: { initial?: AgentDefinition }) {
         ? await updateAgentDefinition(tenantId, initial.id, initial.version, draft)
         : await createAgentDefinition(tenantId, { slug, expectedVersion: 0, draft });
       showToast(t(initial ? "platformAgents.updated" : "platformAgents.created"), "success");
-      router.push(`/dashboard/agents/${encodeURIComponent(saved.id)}`);
+      router.push(platformAgentHref(saved.id));
     } catch (error) {
       showToast(error instanceof Error ? error.message : t("platformAgents.saveFailed"), "error");
       setSaving(false);

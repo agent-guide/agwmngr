@@ -1,22 +1,5 @@
-"use client";
+import { LegacyGatewayRedirect } from "@/components/legacy-gateway-redirect";
 
-import { GatewayCredentialsPage, type GatewayCredentialsAdapter } from "@/components/gateway-credentials-page";
-import {
-  createCredential,
-  deleteCredential,
-  listCredentials,
-  listProviders,
-  updateCredential,
-} from "@/lib/api";
-
-const legacyGatewayCredentials: GatewayCredentialsAdapter = {
-  listCredentials,
-  listProviders,
-  createCredential,
-  updateCredential,
-  deleteCredential,
-};
-
-export default function CredentialsPage() {
-  return <GatewayCredentialsPage api={legacyGatewayCredentials} />;
+export default function LegacyCredentialsPage() {
+  return <LegacyGatewayRedirect target="credentials" />;
 }

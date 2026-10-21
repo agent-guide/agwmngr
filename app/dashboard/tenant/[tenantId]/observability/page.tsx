@@ -1,9 +1,10 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { useParams } from "next/navigation";
-import { PlatformObservabilityPage } from "@/components/platform-observability-page";
-
-export default function TenantObservabilityPage() {
-  const { tenantId } = useParams<{ tenantId: string }>();
-  return <PlatformObservabilityPage tenantId={tenantId} />;
+export default async function LegacyTenantObservabilityPage({
+  params,
+}: {
+  params: Promise<{ tenantId: string }>;
+}) {
+  const { tenantId } = await params;
+  redirect(`/dashboard/observability/overview?tenant=${encodeURIComponent(tenantId)}`);
 }

@@ -11,7 +11,7 @@
 
 > **Implementation note:** Gateway-root `admin/member` storage remains for
 > history and migration, but Step 6E no longer accepts it as user-facing Gateway
-> content authority on `rebuild/agent-resource-platform`.
+> content authority on `feature/agent-resource-platform`.
 > Domain/resource grants remain proposed in
 > [Hierarchical Resource RBAC Design](resource-rbac-design.md). One deviation
 > from the locked storage decision is that `bun:sqlite` is wrapped by a

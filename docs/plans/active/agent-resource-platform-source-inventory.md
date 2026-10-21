@@ -2,7 +2,7 @@
 
 - Document type: **delivery**
 - Status: **active approved migration allowlist**
-- Applies to: `rebuild/agent-resource-platform`
+- Applies to: `feature/agent-resource-platform`
 - Last reviewed: 2026-10-20
 
 This document records what may be learned from each source and what must not be

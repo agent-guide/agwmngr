@@ -2,7 +2,7 @@
 
 - Document type: **normative**
 - Status: **current; Step 4C implemented**
-- Applies to: `rebuild/agent-resource-platform` human-owned Tenant personal files
+- Applies to: `feature/agent-resource-platform` human-owned Tenant personal files
 - Last reviewed: 2026-10-20
 
 Personal files are permanent platform resources owned by one human Principal

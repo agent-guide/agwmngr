@@ -38,9 +38,9 @@ Current `dev` compatibility architecture:
 - [Multi-user and multi-Gateway design](architecture/multi-tenant-design.md)
 - [Hierarchical resource RBAC design](architecture/resource-rbac-design.md)
 
-## Verified rebuild-branch capability documents
+## Verified feature-branch capability documents
 
-These documents describe implementations on `rebuild/agent-resource-platform`;
+These documents describe implementations on `feature/agent-resource-platform`;
 they do not claim the same code is present on `dev` until that branch is merged
 into `dev` or `dev` otherwise advances to contain it.
 

@@ -1,7 +1,7 @@
 # Platform Agent deployments
 
 - Document type: **normative**
-- Status: **Steps 6A–6E implemented; real-Gateway release acceptance passed**
+- Status: **Steps 6A–6E implemented; real-Gateway release acceptance and Step 7 UI projection passed**
 - Applies to: `feature/agent-resource-platform` deployment-intent APIs
 - Last reviewed: 2026-10-21
 
@@ -19,6 +19,12 @@ audit, and path-qualified Platform Admin diagnostics and Gateway-only Agent
 compatibility. Step 6E retires user-facing Gateway roles, denies unknown legacy
 proxy families before forwarding, and adds recovery, reconciliation and
 remove-only decommission workflows.
+
+Step 7 consumes these APIs from the canonical Agent workspace, Access,
+Workbench and Tenant Observability pages. It does not add browser authority:
+deployment observations remain filtered by the exact read predicate, runtime
+actions remain `manage`-only, and membership-scoped Access/Test continues to use
+opaque server-managed invocation contexts.
 
 An active Tenant Admin with a live `tenant_gateway:manage` grant may create an
 intent for one immutable Agent release and one explicit active Gateway. Platform
@@ -174,4 +180,5 @@ Gateway v0.7.0 commit `3d04b7a0207a6d31746a1b196ae9d82097c2087c`.
 It covers real create/invoke/observe/rollback, two-Tenant shared-Gateway
 isolation, differing grants, revocation before retry, recovery from a partial
 remote write, and Virtual-Key/service-credential separation. The delivery plan
-records the detailed acceptance evidence and remaining Step 7/Step 9 work.
+records the detailed acceptance evidence; only Step 9 operational acceptance
+remains in the initial delivery plan.

@@ -2,7 +2,7 @@
 
 - Document type: **normative**
 - Status: **current; Step 4A implemented**
-- Applies to: `rebuild/agent-resource-platform` Skill and instruction resources
+- Applies to: `feature/agent-resource-platform` Skill and instruction resources
 - Last reviewed: 2026-10-20
 
 This slice implements Skills and instructions as authored resources with immutable

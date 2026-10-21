@@ -178,25 +178,29 @@ export type ProviderUpdatePayload = Omit<ProviderPayload, "id">;
 
 // ---- Provider API functions ----
 
+function gatewayInfrastructurePath(gatewayId: string | undefined, adminPath: string): string {
+  return gatewayId
+    ? `/api/platform/v1/gateways/${encodeURIComponent(gatewayId)}/infrastructure${adminPath.slice("/admin".length)}`
+    : adminPath;
+}
+
 // Provider types are process capabilities configured only at gateway startup
 // (Caddyfile `provider_types {}` block or daemon flags). The gateway exposes
 // `GET /admin/llm/provider_types` as a read-only inspection endpoint; there are no
 // runtime enable/disable endpoints.
-export async function listProviderTypes(): Promise<ProviderTypeItem[]> {
-  const res = await adminFetch<{ items: ProviderTypeItem[] }>("/admin/llm/provider_types");
+export async function listProviderTypes(gatewayId?: string): Promise<ProviderTypeItem[]> {
+  const res = await adminFetch<{ items: ProviderTypeItem[] }>(gatewayInfrastructurePath(gatewayId, "/admin/llm/provider_types"));
   return res.items ?? [];
 }
 
 export async function listProviders(providerType?: string, gatewayId?: string): Promise<ProviderItem[]> {
   const query = providerType ? `?provider_type=${encodeURIComponent(providerType)}` : "";
-  const res = await adminFetch<{ items: ProviderItem[] }>(`/admin/llm/providers${query}`, {
-    ...(gatewayId ? { headers: { "X-Gateway-Id": gatewayId } } : {}),
-  });
+  const res = await adminFetch<{ items: ProviderItem[] }>(`${gatewayInfrastructurePath(gatewayId, "/admin/llm/providers")}${query}`);
   return res.items ?? [];
 }
 
-export async function createProvider(payload: ProviderPayload): Promise<ProviderItem> {
-  return adminFetch<ProviderItem>("/admin/llm/providers", {
+export async function createProvider(payload: ProviderPayload, gatewayId?: string): Promise<ProviderItem> {
+  return adminFetch<ProviderItem>(gatewayInfrastructurePath(gatewayId, "/admin/llm/providers"), {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -205,27 +209,28 @@ export async function createProvider(payload: ProviderPayload): Promise<Provider
 export async function updateProvider(
   id: string,
   payload: ProviderUpdatePayload,
+  gatewayId?: string,
 ): Promise<ProviderItem> {
-  return adminFetch<ProviderItem>(`/admin/llm/providers/${encodeURIComponent(id)}`, {
+  return adminFetch<ProviderItem>(gatewayInfrastructurePath(gatewayId, `/admin/llm/providers/${encodeURIComponent(id)}`), {
     method: "PUT",
     body: JSON.stringify({ id, ...payload }),
   });
 }
 
-export async function deleteProvider(id: string): Promise<void> {
-  await adminFetch(`/admin/llm/providers/${encodeURIComponent(id)}`, {
+export async function deleteProvider(id: string, gatewayId?: string): Promise<void> {
+  await adminFetch(gatewayInfrastructurePath(gatewayId, `/admin/llm/providers/${encodeURIComponent(id)}`), {
     method: "DELETE",
   });
 }
 
-export async function enableProvider(id: string): Promise<ProviderItem> {
-  return adminFetch<ProviderItem>(`/admin/llm/providers/${encodeURIComponent(id)}/enable`, {
+export async function enableProvider(id: string, gatewayId?: string): Promise<ProviderItem> {
+  return adminFetch<ProviderItem>(gatewayInfrastructurePath(gatewayId, `/admin/llm/providers/${encodeURIComponent(id)}/enable`), {
     method: "POST",
   });
 }
 
-export async function disableProvider(id: string): Promise<ProviderItem> {
-  return adminFetch<ProviderItem>(`/admin/llm/providers/${encodeURIComponent(id)}/disable`, {
+export async function disableProvider(id: string, gatewayId?: string): Promise<ProviderItem> {
+  return adminFetch<ProviderItem>(gatewayInfrastructurePath(gatewayId, `/admin/llm/providers/${encodeURIComponent(id)}/disable`), {
     method: "POST",
   });
 }
@@ -390,34 +395,34 @@ export interface RefreshModelsResponse {
 
 // ---- Model API functions ----
 
-export async function listDiscoveredModels(providerID: string): Promise<DiscoveredModel[]> {
+export async function listDiscoveredModels(providerID: string, gatewayId?: string): Promise<DiscoveredModel[]> {
   const res = await adminFetch<{ items: DiscoveredModel[] }>(
-    `/admin/llm/models/providers/${encodeURIComponent(providerID)}/discovered`,
+    gatewayInfrastructurePath(gatewayId, `/admin/llm/models/providers/${encodeURIComponent(providerID)}/discovered`),
   );
   return res.items ?? [];
 }
 
-export async function refreshProviderModels(providerID: string): Promise<RefreshModelsResponse> {
+export async function refreshProviderModels(providerID: string, gatewayId?: string): Promise<RefreshModelsResponse> {
   return adminFetch<RefreshModelsResponse>(
-    `/admin/llm/models/providers/${encodeURIComponent(providerID)}/refresh`,
+    gatewayInfrastructurePath(gatewayId, `/admin/llm/models/providers/${encodeURIComponent(providerID)}/refresh`),
     { method: "POST" },
   );
 }
 
-export async function listManagedModels(providerID?: string): Promise<ManagedConcreteModel[]> {
+export async function listManagedModels(providerID?: string, gatewayId?: string): Promise<ManagedConcreteModel[]> {
   const query = providerID ? `?provider_id=${encodeURIComponent(providerID)}` : "";
-  const res = await adminFetch<{ items: ManagedConcreteModel[] }>(`/admin/llm/models/managed${query}`);
+  const res = await adminFetch<{ items: ManagedConcreteModel[] }>(`${gatewayInfrastructurePath(gatewayId, "/admin/llm/models/managed")}${query}`);
   return res.items ?? [];
 }
 
-export async function getManagedModel(providerID: string, upstreamModel: string): Promise<ManagedConcreteModel> {
+export async function getManagedModel(providerID: string, upstreamModel: string, gatewayId?: string): Promise<ManagedConcreteModel> {
   return adminFetch<ManagedConcreteModel>(
-    `/admin/llm/models/managed/${encodeURIComponent(providerID)}/${encodeURIComponent(upstreamModel)}`,
+    gatewayInfrastructurePath(gatewayId, `/admin/llm/models/managed/${encodeURIComponent(providerID)}/${encodeURIComponent(upstreamModel)}`),
   );
 }
 
-export async function createManagedModel(payload: ManagedModelPayload): Promise<ManagedConcreteModel> {
-  return adminFetch<ManagedConcreteModel>("/admin/llm/models/managed", {
+export async function createManagedModel(payload: ManagedModelPayload, gatewayId?: string): Promise<ManagedConcreteModel> {
+  return adminFetch<ManagedConcreteModel>(gatewayInfrastructurePath(gatewayId, "/admin/llm/models/managed"), {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -427,16 +432,17 @@ export async function updateManagedModel(
   providerID: string,
   upstreamModel: string,
   payload: ManagedModelPayload,
+  gatewayId?: string,
 ): Promise<ManagedConcreteModel> {
   return adminFetch<ManagedConcreteModel>(
-    `/admin/llm/models/managed/${encodeURIComponent(providerID)}/${encodeURIComponent(upstreamModel)}`,
+    gatewayInfrastructurePath(gatewayId, `/admin/llm/models/managed/${encodeURIComponent(providerID)}/${encodeURIComponent(upstreamModel)}`),
     { method: "PUT", body: JSON.stringify(payload) },
   );
 }
 
-export async function deleteManagedModel(providerID: string, upstreamModel: string): Promise<void> {
+export async function deleteManagedModel(providerID: string, upstreamModel: string, gatewayId?: string): Promise<void> {
   await adminFetch(
-    `/admin/llm/models/managed/${encodeURIComponent(providerID)}/${encodeURIComponent(upstreamModel)}`,
+    gatewayInfrastructurePath(gatewayId, `/admin/llm/models/managed/${encodeURIComponent(providerID)}/${encodeURIComponent(upstreamModel)}`),
     { method: "DELETE" },
   );
 }
@@ -503,41 +509,39 @@ export interface LLMApiHandlerEntry {
 // ---- LLM Route API functions ----
 
 export async function listLLMRoutes(gatewayId?: string): Promise<LLMRoute[]> {
-  const res = await adminFetch<{ items: LLMRoute[] }>("/admin/llm/routes", {
-    ...(gatewayId ? { headers: { "X-Gateway-Id": gatewayId } } : {}),
-  });
+  const res = await adminFetch<{ items: LLMRoute[] }>(gatewayInfrastructurePath(gatewayId, "/admin/llm/routes"));
   return res.items ?? [];
 }
 
-export async function listLLMApiHandlerTypes(): Promise<LLMApiHandlerEntry[]> {
-  const res = await adminFetch<{ items: LLMApiHandlerEntry[] }>("/admin/llm/api_handler_types");
+export async function listLLMApiHandlerTypes(gatewayId?: string): Promise<LLMApiHandlerEntry[]> {
+  const res = await adminFetch<{ items: LLMApiHandlerEntry[] }>(gatewayInfrastructurePath(gatewayId, "/admin/llm/api_handler_types"));
   return res.items ?? [];
 }
 
-export async function createLLMRoute(payload: LLMRoutePayload): Promise<LLMRoute> {
-  return adminFetch<LLMRoute>("/admin/llm/routes", {
+export async function createLLMRoute(payload: LLMRoutePayload, gatewayId?: string): Promise<LLMRoute> {
+  return adminFetch<LLMRoute>(gatewayInfrastructurePath(gatewayId, "/admin/llm/routes"), {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
-export async function updateLLMRoute(id: string, payload: LLMRoutePayload): Promise<LLMRoute> {
-  return adminFetch<LLMRoute>(`/admin/llm/routes/${encodeURIComponent(id)}`, {
+export async function updateLLMRoute(id: string, payload: LLMRoutePayload, gatewayId?: string): Promise<LLMRoute> {
+  return adminFetch<LLMRoute>(gatewayInfrastructurePath(gatewayId, `/admin/llm/routes/${encodeURIComponent(id)}`), {
     method: "PUT",
     body: JSON.stringify(payload),
   });
 }
 
-export async function deleteLLMRoute(id: string): Promise<void> {
-  await adminFetch(`/admin/llm/routes/${encodeURIComponent(id)}`, { method: "DELETE" });
+export async function deleteLLMRoute(id: string, gatewayId?: string): Promise<void> {
+  await adminFetch(gatewayInfrastructurePath(gatewayId, `/admin/llm/routes/${encodeURIComponent(id)}`), { method: "DELETE" });
 }
 
-export async function enableLLMRoute(id: string): Promise<void> {
-  await adminFetch(`/admin/llm/routes/${encodeURIComponent(id)}/enable`, { method: "POST" });
+export async function enableLLMRoute(id: string, gatewayId?: string): Promise<void> {
+  await adminFetch(gatewayInfrastructurePath(gatewayId, `/admin/llm/routes/${encodeURIComponent(id)}/enable`), { method: "POST" });
 }
 
-export async function disableLLMRoute(id: string): Promise<void> {
-  await adminFetch(`/admin/llm/routes/${encodeURIComponent(id)}/disable`, { method: "POST" });
+export async function disableLLMRoute(id: string, gatewayId?: string): Promise<void> {
+  await adminFetch(gatewayInfrastructurePath(gatewayId, `/admin/llm/routes/${encodeURIComponent(id)}/disable`), { method: "POST" });
 }
 
 // ============================================================================
@@ -695,48 +699,46 @@ export type MCPRoutePayload = Pick<
 // ---- MCP Service API functions ----
 
 export async function listMCPServices(gatewayId?: string): Promise<MCPService[]> {
-  const res = await adminFetch<{ items: MCPService[] }>("/admin/mcp/services", {
-    ...(gatewayId ? { headers: { "X-Gateway-Id": gatewayId } } : {}),
-  });
+  const res = await adminFetch<{ items: MCPService[] }>(gatewayInfrastructurePath(gatewayId, "/admin/mcp/services"));
   return res.items ?? [];
 }
 
-export async function getMCPService(id: string): Promise<MCPService> {
-  return adminFetch<MCPService>(`/admin/mcp/services/${encodeURIComponent(id)}`);
+export async function getMCPService(id: string, gatewayId?: string): Promise<MCPService> {
+  return adminFetch<MCPService>(gatewayInfrastructurePath(gatewayId, `/admin/mcp/services/${encodeURIComponent(id)}`));
 }
 
-export async function createMCPService(payload: MCPServicePayload): Promise<MCPService> {
-  return adminFetch<MCPService>("/admin/mcp/services", {
+export async function createMCPService(payload: MCPServicePayload, gatewayId?: string): Promise<MCPService> {
+  return adminFetch<MCPService>(gatewayInfrastructurePath(gatewayId, "/admin/mcp/services"), {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
-export async function updateMCPService(id: string, payload: MCPServicePayload): Promise<MCPService> {
-  return adminFetch<MCPService>(`/admin/mcp/services/${encodeURIComponent(id)}`, {
+export async function updateMCPService(id: string, payload: MCPServicePayload, gatewayId?: string): Promise<MCPService> {
+  return adminFetch<MCPService>(gatewayInfrastructurePath(gatewayId, `/admin/mcp/services/${encodeURIComponent(id)}`), {
     method: "PUT",
     body: JSON.stringify(payload),
   });
 }
 
-export async function deleteMCPService(id: string): Promise<void> {
-  await adminFetch(`/admin/mcp/services/${encodeURIComponent(id)}`, { method: "DELETE" });
+export async function deleteMCPService(id: string, gatewayId?: string): Promise<void> {
+  await adminFetch(gatewayInfrastructurePath(gatewayId, `/admin/mcp/services/${encodeURIComponent(id)}`), { method: "DELETE" });
 }
 
-export async function getMCPServiceCapabilities(id: string): Promise<unknown> {
-  return adminFetch(`/admin/mcp/services/${encodeURIComponent(id)}/capabilities`);
+export async function getMCPServiceCapabilities(id: string, gatewayId?: string): Promise<unknown> {
+  return adminFetch(gatewayInfrastructurePath(gatewayId, `/admin/mcp/services/${encodeURIComponent(id)}/capabilities`));
 }
 
-export async function getMCPServiceSession(id: string): Promise<MCPSession | null> {
+export async function getMCPServiceSession(id: string, gatewayId?: string): Promise<MCPSession | null> {
   const res = await adminFetch<{ session: MCPSession | null }>(
-    `/admin/mcp/services/${encodeURIComponent(id)}/sessions`,
+    gatewayInfrastructurePath(gatewayId, `/admin/mcp/services/${encodeURIComponent(id)}/sessions`),
   );
   return res.session ?? null;
 }
 
-export async function listMCPTools(id: string): Promise<MCPTool[]> {
+export async function listMCPTools(id: string, gatewayId?: string): Promise<MCPTool[]> {
   const res = await adminFetch<{ items: MCPTool[] }>(
-    `/admin/mcp/services/${encodeURIComponent(id)}/tools`,
+    gatewayInfrastructurePath(gatewayId, `/admin/mcp/services/${encodeURIComponent(id)}/tools`),
   );
   return res.items ?? [];
 }
@@ -751,16 +753,16 @@ export async function callMCPTool(
   });
 }
 
-export async function listMCPResources(id: string): Promise<MCPResource[]> {
+export async function listMCPResources(id: string, gatewayId?: string): Promise<MCPResource[]> {
   const res = await adminFetch<{ items: MCPResource[] }>(
-    `/admin/mcp/services/${encodeURIComponent(id)}/resources`,
+    gatewayInfrastructurePath(gatewayId, `/admin/mcp/services/${encodeURIComponent(id)}/resources`),
   );
   return res.items ?? [];
 }
 
-export async function listMCPResourceTemplates(id: string): Promise<MCPResourceTemplate[]> {
+export async function listMCPResourceTemplates(id: string, gatewayId?: string): Promise<MCPResourceTemplate[]> {
   const res = await adminFetch<{ items: MCPResourceTemplate[] }>(
-    `/admin/mcp/services/${encodeURIComponent(id)}/resource-templates`,
+    gatewayInfrastructurePath(gatewayId, `/admin/mcp/services/${encodeURIComponent(id)}/resource-templates`),
   );
   return res.items ?? [];
 }
@@ -772,9 +774,9 @@ export async function readMCPResource(id: string, uri: string): Promise<{ conten
   });
 }
 
-export async function listMCPPrompts(id: string): Promise<MCPPrompt[]> {
+export async function listMCPPrompts(id: string, gatewayId?: string): Promise<MCPPrompt[]> {
   const res = await adminFetch<{ items: MCPPrompt[] }>(
-    `/admin/mcp/services/${encodeURIComponent(id)}/prompts`,
+    gatewayInfrastructurePath(gatewayId, `/admin/mcp/services/${encodeURIComponent(id)}/prompts`),
   );
   return res.items ?? [];
 }
@@ -794,28 +796,26 @@ export async function listMCPHistory(routeId?: string): Promise<MCPCompletedRequ
 // ---- MCP Route API functions ----
 
 export async function listMCPRoutes(gatewayId?: string): Promise<MCPRoute[]> {
-  const res = await adminFetch<{ items: MCPRoute[] }>("/admin/mcp/routes", {
-    ...(gatewayId ? { headers: { "X-Gateway-Id": gatewayId } } : {}),
-  });
+  const res = await adminFetch<{ items: MCPRoute[] }>(gatewayInfrastructurePath(gatewayId, "/admin/mcp/routes"));
   return res.items ?? [];
 }
 
-export async function createMCPRoute(payload: MCPRoutePayload): Promise<MCPRoute> {
-  return adminFetch<MCPRoute>("/admin/mcp/routes", {
+export async function createMCPRoute(payload: MCPRoutePayload, gatewayId?: string): Promise<MCPRoute> {
+  return adminFetch<MCPRoute>(gatewayInfrastructurePath(gatewayId, "/admin/mcp/routes"), {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
-export async function updateMCPRoute(id: string, payload: MCPRoutePayload): Promise<MCPRoute> {
-  return adminFetch<MCPRoute>(`/admin/mcp/routes/${encodeURIComponent(id)}`, {
+export async function updateMCPRoute(id: string, payload: MCPRoutePayload, gatewayId?: string): Promise<MCPRoute> {
+  return adminFetch<MCPRoute>(gatewayInfrastructurePath(gatewayId, `/admin/mcp/routes/${encodeURIComponent(id)}`), {
     method: "PUT",
     body: JSON.stringify(payload),
   });
 }
 
-export async function deleteMCPRoute(id: string): Promise<void> {
-  await adminFetch(`/admin/mcp/routes/${encodeURIComponent(id)}`, { method: "DELETE" });
+export async function deleteMCPRoute(id: string, gatewayId?: string): Promise<void> {
+  await adminFetch(gatewayInfrastructurePath(gatewayId, `/admin/mcp/routes/${encodeURIComponent(id)}`), { method: "DELETE" });
 }
 
 // ============================================================================

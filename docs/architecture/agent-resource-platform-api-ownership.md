@@ -1,7 +1,7 @@
 # Agent Resource Platform API Ownership and Service Boundaries
 
 - Document type: **normative**
-- Status: **current through the accepted Step 6 release gate**
+- Status: **current through Step 7**
 - Applies to: `feature/agent-resource-platform` shared packages and APIs
 - Last reviewed: 2026-10-21
 
@@ -12,7 +12,9 @@ offering catalog, Step 4A adds Tenant/Platform Skills and instructions, and Step
 4B adds Tenant knowledge/document metadata plus a private object adapter, Step
 4C adds human-owned personal files, and Steps 4D–4E add Tenant model/tool
 definitions. Steps 5–6 add publication, scoped deployment, invocation,
-observation, compatibility and recovery APIs.
+observation, compatibility and recovery APIs. Step 7 projects those services
+through canonical Agent, Access, Workbench and Tenant Observability pages
+without weakening their server-side predicates.
 
 ## 1. Implemented shared modules
 
@@ -113,6 +115,15 @@ owned secret redaction and omitted-key merge behavior are shared with the legacy
 explicit handlers. The existing `/api/admin/credentials` route remains only in
 the Platform Admin compatibility allowlist; non-Platform Gateway roles cannot
 use it after the Step 6E cutover.
+
+Step 7 adds the Platform Admin infrastructure adapter at
+`/api/platform/v1/gateways/{gateway_id}/infrastructure/*`. It is not a generic
+proxy: a strict method/path matrix admits only provider types, API handler
+types, redacted providers, discovered/managed models, LLM routes, MCP services
+and MCP routes needed by the canonical Gateway workspace. The adapter resolves
+only the path Gateway and ignores active-session scope and `X-Gateway-Id`.
+Legacy LLM/MCP pages redirect to a Gateway-qualified URL before their first
+query; the canonical browser facade always supplies the path Gateway ID.
 
 Client-provided Tenant, resource, owner, Principal, role or Gateway IDs are
 inputs to server-side resolution, never proof of permission. Later services

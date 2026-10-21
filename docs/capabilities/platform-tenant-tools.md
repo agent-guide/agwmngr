@@ -2,7 +2,7 @@
 
 - Document type: **normative**
 - Status: **current; Step 4E implemented**
-- Applies to: `rebuild/agent-resource-platform` Tenant tool definitions
+- Applies to: `feature/agent-resource-platform` Tenant tool definitions
 - Last reviewed: 2026-10-19
 
 This slice adds Tenant-owned tool authoring records above the Platform shared

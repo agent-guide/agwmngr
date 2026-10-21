@@ -2,7 +2,7 @@
 
 - Document type: **normative**
 - Status: **current; Step 4B implemented**
-- Applies to: `rebuild/agent-resource-platform` Tenant knowledge bases and documents
+- Applies to: `feature/agent-resource-platform` Tenant knowledge bases and documents
 - Last reviewed: 2026-10-20
 
 Knowledge bases are Tenant-owned metadata containers. Documents are durable
