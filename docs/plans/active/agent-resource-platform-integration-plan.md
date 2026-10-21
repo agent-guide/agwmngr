@@ -1,9 +1,9 @@
 # Agent Resource Platform Rebuild Plan
 
 - Document type: **delivery**
-- Status: **active; Steps 0–7 are complete; Step 9 remains**
+- Status: **active; Steps 0–7 are complete; Step 8 remains; Step 9 is post-delivery optional work**
 - Applies to: `feature/agent-resource-platform`
-- Last reviewed: 2026-10-21
+- Last reviewed: 2026-10-22
 
 The branch was originally replayed from a release candidate named `v0.2.0`.
 That tag was removed, the release number was reset, and the intermediate release
@@ -1913,24 +1913,7 @@ infrastructure allowlist. The Step 6 service suite continues to prove the
 server-side deployment-read and runtime-action permission matrix used by these
 views.
 
-## 10. Step 8 — optional chat/history and controlled execution
-
-This is not part of the initial resource/deployment acceptance.
-
-### 8A. Product chat/history
-
-Port generic session ownership, persistent history, attachments and Gateway event
-translation. Reuse the mandatory Step 6C server-managed invocation path and add
-history semantics here; do not postpone the Test credential boundary to this
-optional slice.
-
-### 8B. Durable controlled Agent work
-
-Start only after an independent contract excludes Team, project/task binding,
-Work Management and workflow-engine dependencies. Require durable jobs, leases,
-idempotency, human wait/resume, cancellation, artifacts and reconciliation.
-
-## 11. Step 9 — migration and operational acceptance
+## 10. Step 8 — migration and operational acceptance
 
 - Freeze canonical SQL migrations and generate manifests only after schemas
   stabilize.
@@ -1943,6 +1926,28 @@ idempotency, human wait/resume, cancellation, artifacts and reconciliation.
 
 Old feature acceptance records are not evidence for this branch; every gate is
 rerun.
+
+Completing this step closes the initial Agent resource/deployment delivery plan.
+The optional Step 9 work below does not block migration, release acceptance or
+completion of the initial plan.
+
+## 11. Step 9 — optional chat/history and controlled execution
+
+This is post-delivery optional work and is not part of the initial
+resource/deployment acceptance.
+
+### 9A. Product chat/history
+
+Port generic session ownership, persistent history, attachments and Gateway event
+translation. Reuse the mandatory Step 6C server-managed invocation path and add
+history semantics here; do not postpone the Test credential boundary to this
+optional slice.
+
+### 9B. Durable controlled Agent work
+
+Start only after an independent contract excludes Team, project/task binding,
+Work Management and workflow-engine dependencies. Require durable jobs, leases,
+idempotency, human wait/resume, cancellation, artifacts and reconciliation.
 
 ## 12. Commit discipline
 
