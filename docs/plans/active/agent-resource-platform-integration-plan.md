@@ -1,9 +1,9 @@
 # Agent Resource Platform Rebuild Plan
 
 - Document type: **delivery**
-- Status: **active; Steps 0–6E implemented, final real-Gateway acceptance pending**
-- Applies to: `rebuild/agent-resource-platform`
-- Last reviewed: 2026-10-20
+- Status: **active; Steps 0–6E and the Step 6 real-Gateway gate are complete; Steps 7 and 9 remain**
+- Applies to: `feature/agent-resource-platform`
+- Last reviewed: 2026-10-21
 
 The branch was originally replayed from a release candidate named `v0.2.0`.
 That tag was removed, the release number was reset, and the intermediate release
@@ -1390,8 +1390,8 @@ ordinary key-write, binding-collision, route-containment and quarantine
 recovery each retain a narrow operation-specific handler. Canonical Gateway
 Agent, runtime and observability pages consume the explicit Platform APIs, and
 legacy navigation redirects to the accepted destinations. The implementation
-slice is complete; the following real Gateway and multi-Tenant gate remains to
-be executed as release acceptance.
+slice is complete. The real Gateway and multi-Tenant release gate below passed
+on 2026-10-21.
 
 Gate: real Gateway v0.7 create/invoke/observe/rollback, two-Tenant shared-Gateway
 isolation, per-admin differing grants, revocation-before-retry, partial failure
@@ -1834,6 +1834,23 @@ Platform Admin Virtual Key page tests cover create, allowlist, rotation,
 disable, one-time
 issuance and audited recovery plus legacy redirect; Tenant direct URLs are
 denied.
+
+Acceptance (2026-10-21): `bun run smoke:step6-gateway` passed against the exact
+Agent Gateway v0.7.0 commit `3d04b7a0207a6d31746a1b196ae9d82097c2087c`
+and a production-built Bun/Next.js manager in an isolated temporary store. The
+gate created Alpha and Beta deployments on one real Gateway with distinct live
+LLM routes, proved cross-Tenant denial plus per-admin `manage`/`view`
+differences, invoked both through opaque platform contexts, and read activity,
+usage, interactions and health through the scoped observation APIs. A local
+Admin-API fault proxy failed Alpha's first Agent-route create after the Agent
+write; grant revocation denied retry without another Gateway write, and grant
+restoration let the same journal create only the missing route and promote the
+pair. The run also proved direct Virtual-Key invocation, service-credential
+invocation through the platform, mutual credential rejection at the opposite
+boundary, denial of an unverified release as a rollback target, and successful
+rollback to the deployment's previously verified release. The harness archives
+the pinned Gateway commit without changing its source checkout and deletes all
+temporary processes, databases, object files and build output on completion.
 
 ## 9. Step 7 — Agent-first operational UI
 

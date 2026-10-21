@@ -1,8 +1,8 @@
 # Platform Agent deployments
 
 - Document type: **normative**
-- Status: **Steps 6A–6E implemented; real-Gateway release acceptance pending**
-- Applies to: `rebuild/agent-resource-platform` deployment-intent APIs
+- Status: **Steps 6A–6E implemented; real-Gateway release acceptance passed**
+- Applies to: `feature/agent-resource-platform` deployment-intent APIs
 - Last reviewed: 2026-10-21
 
 ## Implemented boundary
@@ -168,6 +168,10 @@ explicit subject-wide remove-only workflow. Specialized retry routes retain
 their original operation token and authority instead of turning recovery into a
 general editing or redeployment API.
 
-The checked-in Step 6 implementation is complete. The plan's final real Gateway
-v0.7 create/invoke/observe/rollback and multi-Tenant operational acceptance gate
-remains a release activity, not a capability claimed by this document.
+The checked-in Step 6 implementation and its release gate are complete.
+`bun run smoke:step6-gateway` passed on 2026-10-21 against the exact Agent
+Gateway v0.7.0 commit `3d04b7a0207a6d31746a1b196ae9d82097c2087c`.
+It covers real create/invoke/observe/rollback, two-Tenant shared-Gateway
+isolation, differing grants, revocation before retry, recovery from a partial
+remote write, and Virtual-Key/service-credential separation. The delivery plan
+records the detailed acceptance evidence and remaining Step 7/Step 9 work.

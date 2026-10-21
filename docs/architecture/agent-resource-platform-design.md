@@ -1,8 +1,8 @@
 # Agent Resource Platform Design
 
 - Document type: **normative**
-- Status: **accepted target; Steps 0–6E implemented, release acceptance pending**
-- Applies to: `rebuild/agent-resource-platform`
+- Status: **accepted target; Steps 0–6E implemented and Step 6 release acceptance passed**
+- Applies to: `feature/agent-resource-platform`
 - Last reviewed: 2026-10-21
 
 The historical replay started from a release candidate named `v0.2.0`. That tag
@@ -24,7 +24,7 @@ The Bun runtime and shared contract/service boundaries described in Step 1,
 the Principal/Tenant/membership/grant foundation in Step 2, the canonical
 scope shell plus delivered administration pages in Step 3, all Step 4 resource
 slices, Step 5 Agent definitions and immutable releases, and the Step 6A–6B
-deployment intent/lifecycle service are implemented on the rebuild branch. A
+deployment intent/lifecycle service are implemented on the feature branch. A
 completed release alone still creates no Gateway object, and the lifecycle is
 not normally reachable until Step 6C supplies the explicit key-binding path.
 
@@ -589,5 +589,5 @@ For the rebuild:
 
 Current `dev` behavior remains authoritative for `dev` until `dev` contains the
 corresponding migration step through a merge or another deliberate advance.
-Implementation and acceptance on the rebuild branch do not change `dev`
+Implementation and acceptance on the feature branch do not change `dev`
 runtime behavior, and no target document alone changes runtime behavior.

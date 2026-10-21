@@ -1,9 +1,9 @@
 # Agent Resource Platform API Ownership and Service Boundaries
 
 - Document type: **normative**
-- Status: **current through Step 6E**
-- Applies to: `rebuild/agent-resource-platform` shared packages and APIs
-- Last reviewed: 2026-10-19
+- Status: **current through the accepted Step 6 release gate**
+- Applies to: `feature/agent-resource-platform` shared packages and APIs
+- Last reviewed: 2026-10-21
 
 This document fixes the dependency and API ownership boundary used by later
 platform slices. Steps 2A–3 add identity, scoped Gateway-grant, explicit
@@ -129,7 +129,8 @@ ID, kind, version and digest but no infrastructure binding identifiers.
 Steps 6A–6E implement target deployment authorization, mappings, scoped
 invocation/observation, Platform Admin compatibility and recovery. They do not
 establish workflow-engine workers, durable jobs or remote object storage. The
-real Gateway v0.7 and shared-Gateway isolation gate remains release acceptance.
+real Gateway v0.7 and shared-Gateway isolation gate passed on 2026-10-21 through
+the isolated `smoke:step6-gateway` harness.
 
 The old feature commit `ca12d554385efe84296bbd2b228d2190f5427ba3` was used as
 structural evidence. Its premature platform-resource types and its dependency on

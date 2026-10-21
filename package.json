@@ -12,6 +12,7 @@
     "typecheck": "bun --bun tsc --noEmit",
     "smoke:runtime": "bun scripts/smoke-runtime.ts",
     "smoke:http-agent": "bun scripts/smoke-http-agent.ts",
+    "smoke:step6-gateway": "bun scripts/smoke-step6-gateway.ts",
     "typecheck:contracts": "bun --bun tsc -p packages/contracts/tsconfig.json",
     "check:boundaries": "bun scripts/check-package-boundaries.ts"
   },
