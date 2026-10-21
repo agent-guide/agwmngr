@@ -5,7 +5,7 @@ Bun + Next.js + TypeScript web management frontend for [agent-gateway](../../age
 The manager provides a dashboard UI and a thin backend API layer (Next.js Route Handlers) that:
 
 - authenticates manager users against a persisted `users` table with its own sqlite-backed session system
-- supports **multiple manager users** with two-layer RBAC (platform admins + per-gateway admin/member roles)
+- supports **multiple manager users** with Platform Admin plus Tenant Admin/User and exact per-admin/per-Gateway deployment grants; legacy gateway membership rows no longer grant content authority
 - manages **multiple agent-gateways** from one manager (a header switcher selects the active gateway per session)
 - proxies most `/api/admin/*` requests to the **active gateway's** Admin API
 - manages Caddy HTTP servers and routes through the active gateway's Caddy admin API
@@ -22,7 +22,7 @@ changing HTTP Agent contracts, data-plane forwarding or localization behavior.
 
 The multi-user / multi-gateway design (data model, permission model, request flow, audit) is documented in `docs/architecture/multi-tenant-design.md` — read it before changing auth, the access guards, gateway resolution, or credential encryption.
 
-`docs/architecture/resource-rbac-design.md` defines the evolution into hierarchical, resource-scoped RBAC. The Gateway-root `admin/member` membership model is implemented; domain/resource grants are not. Gateway Admin may manage ordinary gateway content, while Member has no implicit content access. Caddy, gateway connection credentials, and platform APIs remain Platform Admin-only until dedicated safe handlers exist. Provider/Credential/Virtual Key responses have manager-owned secret redaction, so Gateway Admin manages Virtual Keys too; only recovering an existing key's value stays Platform Admin-only. Read the design before touching `lib/access.ts`, `lib/proxy-action.ts`, the membership schema, or the Caddy/Virtual Key/Chat handlers.
+`docs/architecture/resource-rbac-design.md` records the former hierarchical Gateway-role design. Step 6E retires user-facing Gateway `admin/member` authority on this branch: retained Gateway infrastructure and compatibility APIs are Platform Admin-only, while Tenant deployment authority comes from live Tenant membership and exact Gateway grants. Read the design and the newer Tenant authorization document before touching `lib/access.ts`, the membership schema, scoped invocation, or Gateway compatibility handlers.
 
 ## Agent resource platform documentation
 
@@ -42,10 +42,11 @@ before changing platform identities, Tenant resources, Agent publication,
 Gateway deployment authorization or canonical dashboard routes.
 
 `docs/capabilities/platform-agent-publication.md` records the implemented Agent
-definition and immutable release boundary. Steps 6A–6D deployment intent,
+definition and immutable release boundary. Steps 6A–6E deployment intent,
 verified lifecycle, key binding, server-managed invocation, scoped observation
-and runtime administration are documented in
-`docs/capabilities/platform-agent-deployments.md`; target compatibility cutover
+runtime administration, compatibility cutover, recovery and remove-only
+decommission are documented in
+`docs/capabilities/platform-agent-deployments.md`; the real-Gateway release gate
 remains pending. Read both before changing
 Agent drafts, dependency snapshots, deployment mappings, Gateway adapters or
 their Tenant projections.
@@ -86,7 +87,7 @@ manager/
 │   │   ├── audit/                    ← Read-only audit log (platform-admin only)
 │   │   ├── caddy/servers/            ← Caddy HTTP server/route CRUD (active gateway)
 │   │   ├── virtual_keys/             ← Redacted Virtual Key CRUD + /[id]/reveal (platform-only)
-│   │   ├── acp/chat/                 ← ACP chat data-plane proxy (turn/permission)
+│   │   ├── acp/chat/                 ← Retired legacy data-plane proxy (returns 410)
 │   │   ├── health/                   ← Unauthenticated health check
 │   │   └── [[...path]]/              ← Catch-all proxy to the active gateway's Admin API
 │   ├── login/                        ← Login page
@@ -185,11 +186,11 @@ All routes are under `/api/admin/`. Every route except `/api/admin/health` and `
 Authorization is not funnelled through one proxy — several entry points reach a gateway. So `lib/access.ts` provides two shared guards every entry point calls (see `docs/architecture/multi-tenant-design.md` §5):
 
 - **`requirePlatformAccess(req)`** — for platform endpoints (users, gateways, memberships, audit). Requires a live session whose user is a platform admin. Resolves no gateway.
-- **`requireGatewayAccess(req, action)`** — for gateway-scoped endpoints. Resolves the active gateway (`X-Gateway-Id` header override, else `session.active_gateway_id`, self-healed to the user's first gateway if unset), enforces membership + role for the **action**, blocks disabled gateways, and decrypts admin credentials into a `ResolvedGateway` for forwarding. Returns `{ ok, ctx | res }`; `ctx.gateway` carries the decrypted creds + all three upstream addresses.
+- **`requireGatewayCompatibilityAccess(req, action)`** — for the explicitly retained legacy Gateway bridge. It requires Platform Admin, resolves the active Gateway (`X-Gateway-Id` header override, else `session.active_gateway_id`), blocks disabled Gateways, and decrypts credentials for a reviewed compatibility handler. Stored Gateway memberships no longer authorize this path.
 
-Actions (not HTTP methods): `gateway:read`, `gateway:write`, `gateway:platform_config`, `runtime:chat`, `runtime:permission_resolve`, `secrets:read-redacted`, `gateway:secrets_raw`, `platform:*`. The catch-all derives its action from `actionForProxyPath(method, proxyPath)` in `lib/proxy-action.ts` — a **pure, dependency-free, unit-tested** map (method default + a small override table). Matching is **canonical per-segment** (the proxy path is already percent-decoded once by the Next router, then split into segments — never decoded twice), so `/admin/credentials-extra` cannot masquerade as the `/admin/credentials` secret prefix, and `runtime:chat` only fires when the trailing segments are exactly `tools/call` or `resources/read`. `runtime:permission_resolve` fires on `POST /admin/agents/{id}/permissions/{request_id}` matched as an exact 5-segment shape with `routes` excluded (it is the reserved ingress collection, never an agent id). Gateway roles are `admin` and `member`: Gateway Admin receives ordinary read/write/runtime actions, while Member receives none until resource grants land. Platform Admin has implicit Gateway Admin authority, but `gateway:platform_config`, `gateway:secrets_raw`, and `platform:*` additionally require the platform actor flag. The Virtual Key family has explicit redacting handlers, so its reads take `secrets:read-redacted` and its writes `gateway:write`; only `POST /virtual_keys/{id}/reveal` uses `gateway:secrets_raw`. `actionForProxyPath` still maps the family to `gateway:secrets_raw` as the deny-by-default backstop for any Virtual Key subpath without an explicit handler.
+Actions remain audit classifications rather than authority. `gatewayCutoverDecision()` applies a canonical segment allowlist before the catch-all can forward: retained read-only metrics and reviewed Platform Admin infrastructure families pass, Agent/runtime/execution families return `410`, and unknown families return `404`. LLM/MCP route mutations additionally take the shared Gateway object lease and run the symmetric platform-path conflict check. Agent, Agent-route and Virtual Key lifecycle uses explicit `/api/platform/v1` handlers instead of the catch-all.
 
-The guards write `audit_log` rows: every **deny**, plus **allow** for mutating/runtime/platform actions (plain reads skipped). To guarantee every opened allow row is **finalized** (with `http_status` + `duration_ms`) on success, a handled error Response, OR an uncaught throw, all non-streaming gateway/platform handlers are wrapped with **`withGatewayAccess(action, handler)`** / **`withPlatformAccess(handler)`** (the `withAccess` wrappers of §5.1) instead of calling the guard + `finalizeAccess` by hand. The two streaming exceptions — the catch-all proxy and the ACP chat handlers — finalize explicitly (`finalizeAccess(ctx, …)`) because the catch-all's action is dynamic and SSE turns must finalize on **stream end**, not Response-return.
+The guards write `audit_log` rows for every deny and for mutating/sensitive allows. Non-streaming compatibility handlers use `withGatewayCompatibilityAccess`; the dynamic catch-all finalizes explicitly. Scoped platform streaming invocation finalizes through the platform audit path and reauthorizes its opaque context before every forward.
 
 ### Health
 
@@ -245,7 +246,7 @@ These endpoints guard with `requireGatewayAccess(req, "gateway:platform_config")
 
 ### Gateway Proxy Catch-All
 
-Any `/api/admin/*` request not matched by an explicit handler is guarded by `requireGatewayAccess(req, actionForProxyPath(...))` and proxied to the **active gateway's** Admin API (`ctx.gateway.adminAddr`). The gateway delegates admin auth to the HTTP layer (Caddy `basic_auth` or the standalone daemon's basic-auth wrapper) — there is no gateway login/session/token flow. The proxy (`lib/gateway-proxy.ts`) takes the `ResolvedGateway`:
+Any `/api/admin/*` request not matched by an explicit handler is first guarded by `requireGatewayCompatibilityAccess`, then checked by the Step 6E deny-before-forward allowlist. Only reviewed Platform Admin infrastructure/diagnostic families reach the **active Gateway's** Admin API (`ctx.gateway.adminAddr`). The gateway delegates admin auth to the HTTP layer (Caddy `basic_auth` or the standalone daemon's basic-auth wrapper) — there is no gateway login/session/token flow. The proxy (`lib/gateway-proxy.ts`) takes the `ResolvedGateway`:
 1. Strips any inbound `Authorization` header and replaces it with static HTTP Basic Auth built from the gateway record's decrypted `adminUser`/`adminPassword` before forwarding.
 2. Tries the gateway's `adminAddr` then its `localhost`↔`127.0.0.1` alternate on connection failure, caching the base URL that connects in `globalThis` **keyed by gateway id**. A gateway `401` is passed through unchanged (no re-auth retry).
 3. Sanitizes request and response headers (removes CORS, content-encoding, hop-by-hop headers).
@@ -258,7 +259,7 @@ Proxied gateway Admin API endpoints include (see agent-gateway README for full r
 - Virtual keys: explicit manager Route Handlers for `GET/POST /virtual_keys` and `GET/PUT/DELETE /virtual_keys/{id}` strip the upstream `key` and return only `key_set` + a masked `key_preview`. The generated bearer is delivered **once**, in the create response; `POST /virtual_keys/{id}/reveal` (`gateway:secrets_raw`, Platform Admin only, audited) recovers an existing one. Other subpaths use the catch-all and stay Platform Admin-only
 - Credentials: explicit manager Route Handlers for `GET/POST /credentials`, `GET/PUT/DELETE /credentials/{credential_id}` remove `attributes.api_key`, return only `api_key_set`, and preserve/replace the key server-side without returning it
 - Models: discovered models, managed models, logical models
-- MCP services: `GET/POST /mcp/services`, `GET/PUT/DELETE /mcp/services/{id}`, plus `/capabilities`, `/sessions`, `/tools`, `/tools/call`, `/resources`, `/resource-templates`, `/resources/read`, `/prompts`
+- MCP services: `GET/POST /mcp/services`, `GET/PUT/DELETE /mcp/services/{id}`, plus read-only inspection through `/capabilities`, `/sessions`, `/tools`, `/resources`, `/resource-templates`, `/prompts`. Step 6E retires manager-side `/tools/call` and `/resources/read`; execution belongs to scoped Agent invocation rather than the infrastructure inspector.
 - MCP routes: `GET/POST /mcp/routes`, `GET/PUT/DELETE /mcp/routes/{id}` (id auto-generated as `mcp:<service_id>:<path_prefix>`)
 - MCP runtime: `GET /mcp/runtime`, `/mcp/runtime/inflight`, `/mcp/runtime/progress`, `/mcp/runtime/history`
 - ACP services: **removed in v0.5.0.** Execution config is inlined on `Agent.runtime.acp`; sessions/transcript moved to `/agents/{id}/sessions[/{session_id}/transcript]`
@@ -270,16 +271,22 @@ Proxied gateway Admin API endpoints include (see agent-gateway README for full r
 - Metrics (implemented): `GET /metrics`, `/metrics/{llm,mcp,acp}/...` (events/timeseries/breakdown/summary), `/metrics/interactions` (cross-protocol call chain with `trace_id`/`agent_depth`), `/metrics/prometheus`. **Breakdown/timeseries rows carry the grouped dimension as `group_value`, not as a column named after `group_by`** — the gateway projects `SELECT <col> AS group_value`, and only the response envelope echoes which dimension it was. Indexing a row by the group_by key silently yields `undefined`, which renders as an all-`—` table and a single `(none)` donut slice rather than as an error; read `group_value` (`GroupedRow` in `lib/api.ts`).
 - Memory: registered but returns 501. Agent tasks/schedules (P2) and workflows (P3) are design-only, not yet exposed.
 
-### ACP Chat Data-Plane Proxy
+### Legacy ACP Chat Data-Plane Proxy (retired)
 
-Driving an ACP conversation is a **data-plane** operation (on the runtime's public listener at `GATEWAY_DATAPLANE_ADDR`), not an Admin API one. Two explicit Route Handlers bridge the browser to it (they take precedence over the catch-all):
+Step 6E makes both legacy active-Gateway handlers return `410 Gone` without a
+Gateway call:
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/api/admin/acp/chat/turn` | Resolve the **agent** route via the Admin API, then forward a turn to `<dataplane>/<route_path_prefix>/turn` and stream the SSE response back. The AgentRoute decoder is strict (`DisallowUnknownFields`): only `input`/`session_id`/`permission`/`options` are accepted, and `thread_id`/`cwd`/`model`/`fresh_session`/`config_overrides` must sit inside `options: {version: "v1", runtime: {…}}` — a flat body or a missing `options.version` is a hard 400. Either `input` or `permission` is required, not both |
-| POST | `/api/admin/acp/chat/permission` | Resolve an interactive permission at `<dataplane>/<route_path_prefix>/permission`. **Only valid for `resume_mode: active_stream`** — see below |
+| POST | `/api/admin/acp/chat/turn` | Removed; use a Tenant deployment invocation context or Platform Admin Gateway-Agent Test context |
+| POST | `/api/admin/acp/chat/permission` | Removed; resume through the same scoped context that created the turn |
 
-Both guard with `requireGatewayAccess` (`runtime:chat` for turn, `runtime:permission_resolve` for permission), resolve the route's `path_prefix`/`host`/`require_virtual_key` server-side against the active gateway (`lib/acp-dataplane.ts` via `gatewayRequestJSON` with the `ResolvedGateway`), forward to the gateway's `dataplane_addr`, and inject the caller-selected virtual key as the data-plane `Authorization`. The browser sends `virtual_key_id`, **never** a bearer — it has none, since the Virtual Key read path is redacted — and `lib/virtual-key-secret.ts` resolves the ID server-side, rejecting a key that is disabled, expired, or whose allowlist does not cover the resolved route (`docs/architecture/resource-rbac-design.md` §10.2). A key ID is input to resolution, not authority: the session is already authorized for `runtime:chat` on the active gateway. The SSE event names are `session`, `delta`, `reasoning`, `content`, `plan`, `tool_call`, `usage`, `permission`, `done`, `error`, plus v0.5.0's `available_commands`, `session_info`, `mode`, `config_options` (see `lib/acp-chat-stream.ts`).
+Scoped contexts capture Principal, Tenant or Platform-Gateway authority, exact
+Agent/route fingerprints and manager-owned key policy epochs. Every turn/resume
+reauthorizes under the shared leases and resolves the bearer server-side. The
+browser never receives a bearer. The runtime-envelope and capability notes below
+describe the Gateway data-plane contract that the scoped forwarder still obeys;
+they do not revive the retired `/api/admin/acp/chat/*` authority.
 
 **`options.runtime` is per-runtime, and so is permission resume.** Chat is not ACP-only — any runtime advertising `turn.streaming` is drivable — so neither the request shape nor the permission path may be hardcoded to ACP:
 
@@ -306,17 +313,17 @@ and stream-end audit finalization.
 
 ## Frontend (App Router Pages)
 
-The entry route (`/`) redirects to `/dashboard`, which redirects to `/dashboard/general/overview`.
+The entry route (`/`) redirects to `/dashboard`; `/dashboard` renders the Tenant-aware Workbench directly.
 
-The current UI is organized **agent-centric**: the **Agents** section is the first-class, top-most nav group — it holds the agent itself, its ingress routes, and the day-to-day views for working with it (observability + the keys used to call it). The **LLM / MCP** sections below are the *shared infrastructure* that backs agents, not sub-items of any one agent. `docs/architecture/dashboard-information-architecture.md` defines the accepted resource-platform target; it does not describe the current `dev` navigation below.
+The current UI follows `docs/architecture/dashboard-information-architecture.md`: Workbench and Tenant-owned Agent definitions lead the navigation; Resources and Access are Tenant-scoped; Gateway infrastructure is separated into Platform Admin-only LLM, MCP, Configuration and path-qualified Gateway workspaces. Legacy Gateway-centric URLs for Overview, Agent Routes, Interactions, Usage, runtime diagnostics and Virtual Keys are redirect-only compatibility routes after Step 6E.
 
 Since v0.5.0 the agent **is** the runtime: `Agent.runtime.<type>` inlines the execution config for exactly one backend (`acp` = gateway-pooled external process, `builtin` = in-process eino ADK definition, `http` = remote A2A service, executable on Gateway v0.7). There is no ACP "service" object. Ownership is one-way — an AgentRoute names its `agent_id`, never the reverse — so changing an agent's runtime preserves its route id, URL, and every virtual-key allowlist entry. The superseded migration rationale remains in `docs/plans/archive/gateway-v0.5-alignment-plan.md`; it is not current API authority.
 
-> Navigation grouping ≠ URL path. `Overview` and `Virtual Keys` still live under `/dashboard/general/*` but are surfaced in the top-level **WORKSPACE** zone (with Agents/Interactions/Usage); the all-agents `Usage` page lives at `/dashboard/agents/usage`. There is no standalone "General" nav group.
+> The detailed Gateway-centric navigation notes below describe the retired pre-Step 6E UI and are retained only as migration history. They are not implementation instructions. Current authority is the architecture tree at the top of this file, `components/dashboard-nav.tsx`, and `docs/architecture/dashboard-information-architecture.md`.
 >
-> **Nav layout (`components/dashboard-nav.tsx`):** the sidebar is two-tier — the agent-centric administrator flow starts with Overview, Agents, Agent Routes, then the collapsible **Runtimes** diagnostics group, followed by Interactions, Usage, and Virtual Keys. Lower infrastructure uses independent collapsible **LLM**, **MCP**, **Configuration** (Bundle, Servers), and **Platform** groups; Configuration and Platform are both Platform Admin-only, and there is no generic Resources wrapper. Group openness is **derived, not effect-synced**: `openGroups[key] ?? hasActive` — a group defaults open iff it owns the active route (longest-prefix match via `resolveActiveHref`), and an explicit user toggle (persisted to `localStorage` `dashboard.nav.groups`) then wins. The narrow collapsed rail flattens every item to an icon list in the same order (the accordion is unusable at that width).
+> Current nav layout: Workbench and Agents are the primary items; Tenant members additionally receive Access and Resources; Platform Admins receive Gateway LLM/MCP/Configuration plus Platform administration. Group openness remains derived as `openGroups[key] ?? hasActive`, with explicit toggles persisted in `localStorage`.
 
-### Navigation Structure
+### Retired pre-Step 6E navigation (historical only; do not implement)
 
 **Agents** (first-class, top of nav):
 - Overview (`/dashboard/general/overview`) — the **agent-first landing route**, ordered agents → traffic → fleet → activity → onboarding → infrastructure. Primary stats are the agent fleet (agents ready/attention, agent routes incl. **dangling** count, active runs, pending permissions); **Traffic** shows all three data planes over 24h (LLM + MCP + agent ingress, the last read from `/metrics/acp/timeseries` pinned to `route_kind=agent` **and** `route_protocol=agent` so the manager's own admin polling cannot inflate it); **Agent Fleet** derives per-agent issues from `runtime_status` + owned routes (disabled / not executable / no ingress route / degraded / pending); **Recent Activity** reuses `groupTraces()` for a compact trace strip. Get Started has **two paths** (Run an agent / Proxy an LLM), each with a real completion signal from 24h traffic; Integration leads with an **Agent turn** snippet built from the first agent route's `path_prefix`, branching on the target's runtime (ACP emits `options.runtime.thread_id`, others omit `options.runtime` entirely — builtin rejects every key). Runtime reads cover **both** `/acp/runtime` and `/builtin/runtime`, and the Pending Permissions tile links to whichever runtime holds the request. Every fetch is wrapped in an access-aware slice: a **403 renders as "no access", never as an empty resource**, so a Member sees a Limited-access banner instead of a gateway that looks empty, and the Caddy `public_url` probe (Platform Admin-only) is skipped rather than 403'd for everyone else.
@@ -325,7 +332,7 @@ Since v0.5.0 the agent **is** the runtime: `Agent.runtime.<type>` inlines the ex
 - Interactions (`/dashboard/agents/interactions`) — cross-protocol call chains grouped by `trace_id`, reconstructed as span-tree waterfalls (`components/interaction-traces.tsx`); the orchestration view and the single-agent activity view (there is no per-agent Activity tab). Filters: **Agent** (server-side `agent_id` **full attribution** — durable tag OR the agent's owned routes, the same selector the Usage page and `/admin/agents/{id}/*` use, so untagged-but-mappable spans still surface; deep-linkable via `?agent=<id>` — the agent detail header has an **Interactions** button that jumps here pre-filtered), Protocol (llm/mcp/**agent**), Status, Source (data-plane/admin/all). Source=Admin audit deliberately drops the Protocol constraint: admin spans are only ever `route_kind=acp`, so partitioning them by the user's protocol choice would return an empty list for every option. Spans carry `runtime_type`, rendered as a second chip beside the protocol chip so an agent span shows which backend ran it
 - Usage (`/dashboard/agents/usage`) — **all-agents metrics with LLM / MCP / ACP protocol tabs** (shared time-range; each tab has stat cards + a requests-over-time chart + breakdown table + recent-events feed). all three tabs have a group-by selector + a Recharts share donut over the grouped requests (LLM by route/key/provider/model/api, MCP by tool/method/route/service/key via `/metrics/mcp/breakdown`, ACP by route/service/agent_type/operation). All three back the time chart with `/metrics/{llm,mcp,acp}/timeseries`. The third tab is **Agent** (was ACP): unified agent ingress records `route_kind=agent` / `route_protocol=agent`, while the manager's own `/admin/acp` polling stays `route_kind=acp` / `route_protocol=admin`. It has a **Source** selector (Data-plane / Admin audit / All, default Data-plane) applied server-side by `route_protocol`; without it the admin audit spans inflate every agent stat. It still reads the `/metrics/acp/*` endpoint family — that store keeps ACP-typed runtime events; only the *route* dimensions became runtime-neutral. A page-level **Agent** filter (deep-linkable via `?agent=<id>`, mirroring Interactions) scopes every stat to one agent by passing `agent_id` into all `/metrics/{llm,mcp,acp}/{breakdown,timeseries,events}` calls; the gateway resolves it to the agent's **full attribution** (durable `agent_id` tag OR its owned routes — the same selector `/admin/agents/{id}/usage` uses), so an agent-filtered read is a strict superset of the old per-agent Usage tab (same data, plus group-by / donuts / source filter / event feeds). This is why the per-agent Usage tab was removed in favour of the header **Usage** jump link.
 - Agent Routes (`/dashboard/agents/routes`) — CRUD for the unified agent ingress routes (agent binding, match policy, auth policy). Rows link to the owning agent, and flag both a dangling `agent_id` and a target whose runtime is not executable
-- Virtual Keys (`/dashboard/general/virtual-keys`) — CRUD for virtual keys with route restrictions (the credentials clients use to call agents). Open to Gateway Admin, not just Platform Admin. The list shows a masked `key_preview` only; the value is copyable once from the create dialog, and a **Reveal** action (Platform Admin only, audited) recovers an existing one. The route picker spans LLM, MCP, and agent routes; create/edit includes independent optional token-bucket limits for LLM, MCP, and agent traffic (`requests_per_minute` + `burst`)
+- Virtual Keys (`/dashboard/platform/gateways/{gateway_id}/virtual-keys`) — Platform Admin-only, path-qualified lifecycle, deployment binding, reconciliation and remove-only cleanup. The bearer is returned only at creation or an audited explicit reveal; Tenant invocation selects a non-secret key reference and resolves the bearer server-side.
 
 **LLM** (shared infrastructure):
 - Providers (`/dashboard/llm/providers`) — CRUD for LLM providers
@@ -334,7 +341,7 @@ Since v0.5.0 the agent **is** the runtime: `Agent.runtime.<type>` inlines the ex
 - Routes (`/dashboard/llm/routes`) — CRUD for gateway LLM routes (direct-provider + logical-model targets)
 
 **MCP:**
-- Services (`/dashboard/mcp/services`) — CRUD for MCP services (stdio/sse/streamable_http transports, env, auth) + inspect modal (capabilities, tools, tool-call, resources, resource-read, prompts, session)
+- Services (`/dashboard/mcp/services`) — CRUD for MCP services (stdio/sse/streamable_http transports, env, auth) + read-only inspect modal (capabilities, tools, resources, prompts, session); direct tool-call and resource-read controls were retired at the Step 6E cutover
 - Routes (`/dashboard/mcp/routes`) — CRUD for MCP routes (service binding, match policy, auth policy)
 
 **Runtimes** (native diagnostics only — config lives on the agent, ingress lives on Agent Routes):
@@ -346,7 +353,7 @@ Since v0.5.0 the agent **is** the runtime: `Agent.runtime.<type>` inlines the ex
 
 **Platform** (visible only to platform admins; the section is hidden via `useCurrentUser()` in `dashboard-nav.tsx`):
 - Users (`/dashboard/platform/users`) — manager user CRUD (role, status, password reset)
-- Gateways (`/dashboard/platform/gateways`) — gateway registry CRUD + connectivity test + per-gateway member assignment
+- Gateways (`/dashboard/platform/gateways`) — Gateway registry CRUD, connectivity test, target grant administration, scoped infrastructure, compatibility Agents, observability/runtime diagnostics and decommission state
 - Audit Log (`/dashboard/platform/audit`) — read-only authorization decision log
 
 The active gateway is chosen via the **header gateway switcher** (`components/gateway-switcher.tsx`). Switching POSTs `/admin/session/active-gateway` then reloads, so every page (SWR or legacy) re-fetches against the new gateway (§6.1 of the design). The current user, accessible gateways, and active gateway come from `CurrentUserProvider` (`components/current-user-context.tsx`).

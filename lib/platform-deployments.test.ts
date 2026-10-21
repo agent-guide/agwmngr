@@ -30,6 +30,19 @@ const operator: PlatformActorReference = { kind: "human", userId: 1 };
 const alice: PlatformActorReference = { kind: "human", userId: 2 };
 const bob: PlatformActorReference = { kind: "human", userId: 3 };
 
+test("Gateway zero-time Virtual Key expiry is normalized as no expiry", () => {
+  expect(virtualKeyPolicyValue({
+    id: "key:zero-expiry",
+    disabled: false,
+    allowed_route_ids: ["route:one"],
+    expires_at: "0001-01-01T00:00:00Z",
+  })).toEqual({
+    id: "key:zero-expiry",
+    disabled: false,
+    allowed_route_ids: ["route:one"],
+  });
+});
+
 class MemoryDeploymentGateway implements GatewayDeploymentAdapter, GatewayDeploymentRuntimeAdapter {
   readonly agents = new Map<string, AgentPayload>();
   readonly routes = new Map<string, GatewayAgentRouteDocument>();
@@ -494,6 +507,29 @@ async function verifyDeploymentIntents(database: PlatformDatabase) {
   expect(await service.apply(alice, "alpha", accessible.id, "apply-access"))
     .toMatchObject({ status: "succeeded" });
 
+  const collision = await service.create(alice, "alpha", {
+    releaseId: "release:one", gatewayId: "prod", requestKey: "collision-deploy",
+  });
+  gateway.keys.set("key:collision", {
+    id: "key:collision", disabled: false, allowed_route_ids: ["legacy:explicit"],
+  });
+  await deploymentAccess.bind(operator, "prod", collision.id, "key:collision");
+  gateway.agents.set(collision.target.gatewayAgentId, {
+    id: collision.target.gatewayAgentId,
+    name: "Foreign Agent",
+    runtime: { type: "builtin", builtin: { model: { llm_route_id: "foreign" }, topology: { kind: "single" } } },
+    routes: {}, resources: {}, policy: {}, disabled: false,
+  });
+  await expect(service.apply(alice, "alpha", collision.id, "collision-apply"))
+    .rejects.toMatchObject({
+      code: "conflict",
+      message: "deployment target IDs were occupied; the key binding was safely removed",
+    });
+  expect(gateway.keys.get("key:collision")?.allowed_route_ids).toEqual(["legacy:explicit"]);
+  expect((await new AgentDeploymentRegistry(database).get(collision.id))?.lifecycleState)
+    .toBe("awaiting_key_binding");
+  expect(await new AgentDeploymentRegistry(database).binding(collision.id)).toBeNull();
+
   const endpoints = await deploymentAccess.endpoints(bob, "alpha");
   expect(endpoints.find((item) => item.deploymentId === accessible.id)).toMatchObject({
     invocable: true,
@@ -662,6 +698,537 @@ async function verifyDeploymentIntents(database: PlatformDatabase) {
   await expect(deploymentAccess.createKey(operator, "prod", {
     id: "key:unsafe", disabled: false, allowed_route_ids: [],
   })).rejects.toMatchObject({ code: "conflict" });
+
+  gateway.keys.set("key:reconcile", {
+    id: "key:reconcile", disabled: true, allowed_route_ids: ["legacy:explicit"],
+  });
+  const accessRegistry = new DeploymentAccessRegistry(database);
+  expect(await accessRegistry.beginKeyMutation({
+    gatewayId: "prod",
+    keyId: "key:reconcile",
+    desired: gateway.keys.get("key:reconcile")!,
+    operationKind: "key_update",
+    operationToken: "failed-key-update",
+    now: runtime.now(),
+  })).not.toBeNull();
+  await accessRegistry.failKeyMutation({
+    gatewayId: "prod",
+    keyId: "key:reconcile",
+    operationToken: "failed-key-update",
+    incident: "unknown result",
+    now: runtime.now(),
+  });
+  expect(await deploymentAccess.reconcileKey(
+    operator,
+    "prod",
+    "key:reconcile",
+    "adopt_live",
+  )).toMatchObject({ id: "key:reconcile", status: "stable" });
+
+  const deploymentRegistry = new AgentDeploymentRegistry(database);
+  const activeBeforeCrash = (await deploymentRegistry.get(accessible.id))!;
+  const materialized = (await deploymentRegistry.operations(accessible.id))
+    .find((item) => item.status === "succeeded" && item.kind === "apply")!;
+  const crashedOffline = await deploymentRegistry.beginOperation({
+    deploymentId: accessible.id,
+    expectedInvocationEpoch: activeBeforeCrash.invocationEpoch,
+    expectedLifecycle: ["active"],
+    kind: "take_offline",
+    requestKey: "crashed-offline",
+    releaseId: activeBeforeCrash.appliedReleaseId!,
+    operationId: "operation:crashed-offline",
+    phase: "take_offline_pending_stage",
+    desiredAgent: materialized.desiredAgent,
+    desiredAgentDigest: materialized.desiredAgentDigest,
+    desiredStagingRoute: materialized.desiredStagingRoute,
+    desiredStagingRouteDigest: materialized.desiredStagingRouteDigest,
+    desiredFinalRoute: materialized.desiredFinalRoute,
+    desiredFinalRouteDigest: materialized.desiredFinalRouteDigest,
+    leaseUntil: "2026-10-21T00:05:00.000Z",
+    now: runtime.now(),
+    initial: false,
+  });
+  expect(crashedOffline.status).toBe("started");
+  expect(await deploymentAccess.recoverInterruptedOperations()).toEqual({
+    recovered: [accessible.id], failed: [],
+  });
+  expect((await deploymentRegistry.get(accessible.id))?.lifecycleState).toBe("offline");
+  expect(gateway.routes.get(accessible.target.gatewayRouteId)?.disabled).toBe(true);
+
+  const offlineBeforeOnlineCrash = (await deploymentRegistry.get(accessible.id))!;
+  expect((await deploymentRegistry.beginOperation({
+    deploymentId: accessible.id,
+    expectedInvocationEpoch: offlineBeforeOnlineCrash.invocationEpoch,
+    expectedLifecycle: ["offline"],
+    kind: "online",
+    requestKey: "crashed-online",
+    releaseId: offlineBeforeOnlineCrash.appliedReleaseId!,
+    operationId: "operation:crashed-online",
+    phase: "online_pending_activation",
+    desiredAgent: materialized.desiredAgent,
+    desiredAgentDigest: materialized.desiredAgentDigest,
+    desiredStagingRoute: materialized.desiredStagingRoute,
+    desiredStagingRouteDigest: materialized.desiredStagingRouteDigest,
+    desiredFinalRoute: materialized.desiredFinalRoute,
+    desiredFinalRouteDigest: materialized.desiredFinalRouteDigest,
+    leaseUntil: "2026-10-21T00:05:00.000Z",
+    now: runtime.now(),
+    initial: false,
+  })).status).toBe("started");
+  expect(await deploymentAccess.recoverInterruptedOperations()).toEqual({
+    recovered: [accessible.id], failed: [],
+  });
+  expect((await deploymentRegistry.get(accessible.id))?.lifecycleState).toBe("active");
+  expect(gateway.routes.get(accessible.target.gatewayRouteId)?.disabled).toBe(false);
+
+  const activeBeforeRollbackCrash = (await deploymentRegistry.get(accessible.id))!;
+  expect((await deploymentRegistry.beginOperation({
+    deploymentId: accessible.id,
+    expectedInvocationEpoch: activeBeforeRollbackCrash.invocationEpoch,
+    expectedLifecycle: ["active"],
+    kind: "rollback",
+    requestKey: "crashed-rollback",
+    releaseId: activeBeforeRollbackCrash.appliedReleaseId!,
+    operationId: "operation:crashed-rollback",
+    phase: "rollback_pending_stage",
+    desiredAgent: materialized.desiredAgent,
+    desiredAgentDigest: materialized.desiredAgentDigest,
+    desiredStagingRoute: materialized.desiredStagingRoute,
+    desiredStagingRouteDigest: materialized.desiredStagingRouteDigest,
+    desiredFinalRoute: materialized.desiredFinalRoute,
+    desiredFinalRouteDigest: materialized.desiredFinalRouteDigest,
+    leaseUntil: "2026-10-21T00:05:00.000Z",
+    now: runtime.now(),
+    initial: false,
+  })).status).toBe("started");
+  expect(await deploymentAccess.recoverInterruptedOperations()).toEqual({
+    recovered: [accessible.id], failed: [],
+  });
+  expect((await deploymentRegistry.get(accessible.id))?.lifecycleState).toBe("active");
+  expect(gateway.routes.get(accessible.target.gatewayRouteId)?.disabled).toBe(false);
+
+  const recoveryProbe = await service.create(alice, "alpha", {
+    releaseId: "release:one", gatewayId: "prod", requestKey: "recovery-probe",
+  });
+  gateway.keys.set("key:recovery-probe", {
+    id: "key:recovery-probe", disabled: false, allowed_route_ids: ["legacy:recovery"],
+  });
+  await deploymentAccess.bind(
+    operator,
+    "prod",
+    recoveryProbe.id,
+    "key:recovery-probe",
+  );
+  expect(await service.apply(alice, "alpha", recoveryProbe.id, "apply-recovery-probe"))
+    .toMatchObject({ status: "succeeded" });
+  expect(await service.takeOffline(alice, "alpha", recoveryProbe.id, "offline-recovery-probe"))
+    .toMatchObject({ status: "succeeded" });
+  const probeMaterialized = (await deploymentRegistry.operations(recoveryProbe.id))
+    .find((item) => item.status === "succeeded" && item.kind === "apply")!;
+
+  const pendingProbeOffline = (await deploymentRegistry.get(recoveryProbe.id))!;
+  expect((await deploymentRegistry.beginOperation({
+    deploymentId: recoveryProbe.id,
+    expectedInvocationEpoch: pendingProbeOffline.invocationEpoch,
+    expectedLifecycle: ["offline"],
+    kind: "online",
+    requestKey: "crashed-online-pending-proof",
+    releaseId: pendingProbeOffline.appliedReleaseId!,
+    operationId: "operation:crashed-online-pending-proof",
+    phase: "online_pending_activation",
+    desiredAgent: probeMaterialized.desiredAgent,
+    desiredAgentDigest: probeMaterialized.desiredAgentDigest,
+    desiredStagingRoute: probeMaterialized.desiredStagingRoute,
+    desiredStagingRouteDigest: probeMaterialized.desiredStagingRouteDigest,
+    desiredFinalRoute: probeMaterialized.desiredFinalRoute,
+    desiredFinalRouteDigest: probeMaterialized.desiredFinalRouteDigest,
+    leaseUntil: "2026-10-21T00:05:00.000Z",
+    now: runtime.now(),
+    initial: false,
+  })).status).toBe("started");
+  gateway.keys.set("legacy-pending-recovery-allow-all", {
+    id: "legacy-pending-recovery-allow-all", disabled: false, allowed_route_ids: [],
+  });
+  expect(await deploymentAccess.recoverInterruptedOperations()).toEqual({
+    recovered: [recoveryProbe.id], failed: [],
+  });
+  expect(await deploymentRegistry.operation("operation:crashed-online-pending-proof"))
+    .toMatchObject({ status: "applying", phase: "online_pending_activation" });
+  expect(gateway.routes.get(recoveryProbe.target.gatewayRouteId)).toMatchObject({
+    disabled: true,
+  });
+  gateway.keys.delete("legacy-pending-recovery-allow-all");
+  expect(await deploymentAccess.recoverInterruptedOperations()).toEqual({
+    recovered: [recoveryProbe.id], failed: [],
+  });
+  expect(await deploymentRegistry.operation("operation:crashed-online-pending-proof"))
+    .toMatchObject({ status: "succeeded", phase: "verified" });
+  expect(await service.takeOffline(
+    alice,
+    "alpha",
+    recoveryProbe.id,
+    "offline-recovery-probe-again",
+  )).toMatchObject({ status: "succeeded" });
+
+  const authorityProbeOffline = (await deploymentRegistry.get(recoveryProbe.id))!;
+  expect((await deploymentRegistry.beginOperation({
+    deploymentId: recoveryProbe.id,
+    expectedInvocationEpoch: authorityProbeOffline.invocationEpoch,
+    expectedLifecycle: ["offline"],
+    kind: "online",
+    requestKey: "crashed-online-stale-gateway-authority",
+    releaseId: authorityProbeOffline.appliedReleaseId!,
+    operationId: "operation:crashed-online-stale-gateway-authority",
+    phase: "online_pending_activation",
+    desiredAgent: probeMaterialized.desiredAgent,
+    desiredAgentDigest: probeMaterialized.desiredAgentDigest,
+    desiredStagingRoute: probeMaterialized.desiredStagingRoute,
+    desiredStagingRouteDigest: probeMaterialized.desiredStagingRouteDigest,
+    desiredFinalRoute: probeMaterialized.desiredFinalRoute,
+    desiredFinalRouteDigest: probeMaterialized.desiredFinalRouteDigest,
+    leaseUntil: "2026-10-21T00:05:00.000Z",
+    now: runtime.now(),
+    initial: false,
+  })).status).toBe("started");
+  gateways.set("prod", { id: "prod", active: true, authorityEpoch: 2 });
+  expect(await deploymentAccess.recoverInterruptedOperations()).toEqual({
+    recovered: [recoveryProbe.id], failed: [],
+  });
+  expect(await deploymentRegistry.operation("operation:crashed-online-stale-gateway-authority"))
+    .toMatchObject({ status: "applying", phase: "online_pending_activation" });
+  expect(gateway.routes.get(recoveryProbe.target.gatewayRouteId)).toMatchObject({
+    disabled: true,
+  });
+  gateways.set("prod", { id: "prod", active: true, authorityEpoch: 1 });
+  expect(await deploymentAccess.recoverInterruptedOperations()).toEqual({
+    recovered: [recoveryProbe.id], failed: [],
+  });
+  expect(await deploymentRegistry.operation("operation:crashed-online-stale-gateway-authority"))
+    .toMatchObject({ status: "succeeded", phase: "verified" });
+  expect(await service.takeOffline(
+    alice,
+    "alpha",
+    recoveryProbe.id,
+    "offline-recovery-probe-third",
+  )).toMatchObject({ status: "succeeded" });
+
+  const probeOffline = (await deploymentRegistry.get(recoveryProbe.id))!;
+  expect((await deploymentRegistry.beginOperation({
+    deploymentId: recoveryProbe.id,
+    expectedInvocationEpoch: probeOffline.invocationEpoch,
+    expectedLifecycle: ["offline"],
+    kind: "online",
+    requestKey: "crashed-online-agent-drift",
+    releaseId: probeOffline.appliedReleaseId!,
+    operationId: "operation:crashed-online-agent-drift",
+    phase: "online_pending_activation",
+    desiredAgent: probeMaterialized.desiredAgent,
+    desiredAgentDigest: probeMaterialized.desiredAgentDigest,
+    desiredStagingRoute: probeMaterialized.desiredStagingRoute,
+    desiredStagingRouteDigest: probeMaterialized.desiredStagingRouteDigest,
+    desiredFinalRoute: probeMaterialized.desiredFinalRoute,
+    desiredFinalRouteDigest: probeMaterialized.desiredFinalRouteDigest,
+    leaseUntil: "2026-10-21T00:05:00.000Z",
+    now: runtime.now(),
+    initial: false,
+  })).status).toBe("started");
+  gateway.routes.set(
+    recoveryProbe.target.gatewayRouteId,
+    probeMaterialized.desiredFinalRoute as GatewayAgentRouteDocument,
+  );
+  gateway.agents.set(recoveryProbe.target.gatewayAgentId, {
+    ...(probeMaterialized.desiredAgent as AgentPayload),
+    name: "Drifted recovery Agent",
+  });
+  expect(await deploymentAccess.recoverInterruptedOperations()).toEqual({
+    recovered: [recoveryProbe.id], failed: [],
+  });
+  expect(await deploymentRegistry.operation("operation:crashed-online-agent-drift"))
+    .toMatchObject({ status: "failed", phase: "route_quarantined_contained" });
+  expect(gateway.routes.get(recoveryProbe.target.gatewayRouteId)).toMatchObject({
+    disabled: true,
+  });
+  gateway.agents.set(
+    recoveryProbe.target.gatewayAgentId,
+    probeMaterialized.desiredAgent as AgentPayload,
+  );
+  expect(await deploymentAccess.resolveDeploymentQuarantine(
+    operator,
+    "prod",
+    "operation:crashed-online-agent-drift",
+  )).toMatchObject({ status: "succeeded", kind: "online" });
+
+  const probeBeforeRollback = (await deploymentRegistry.get(recoveryProbe.id))!;
+  expect((await deploymentRegistry.beginOperation({
+    deploymentId: recoveryProbe.id,
+    expectedInvocationEpoch: probeBeforeRollback.invocationEpoch,
+    expectedLifecycle: ["active"],
+    kind: "rollback",
+    requestKey: "crashed-rollback-invalid-proof",
+    releaseId: probeBeforeRollback.appliedReleaseId!,
+    operationId: "operation:crashed-rollback-invalid-proof",
+    phase: "rollback_pending_stage",
+    desiredAgent: probeMaterialized.desiredAgent,
+    desiredAgentDigest: probeMaterialized.desiredAgentDigest,
+    desiredStagingRoute: probeMaterialized.desiredStagingRoute,
+    desiredStagingRouteDigest: probeMaterialized.desiredStagingRouteDigest,
+    desiredFinalRoute: probeMaterialized.desiredFinalRoute,
+    desiredFinalRouteDigest: probeMaterialized.desiredFinalRouteDigest,
+    leaseUntil: "2026-10-21T00:05:00.000Z",
+    now: runtime.now(),
+    initial: false,
+  })).status).toBe("started");
+  gateway.keys.set("legacy-rollback-recovery-allow-all", {
+    id: "legacy-rollback-recovery-allow-all", disabled: false, allowed_route_ids: [],
+  });
+  expect(await deploymentAccess.recoverInterruptedOperations()).toEqual({
+    recovered: [recoveryProbe.id], failed: [],
+  });
+  expect(await deploymentRegistry.operation("operation:crashed-rollback-invalid-proof"))
+    .toMatchObject({ status: "applying", phase: "rollback_agent_updated_awaiting_activation" });
+  expect(gateway.routes.get(recoveryProbe.target.gatewayRouteId)).toMatchObject({
+    disabled: true,
+  });
+  gateway.keys.delete("legacy-rollback-recovery-allow-all");
+  expect(await deploymentAccess.recoverInterruptedOperations()).toEqual({
+    recovered: [recoveryProbe.id], failed: [],
+  });
+  expect(await deploymentRegistry.operation("operation:crashed-rollback-invalid-proof"))
+    .toMatchObject({ status: "succeeded", kind: "rollback" });
+
+  const probeBeforeLandedRollback = (await deploymentRegistry.get(recoveryProbe.id))!;
+  expect((await deploymentRegistry.beginOperation({
+    deploymentId: recoveryProbe.id,
+    expectedInvocationEpoch: probeBeforeLandedRollback.invocationEpoch,
+    expectedLifecycle: ["active"],
+    kind: "rollback",
+    requestKey: "crashed-rollback-final-landed",
+    releaseId: probeBeforeLandedRollback.appliedReleaseId!,
+    operationId: "operation:crashed-rollback-final-landed",
+    phase: "rollback_agent_updated_awaiting_activation",
+    desiredAgent: probeMaterialized.desiredAgent,
+    desiredAgentDigest: probeMaterialized.desiredAgentDigest,
+    desiredStagingRoute: probeMaterialized.desiredStagingRoute,
+    desiredStagingRouteDigest: probeMaterialized.desiredStagingRouteDigest,
+    desiredFinalRoute: probeMaterialized.desiredFinalRoute,
+    desiredFinalRouteDigest: probeMaterialized.desiredFinalRouteDigest,
+    leaseUntil: "2026-10-21T00:05:00.000Z",
+    now: runtime.now(),
+    initial: false,
+  })).status).toBe("started");
+  gateway.keys.set("legacy-landed-recovery-allow-all", {
+    id: "legacy-landed-recovery-allow-all", disabled: false, allowed_route_ids: [],
+  });
+  expect(await deploymentAccess.recoverInterruptedOperations()).toEqual({
+    recovered: [recoveryProbe.id], failed: [],
+  });
+  expect(await deploymentRegistry.operation("operation:crashed-rollback-final-landed"))
+    .toMatchObject({ status: "failed", phase: "route_quarantined_contained" });
+  expect(gateway.routes.get(recoveryProbe.target.gatewayRouteId)).toMatchObject({
+    disabled: true,
+  });
+  gateway.keys.delete("legacy-landed-recovery-allow-all");
+  expect(await deploymentAccess.resolveDeploymentQuarantine(
+    operator,
+    "prod",
+    "operation:crashed-rollback-final-landed",
+  )).toMatchObject({ status: "succeeded", kind: "rollback" });
+
+  const probeBeforeContainmentCrash = (await deploymentRegistry.get(recoveryProbe.id))!;
+  expect((await deploymentRegistry.beginOperation({
+    deploymentId: recoveryProbe.id,
+    expectedInvocationEpoch: probeBeforeContainmentCrash.invocationEpoch,
+    expectedLifecycle: ["active"],
+    kind: "rollback",
+    requestKey: "crashed-rollback-containment-pending",
+    releaseId: probeBeforeContainmentCrash.appliedReleaseId!,
+    operationId: "operation:crashed-rollback-containment-pending",
+    phase: "route_containment_in_progress",
+    desiredAgent: probeMaterialized.desiredAgent,
+    desiredAgentDigest: probeMaterialized.desiredAgentDigest,
+    desiredStagingRoute: probeMaterialized.desiredStagingRoute,
+    desiredStagingRouteDigest: probeMaterialized.desiredStagingRouteDigest,
+    desiredFinalRoute: probeMaterialized.desiredFinalRoute,
+    desiredFinalRouteDigest: probeMaterialized.desiredFinalRouteDigest,
+    leaseUntil: "2026-10-21T00:05:00.000Z",
+    now: runtime.now(),
+    initial: false,
+  })).status).toBe("started");
+  expect(await deploymentAccess.recoverInterruptedOperations()).toEqual({
+    recovered: [recoveryProbe.id], failed: [],
+  });
+  expect(await deploymentRegistry.operation("operation:crashed-rollback-containment-pending"))
+    .toMatchObject({ status: "failed", phase: "route_quarantined_contained" });
+  expect(gateway.routes.get(recoveryProbe.target.gatewayRouteId)).toMatchObject({
+    disabled: true,
+  });
+  expect(await deploymentAccess.resolveDeploymentQuarantine(
+    operator,
+    "prod",
+    "operation:crashed-rollback-containment-pending",
+  )).toMatchObject({ status: "succeeded", kind: "rollback" });
+
+  const probeBeforeResumeCrash = (await deploymentRegistry.get(recoveryProbe.id))!;
+  expect((await deploymentRegistry.beginOperation({
+    deploymentId: recoveryProbe.id,
+    expectedInvocationEpoch: probeBeforeResumeCrash.invocationEpoch,
+    expectedLifecycle: ["active"],
+    kind: "rollback",
+    requestKey: "crashed-rollback-quarantine-resume",
+    releaseId: probeBeforeResumeCrash.appliedReleaseId!,
+    operationId: "operation:crashed-rollback-quarantine-resume",
+    phase: "rollback_agent_updated_awaiting_activation",
+    desiredAgent: probeMaterialized.desiredAgent,
+    desiredAgentDigest: probeMaterialized.desiredAgentDigest,
+    desiredStagingRoute: probeMaterialized.desiredStagingRoute,
+    desiredStagingRouteDigest: probeMaterialized.desiredStagingRouteDigest,
+    desiredFinalRoute: probeMaterialized.desiredFinalRoute,
+    desiredFinalRouteDigest: probeMaterialized.desiredFinalRouteDigest,
+    leaseUntil: "2026-10-21T00:05:00.000Z",
+    now: runtime.now(),
+    initial: false,
+  })).status).toBe("started");
+  gateway.routes.set(
+    recoveryProbe.target.gatewayRouteId,
+    probeMaterialized.desiredStagingRoute as GatewayAgentRouteDocument,
+  );
+  await deploymentRegistry.quarantineOperation({
+    operationId: "operation:crashed-rollback-quarantine-resume",
+    phase: "route_quarantined_contained",
+    message: "simulated rollback quarantine",
+    routeDigest: probeMaterialized.desiredStagingRouteDigest,
+    now: runtime.now(),
+  });
+  expect(await deploymentRegistry.resumeQuarantinedOperation(
+    "operation:crashed-rollback-quarantine-resume",
+    runtime.now(),
+  )).toBe(true);
+  expect(await deploymentRegistry.updateOperation({
+    operationId: "operation:crashed-rollback-quarantine-resume",
+    phase: "quarantine_resolved_rollback_agent_updated_awaiting_activation",
+    observedAgent: probeMaterialized.desiredAgent,
+    observedRoute: probeMaterialized.desiredStagingRoute,
+    now: runtime.now(),
+  })).toBe(true);
+  gateway.keys.set("legacy-resumed-recovery-allow-all", {
+    id: "legacy-resumed-recovery-allow-all", disabled: false, allowed_route_ids: [],
+  });
+  expect(await deploymentAccess.recoverInterruptedOperations()).toEqual({
+    recovered: [recoveryProbe.id], failed: [],
+  });
+  expect(await deploymentRegistry.operation("operation:crashed-rollback-quarantine-resume"))
+    .toMatchObject({ status: "failed", phase: "route_quarantined_contained" });
+  gateway.keys.delete("legacy-resumed-recovery-allow-all");
+  expect(await deploymentAccess.resolveDeploymentQuarantine(
+    operator,
+    "prod",
+    "operation:crashed-rollback-quarantine-resume",
+  )).toMatchObject({ status: "succeeded", kind: "rollback" });
+
+  const activeBeforeQuarantine = (await deploymentRegistry.get(accessible.id))!;
+  expect((await deploymentRegistry.beginOperation({
+    deploymentId: accessible.id,
+    expectedInvocationEpoch: activeBeforeQuarantine.invocationEpoch,
+    expectedLifecycle: ["active"],
+    kind: "take_offline",
+    requestKey: "contained-offline",
+    releaseId: activeBeforeQuarantine.appliedReleaseId!,
+    operationId: "operation:contained-offline",
+    phase: "take_offline_pending_stage",
+    desiredAgent: materialized.desiredAgent,
+    desiredAgentDigest: materialized.desiredAgentDigest,
+    desiredStagingRoute: materialized.desiredStagingRoute,
+    desiredStagingRouteDigest: materialized.desiredStagingRouteDigest,
+    desiredFinalRoute: materialized.desiredFinalRoute,
+    desiredFinalRouteDigest: materialized.desiredFinalRouteDigest,
+    leaseUntil: "2026-10-21T00:05:00.000Z",
+    now: runtime.now(),
+    initial: false,
+  })).status).toBe("started");
+  gateway.routes.set(
+    accessible.target.gatewayRouteId,
+    materialized.desiredStagingRoute as GatewayAgentRouteDocument,
+  );
+  await deploymentRegistry.quarantineOperation({
+    operationId: "operation:contained-offline",
+    phase: "route_quarantined_contained",
+    message: "simulated contained crash",
+    routeDigest: materialized.desiredStagingRouteDigest,
+    now: runtime.now(),
+  });
+  expect(await deploymentAccess.resolveDeploymentQuarantine(
+    operator,
+    "prod",
+    "operation:contained-offline",
+  )).toMatchObject({ status: "succeeded", kind: "take_offline" });
+  expect((await deploymentRegistry.get(accessible.id))?.lifecycleState).toBe("offline");
+
+  const offlineBeforeFailedRecovery = (await deploymentRegistry.get(accessible.id))!;
+  expect((await deploymentRegistry.beginOperation({
+    deploymentId: accessible.id,
+    expectedInvocationEpoch: offlineBeforeFailedRecovery.invocationEpoch,
+    expectedLifecycle: ["offline"],
+    kind: "online",
+    requestKey: "crashed-online-invalid-proof",
+    releaseId: offlineBeforeFailedRecovery.appliedReleaseId!,
+    operationId: "operation:crashed-online-invalid-proof",
+    phase: "online_pending_activation",
+    desiredAgent: materialized.desiredAgent,
+    desiredAgentDigest: materialized.desiredAgentDigest,
+    desiredStagingRoute: materialized.desiredStagingRoute,
+    desiredStagingRouteDigest: materialized.desiredStagingRouteDigest,
+    desiredFinalRoute: materialized.desiredFinalRoute,
+    desiredFinalRouteDigest: materialized.desiredFinalRouteDigest,
+    leaseUntil: "2026-10-21T00:05:00.000Z",
+    now: runtime.now(),
+    initial: false,
+  })).status).toBe("started");
+  gateway.routes.set(
+    accessible.target.gatewayRouteId,
+    materialized.desiredFinalRoute as GatewayAgentRouteDocument,
+  );
+  gateway.keys.set("legacy-recovery-allow-all", {
+    id: "legacy-recovery-allow-all", disabled: false, allowed_route_ids: [],
+  });
+  expect(await deploymentAccess.recoverInterruptedOperations()).toEqual({
+    recovered: [accessible.id], failed: [],
+  });
+  expect(await deploymentRegistry.operation("operation:crashed-online-invalid-proof"))
+    .toMatchObject({ status: "failed", phase: "route_quarantined_contained" });
+  expect(gateway.routes.get(accessible.target.gatewayRouteId)).toMatchObject({ disabled: true });
+  gateway.keys.delete("legacy-recovery-allow-all");
+
+  const decommissioned = await deploymentAccess.decommission(
+    operator,
+    "prod",
+    accessible.id,
+    "remove-access-deployment",
+  );
+  expect(decommissioned).toMatchObject({
+    kind: "decommission",
+    status: "succeeded",
+    phase: "decommission_verified",
+  });
+  expect(gateway.agents.has(accessible.target.gatewayAgentId)).toBe(false);
+  expect(gateway.routes.has(accessible.target.gatewayRouteId)).toBe(false);
+  expect(gateway.keys.get("key:access")).toMatchObject({
+    disabled: false,
+    allowed_route_ids: ["legacy:explicit"],
+  });
+  expect((await new AgentDeploymentRegistry(database).get(accessible.id))?.lifecycleState)
+    .toBe("deleted");
+  expect(await deploymentAccess.recoverDecommissions("prod"))
+    .toEqual({ recovered: [], failed: [] });
+
+  const orphanIntent = await service.create(alice, "alpha", {
+    releaseId: "release:one", gatewayId: "prod", requestKey: "operator-remove-intent",
+  });
+  expect(await deploymentAccess.decommissionSubject(
+    operator,
+    { gatewayId: "prod" },
+    "remove-subject-intents",
+  )).toMatchObject({ completed: expect.arrayContaining([orphanIntent.id]) });
+  expect(await deploymentRegistry.get(orphanIntent.id)).toBeNull();
 }
 
 test("SQLite deployment intents are scoped, deterministic, idempotent, and local-only", async () => {

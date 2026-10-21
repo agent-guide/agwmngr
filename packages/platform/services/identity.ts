@@ -112,6 +112,12 @@ export interface TenantInvocationAuthorization extends TenantAuthorization {
   gateway: ManagerGatewayIdentity;
 }
 
+export interface PlatformGatewayAuthorization {
+  principal: HumanPrincipal;
+  principalAuthorityEpoch: number;
+  gateway: ManagerGatewayIdentity;
+}
+
 interface GrantAuthoritySnapshot {
   principal: Principal;
   local: LocalGrantAuthority;
@@ -198,6 +204,52 @@ export class PlatformIdentityService {
       throw new IdentityError("forbidden", "Platform Admin access required");
     }
     return humanPrincipal(user);
+  }
+
+  async authorizePlatformGateway(
+    actor: PlatformActorReference,
+    gatewayId: string,
+  ): Promise<PlatformGatewayAuthorization> {
+    validateSlug(gatewayId, "gateway ID");
+    if (actor.kind !== "human") {
+      await this.resolve(actor);
+      throw new IdentityError("forbidden", "Platform Admin access required");
+    }
+    const user = await this.liveUser(actor.userId);
+    await this.registry.ensureHuman(user.id, this.nowIso());
+    if (!user.platformAdmin) {
+      throw new IdentityError("forbidden", "Platform Admin access required");
+    }
+    const gateway = await this.directory.findGateway(gatewayId);
+    if (!gateway?.active || !Number.isSafeInteger(gateway.authorityEpoch) ||
+      gateway.authorityEpoch <= 0) {
+      throw new IdentityError("forbidden", "active Gateway required");
+    }
+    return {
+      principal: humanPrincipal(user),
+      principalAuthorityEpoch: user.authorityEpoch,
+      gateway,
+    };
+  }
+
+  async requireDeploymentRecoveryAuthority(input: {
+    tenantId: string;
+    tenantAuthorityEpoch: number;
+    gatewayId: string;
+    gatewayAuthorityEpoch: number;
+  }): Promise<void> {
+    const [tenant, tenantAuthorityEpoch, gateway] = await Promise.all([
+      this.registry.tenant(input.tenantId),
+      this.registry.tenantAuthorityEpoch(input.tenantId),
+      this.directory.findGateway(input.gatewayId),
+    ]);
+    if (!tenant || tenant.status !== "active" ||
+      tenantAuthorityEpoch !== input.tenantAuthorityEpoch) {
+      throw new IdentityError("conflict", "deployment Tenant authority changed");
+    }
+    if (!gateway?.active || gateway.authorityEpoch !== input.gatewayAuthorityEpoch) {
+      throw new IdentityError("conflict", "deployment Gateway authority changed");
+    }
   }
 
   async authorizeTenant(
@@ -320,6 +372,12 @@ export class PlatformIdentityService {
   async deleteTenant(actor: PlatformActorReference, id: string): Promise<void> {
     await this.requirePlatformAdmin(actor);
     validateSlug(id, "tenant ID");
+    if (await this.registry.hasLiveAgentDeploymentsForTenant(id)) {
+      throw new IdentityError(
+        "conflict",
+        "decommission every Tenant deployment before deleting the Tenant",
+      );
+    }
     if (!await this.registry.deleteTenant(id, this.nowIso())) {
       throw new IdentityError("not_found", "Tenant not found");
     }

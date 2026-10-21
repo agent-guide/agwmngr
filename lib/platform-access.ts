@@ -2,6 +2,7 @@ import { getAuthToken } from "./require-auth";
 import { lookupSession } from "./session";
 import { insertAudit } from "./db";
 import { getPlatformIdentity } from "./platform-identity";
+import { ensurePlatformRecovery } from "./platform-recovery";
 import {
   IdentityError,
   isIdentityError,
@@ -72,6 +73,9 @@ export async function withPlatformIdentity(
       actorPrincipalId = `user:${session.userId}`;
       actor = { kind: "human", userId: session.userId };
     }
+    // Recovery may perform remote containment/decommission writes. Never let a
+    // merely present but invalid bearer trigger that startup work.
+    await ensurePlatformRecovery();
     response = await handler(service, actor, audit);
     if (!response.ok) failureReason = `http_${response.status}`;
   } catch (error) {

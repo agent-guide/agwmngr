@@ -1,7 +1,7 @@
 # Platform Agent definitions and publication
 
 - Document type: **normative**
-- Status: **Step 5 implemented; Steps 6A–6B deployment lifecycle core implemented**
+- Status: **Step 5 implemented; Step 6 scoped deployment and cutover implemented**
 - Applies to: `rebuild/agent-resource-platform` Agent definition and release APIs
 - Last reviewed: 2026-10-21
 

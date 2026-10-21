@@ -187,9 +187,11 @@ export async function listProviderTypes(): Promise<ProviderTypeItem[]> {
   return res.items ?? [];
 }
 
-export async function listProviders(providerType?: string): Promise<ProviderItem[]> {
+export async function listProviders(providerType?: string, gatewayId?: string): Promise<ProviderItem[]> {
   const query = providerType ? `?provider_type=${encodeURIComponent(providerType)}` : "";
-  const res = await adminFetch<{ items: ProviderItem[] }>(`/admin/llm/providers${query}`);
+  const res = await adminFetch<{ items: ProviderItem[] }>(`/admin/llm/providers${query}`, {
+    ...(gatewayId ? { headers: { "X-Gateway-Id": gatewayId } } : {}),
+  });
   return res.items ?? [];
 }
 
@@ -500,8 +502,10 @@ export interface LLMApiHandlerEntry {
 
 // ---- LLM Route API functions ----
 
-export async function listLLMRoutes(): Promise<LLMRoute[]> {
-  const res = await adminFetch<{ items: LLMRoute[] }>("/admin/llm/routes");
+export async function listLLMRoutes(gatewayId?: string): Promise<LLMRoute[]> {
+  const res = await adminFetch<{ items: LLMRoute[] }>("/admin/llm/routes", {
+    ...(gatewayId ? { headers: { "X-Gateway-Id": gatewayId } } : {}),
+  });
   return res.items ?? [];
 }
 
@@ -690,8 +694,10 @@ export type MCPRoutePayload = Pick<
 
 // ---- MCP Service API functions ----
 
-export async function listMCPServices(): Promise<MCPService[]> {
-  const res = await adminFetch<{ items: MCPService[] }>("/admin/mcp/services");
+export async function listMCPServices(gatewayId?: string): Promise<MCPService[]> {
+  const res = await adminFetch<{ items: MCPService[] }>("/admin/mcp/services", {
+    ...(gatewayId ? { headers: { "X-Gateway-Id": gatewayId } } : {}),
+  });
   return res.items ?? [];
 }
 
@@ -787,8 +793,10 @@ export async function listMCPHistory(routeId?: string): Promise<MCPCompletedRequ
 
 // ---- MCP Route API functions ----
 
-export async function listMCPRoutes(): Promise<MCPRoute[]> {
-  const res = await adminFetch<{ items: MCPRoute[] }>("/admin/mcp/routes");
+export async function listMCPRoutes(gatewayId?: string): Promise<MCPRoute[]> {
+  const res = await adminFetch<{ items: MCPRoute[] }>("/admin/mcp/routes", {
+    ...(gatewayId ? { headers: { "X-Gateway-Id": gatewayId } } : {}),
+  });
   return res.items ?? [];
 }
 
@@ -1210,6 +1218,10 @@ export interface VirtualKeyItem {
   expires_at?: string;
   source?: string;
   read_only?: boolean;
+  manager_policy_status?: "unmanaged" | "stable" | "mutating" |
+    "reconciliation_required" | "containment_in_progress" |
+    "containment_reconciling" | "quarantined_contained" | "containment_failed";
+  manager_policy_epoch?: number;
 }
 
 /**
@@ -1225,8 +1237,10 @@ export type VirtualKeyPayload = Omit<
   "key_set" | "key_preview" | "source" | "read_only"
 >;
 
-export async function listVirtualKeys(): Promise<VirtualKeyItem[]> {
-  const res = await adminFetch<{ items: VirtualKeyItem[] }>("/admin/virtual_keys");
+export async function listVirtualKeys(gatewayId?: string): Promise<VirtualKeyItem[]> {
+  const res = await adminFetch<{ items: VirtualKeyItem[] }>("/admin/virtual_keys", {
+    ...(gatewayId ? { headers: { "X-Gateway-Id": gatewayId } } : {}),
+  });
   return res.items ?? [];
 }
 

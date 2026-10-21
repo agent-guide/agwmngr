@@ -36,6 +36,10 @@ async function handler(request: Request, context: Context) {
       await access.abandonBinding(actor, gatewayId, path[0]);
       return new Response(null, { status: 204 });
     }
+    if (request.method === "POST" && path.length === 2 && path[1] === "cleanup") {
+      await access.retryBindingConflictCleanup(actor, gatewayId, path[0]);
+      return new Response(null, { status: 204 });
+    }
     if (request.method === "DELETE" && path.length === 1) {
       await access.unbind(actor, gatewayId, path[0]);
       return new Response(null, { status: 204 });

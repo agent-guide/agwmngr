@@ -209,6 +209,24 @@ export class AgentDeploymentRegistry {
     )).map(deployment);
   }
 
+  async listForGateway(gatewayId: string): Promise<StoredAgentDeployment[]> {
+    return (await this.database.query<DeploymentRow>(
+      `SELECT ${deploymentColumns} FROM platform_agent_deployments
+        WHERE gateway_id = ? AND lifecycle_state <> 'deleted'
+        ORDER BY updated_at DESC, id`,
+      [gatewayId],
+    )).map(deployment);
+  }
+
+  async listForTenantSubject(tenantId: string): Promise<StoredAgentDeployment[]> {
+    return (await this.database.query<DeploymentRow>(
+      `SELECT ${deploymentColumns} FROM platform_agent_deployments
+        WHERE tenant_id = ? AND lifecycle_state <> 'deleted'
+        ORDER BY updated_at DESC, id`,
+      [tenantId],
+    )).map(deployment);
+  }
+
   async create(input: {
     deployment: StoredAgentDeployment;
     expectedReleaseDigest: string;
@@ -697,6 +715,96 @@ export class AgentDeploymentRegistry {
     });
   }
 
+  async markRouteContained(input: {
+    operationId: string;
+    observedRoute: unknown | null;
+    routeDigest: string | null;
+    now: string;
+  }): Promise<boolean> {
+    return this.write(async (transaction) => {
+      const current = await this.operation(input.operationId, transaction);
+      if (!current || current.status !== "failed" ||
+        !["route_containment_failed", "route_quarantined_contained"].includes(current.phase)) {
+        return false;
+      }
+      const deployment = await this.get(current.deploymentId, transaction);
+      if (!deployment || deployment.operationState !== "reconciliation_required") return false;
+      await transaction.query(
+        `UPDATE platform_deployment_operations
+            SET phase = 'route_quarantined_contained',
+                failure_code = 'route_quarantined_contained',
+                failure_message = 'public ingress was withdrawn by containment retry',
+                observed_route_json = ?, updated_at = ? WHERE id = ?`,
+        [input.observedRoute === null ? null : JSON.stringify(input.observedRoute),
+          input.now, input.operationId],
+      );
+      await transaction.query(
+        `UPDATE platform_agent_deployments
+            SET failure_code = 'route_quarantined_contained', updated_at = ? WHERE id = ?`,
+        [input.now, deployment.id],
+      );
+      await transaction.query(
+        `UPDATE platform_deployment_pair_fences
+            SET state = 'quarantined', operation_id = ?,
+                claim_epoch = claim_epoch + 1, route_digest = ?, updated_at = ?
+          WHERE deployment_id = ?`,
+        [input.operationId, input.routeDigest, input.now, deployment.id],
+      );
+      return true;
+    });
+  }
+
+  async resumeQuarantinedOperation(operationId: string, now: string): Promise<boolean> {
+    return this.write(async (transaction) => {
+      const current = await this.operation(operationId, transaction);
+      if (!current || current.status !== "failed" ||
+        current.phase !== "route_quarantined_contained") return false;
+      const deployment = await this.get(current.deploymentId, transaction);
+      if (!deployment || deployment.operationState !== "reconciliation_required") return false;
+      const fence = await this.pairFence(
+        deployment.target.gatewayId,
+        deployment.target.gatewayAgentId,
+        transaction,
+      );
+      if (!fence || fence.deploymentId !== deployment.id || fence.state !== "quarantined" ||
+        fence.operationId !== operationId) return false;
+      await transaction.query(
+        `UPDATE platform_deployment_operations
+            SET status = 'applying', phase = 'quarantine_resolved_retrying',
+                failure_code = NULL, failure_message = NULL, updated_at = ?
+          WHERE id = ?`,
+        [now, operationId],
+      );
+      await transaction.query(
+        `UPDATE platform_agent_deployments
+            SET lifecycle_state = CASE
+                  WHEN ? IN ('online','rollback') THEN 'offline'
+                  WHEN ? = 'take_offline' THEN 'active'
+                  ELSE 'partial_failure'
+                END,
+                operation_state = 'applying', current_operation_id = ?,
+                failure_code = NULL, invocation_epoch = invocation_epoch + 1,
+                updated_at = ?
+          WHERE id = ?`,
+        [current.kind, current.kind, operationId, now, deployment.id],
+      );
+      await transaction.query(
+        `UPDATE platform_deployment_pair_fences
+            SET state = 'provisional', operation_id = ?,
+                claim_epoch = claim_epoch + 1, updated_at = ?
+          WHERE deployment_id = ?`,
+        [operationId, now, deployment.id],
+      );
+      await transaction.query(
+        `UPDATE platform_deployment_route_reservations
+            SET state = 'provisional', operation_id = ?, updated_at = ?
+          WHERE deployment_id = ?`,
+        [operationId, now, deployment.id],
+      );
+      return true;
+    });
+  }
+
   async recordVerification(input: {
     deploymentId: string;
     operationId: string;
@@ -768,5 +876,181 @@ export class AgentDeploymentRegistry {
       await transaction.query("DELETE FROM platform_agent_deployments WHERE id = ?", [id]);
       return true;
     });
+  }
+
+  async beginDecommission(input: {
+    deploymentId: string;
+    requestKey: string;
+    operationId: string;
+    leaseUntil: string;
+    now: string;
+  }): Promise<StoredDeploymentOperation | null> {
+    return this.write(async (transaction) => {
+      const current = await this.get(input.deploymentId, transaction);
+      if (!current || current.lifecycleState === "deleted" || !current.appliedReleaseId ||
+        !["stable", "reconciliation_required"].includes(current.operationState)) return null;
+      const [sameKey] = await transaction.query<OperationRow>(
+        `SELECT ${operationColumns} FROM platform_deployment_operations
+          WHERE deployment_id = ? AND request_key = ?`,
+        [input.deploymentId, input.requestKey],
+      );
+      if (sameKey) return sameKey.kind === "decommission" ? operation(sameKey) : null;
+      const [materialization] = await transaction.query<OperationRow>(
+        `SELECT ${operationColumns} FROM platform_deployment_operations
+          WHERE deployment_id = ? AND desired_agent_json IS NOT NULL
+          ORDER BY sequence DESC LIMIT 1`,
+        [input.deploymentId],
+      );
+      const fence = await this.pairFence(
+        current.target.gatewayId,
+        current.target.gatewayAgentId,
+        transaction,
+      );
+      if (!materialization || !fence || fence.deploymentId !== current.id) return null;
+      const [sequenceRow] = await transaction.query<{ sequence: number }>(
+        `SELECT COALESCE(MAX(sequence), 0) + 1 AS sequence
+           FROM platform_deployment_operations WHERE deployment_id = ?`,
+        [input.deploymentId],
+      );
+      await transaction.query(
+        `INSERT INTO platform_deployment_operations
+          (id, deployment_id, kind, request_key, release_id, sequence, status,
+           phase, desired_agent_json, desired_agent_digest,
+           desired_staging_route_json, desired_staging_route_digest,
+           desired_final_route_json, desired_final_route_digest,
+           observed_agent_json, observed_route_json, agent_write_attempted,
+           route_write_attempted, lease_until, created_at, updated_at)
+         VALUES (?, ?, 'decommission', ?, ?, ?, 'applying',
+           'decommission_revoking_keys', ?, ?, ?, ?, ?, ?, NULL, NULL, 0, 0, ?, ?, ?)`,
+        [input.operationId, input.deploymentId, input.requestKey, current.appliedReleaseId,
+          Number(sequenceRow.sequence), materialization.desired_agent_json,
+          materialization.desired_agent_digest, materialization.desired_staging_route_json,
+          materialization.desired_staging_route_digest,
+          materialization.desired_final_route_json, materialization.desired_final_route_digest,
+          input.leaseUntil, input.now, input.now],
+      );
+      await transaction.query(
+        `UPDATE platform_agent_deployments
+            SET lifecycle_state = 'deleting', operation_state = 'applying',
+                invocation_epoch = invocation_epoch + 1, current_operation_id = ?,
+                failure_code = NULL, updated_at = ? WHERE id = ?`,
+        [input.operationId, input.now, input.deploymentId],
+      );
+      await transaction.query(
+        `UPDATE platform_deployment_pair_fences
+            SET state = 'deleting', operation_id = ?, claim_epoch = claim_epoch + 1,
+                updated_at = ? WHERE gateway_id = ? AND gateway_agent_id = ?
+                AND deployment_id = ?`,
+        [input.operationId, input.now, current.target.gatewayId,
+          current.target.gatewayAgentId, current.id],
+      );
+      await transaction.query(
+        `UPDATE platform_deployment_key_bindings SET status = 'cleanup_required', updated_at = ?
+          WHERE deployment_id = ?`,
+        [input.now, input.deploymentId],
+      );
+      return this.operation(input.operationId, transaction);
+    });
+  }
+
+  async completeDecommission(input: {
+    operationId: string;
+    now: string;
+  }): Promise<StoredDeploymentOperation | null> {
+    return this.write(async (transaction) => {
+      const current = await this.operation(input.operationId, transaction);
+      if (!current || current.kind !== "decommission" || current.status !== "applying") {
+        return null;
+      }
+      const deployment = await this.get(current.deploymentId, transaction);
+      if (!deployment || deployment.lifecycleState !== "deleting") return null;
+      await transaction.query(
+        `UPDATE platform_deployment_operations
+            SET status = 'succeeded', phase = 'decommission_verified',
+                failure_code = NULL, failure_message = NULL, lease_until = NULL,
+                updated_at = ? WHERE id = ?`,
+        [input.now, input.operationId],
+      );
+      await transaction.query(
+        "DELETE FROM platform_deployment_key_bindings WHERE deployment_id = ?",
+        [deployment.id],
+      );
+      await transaction.query(
+        "DELETE FROM platform_deployment_route_reservations WHERE deployment_id = ?",
+        [deployment.id],
+      );
+      await transaction.query(
+        `UPDATE platform_agent_deployments
+            SET lifecycle_state = 'deleted', operation_state = 'stable',
+                invocation_epoch = invocation_epoch + 1, current_operation_id = NULL,
+                failure_code = NULL, updated_at = ? WHERE id = ?`,
+        [input.now, deployment.id],
+      );
+      await transaction.query(
+        `UPDATE platform_deployment_pair_fences
+            SET state = 'deleting', operation_id = NULL, claim_epoch = claim_epoch + 1,
+                updated_at = ? WHERE deployment_id = ?`,
+        [input.now, deployment.id],
+      );
+      return this.operation(input.operationId, transaction);
+    });
+  }
+
+  async failDecommission(input: {
+    operationId: string;
+    code: string;
+    message: string;
+    now: string;
+  }): Promise<void> {
+    await this.write(async (transaction) => {
+      const current = await this.operation(input.operationId, transaction);
+      if (!current || current.kind !== "decommission" || current.status !== "applying") return;
+      await transaction.query(
+        `UPDATE platform_deployment_operations
+            SET status = 'failed', phase = 'decommission_cleanup_failed',
+                failure_code = ?, failure_message = ?, lease_until = NULL, updated_at = ?
+          WHERE id = ?`,
+        [input.code, input.message, input.now, input.operationId],
+      );
+      await transaction.query(
+        `UPDATE platform_agent_deployments
+            SET lifecycle_state = 'deleting', operation_state = 'reconciliation_required',
+                invocation_epoch = invocation_epoch + 1, current_operation_id = NULL,
+                failure_code = ?, updated_at = ? WHERE id = ?`,
+        [input.code, input.now, current.deploymentId],
+      );
+    });
+  }
+
+  async pendingDecommissions(gatewayId?: string): Promise<StoredDeploymentOperation[]> {
+    const params = gatewayId ? [gatewayId] : [];
+    const where = gatewayId ? "AND deployment.gateway_id = ?" : "";
+    return (await this.database.query<OperationRow>(
+      `SELECT operation.*
+         FROM platform_deployment_operations operation
+         JOIN platform_agent_deployments deployment ON deployment.id = operation.deployment_id
+        WHERE operation.kind = 'decommission'
+          AND deployment.lifecycle_state = 'deleting'
+          AND operation.sequence = (
+            SELECT MAX(latest.sequence) FROM platform_deployment_operations latest
+             WHERE latest.deployment_id = operation.deployment_id
+               AND latest.kind = 'decommission'
+          )
+          AND (operation.status = 'applying' OR
+               operation.phase = 'decommission_cleanup_failed') ${where}
+        ORDER BY operation.updated_at, operation.id`,
+      params,
+    )).map(operation);
+  }
+
+  async pendingApplyingOperations(): Promise<StoredDeploymentOperation[]> {
+    return (await this.database.query<OperationRow>(
+      `SELECT operation.* FROM platform_deployment_operations operation
+         JOIN platform_agent_deployments deployment ON deployment.id = operation.deployment_id
+        WHERE operation.status = 'applying' AND operation.kind <> 'decommission'
+          AND deployment.operation_state = 'applying'
+          AND deployment.current_operation_id = operation.id
+        ORDER BY operation.updated_at, operation.id`,
+    )).map(operation);
   }
 }

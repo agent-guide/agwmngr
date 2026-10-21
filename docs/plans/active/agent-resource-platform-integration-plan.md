@@ -1,7 +1,7 @@
 # Agent Resource Platform Rebuild Plan
 
 - Document type: **delivery**
-- Status: **active; Steps 0–5 and Steps 6A–6B lifecycle core complete**
+- Status: **active; Steps 0–6E implemented, final real-Gateway acceptance pending**
 - Applies to: `rebuild/agent-resource-platform`
 - Last reviewed: 2026-10-20
 
@@ -1374,6 +1374,24 @@ recovery/reconciliation gate remain pending.
 - retire old user-facing Gateway membership only after the scoped Access,
   invocation, runtime-action and deployment replacements pass parity and
   negative tests.
+
+Completed (2026-10-21): the general Gateway proxy now denies unknown families
+before forwarding and retained infrastructure/diagnostic access is Platform
+Admin-only. Legacy ACP chat returns `410`; Tenant invocation and Gateway-Agent
+Test use separate opaque, expiring contexts that recheck path-qualified
+authority, pair/key epochs, live fingerprints and capability state under shared
+leases. Gateway Agent/route mutation is pair-fenced and reconciliation-gated;
+retained LLM/MCP route writers use the symmetric path-conflict guard, while the
+configuration bundle rejects route families that cannot preserve that proof.
+Schema v14 adds compatibility pair/context state. Startup recovers interrupted
+lifecycle and decommission journals, explicit Tenant/Gateway/individual
+remove-only decommission blocks identity deletion until cleanup completes, and
+ordinary key-write, binding-collision, route-containment and quarantine
+recovery each retain a narrow operation-specific handler. Canonical Gateway
+Agent, runtime and observability pages consume the explicit Platform APIs, and
+legacy navigation redirects to the accepted destinations. The implementation
+slice is complete; the following real Gateway and multi-Tenant gate remains to
+be executed as release acceptance.
 
 Gate: real Gateway v0.7 create/invoke/observe/rollback, two-Tenant shared-Gateway
 isolation, per-admin differing grants, revocation-before-retry, partial failure

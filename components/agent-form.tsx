@@ -38,6 +38,10 @@ import {
   type AgentRuntimeBuiltin,
   type AgentRuntimeType,
 } from "@/lib/api";
+import {
+  createPlatformGatewayAgent,
+  updatePlatformGatewayAgent,
+} from "@/lib/platform-api";
 
 interface RefData {
   llmRoutes: { id: string }[];
@@ -132,7 +136,15 @@ const TEXTAREA_CLASS = "w-full rounded-md border border-slate-700/70 bg-slate-90
 const WIZARD_STEPS = ["Basics", "Runtime", "Resources", "Review"] as const;
 type EditorMode = "form" | "yaml";
 
-export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard?: boolean }) {
+export function AgentForm({
+  initial,
+  wizard = false,
+  gatewayId,
+}: {
+  initial?: Agent;
+  wizard?: boolean;
+  gatewayId?: string;
+}) {
   const isEdit = !!initial;
   const router = useRouter();
   const { showToast } = useToast();
@@ -225,7 +237,11 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
   const loadRef = useCallback(async () => {
     setRefStatus({ llmRoutes: "loading", mcpServices: "loading" });
     const [llmRoutes, mcpRoutes, mcpServices, providers, vkeys] = await Promise.allSettled([
-      listLLMRoutes(), listMCPRoutes(), listMCPServices(), listProviders(), listVirtualKeys(),
+      listLLMRoutes(gatewayId),
+      listMCPRoutes(gatewayId),
+      listMCPServices(gatewayId),
+      listProviders(undefined, gatewayId),
+      listVirtualKeys(gatewayId),
     ]);
     setRef({
       llmRoutes: llmRoutes.status === "fulfilled" ? llmRoutes.value.map((r) => ({ id: r.id })) : [],
@@ -240,7 +256,7 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
     } satisfies { llmRoutes: RefStatus; mcpServices: RefStatus };
     setRefStatus(nextStatus);
     return nextStatus;
-  }, []);
+  }, [gatewayId]);
 
   useEffect(() => {
     let alive = true;
@@ -564,9 +580,17 @@ export function AgentForm({ initial, wizard = false }: { initial?: Agent; wizard
     );
     setSaving(true);
     try {
-      const saved = isEdit ? await updateAgent(initial!.id, payload) : await createAgent(payload);
+      const saved = gatewayId
+        ? isEdit
+          ? await updatePlatformGatewayAgent(gatewayId, initial!.id, payload)
+          : await createPlatformGatewayAgent(gatewayId, payload)
+        : isEdit
+          ? await updateAgent(initial!.id, payload)
+          : await createAgent(payload);
       showToast(isEdit ? t("agentForm.updated") : t("agentForm.created"), "success");
-      router.push(`/dashboard/agents/${encodeURIComponent(saved.id)}`);
+      router.push(gatewayId
+        ? `/dashboard/platform/gateways/${encodeURIComponent(gatewayId)}/agents/${encodeURIComponent(saved.id)}`
+        : `/dashboard/agents/${encodeURIComponent(saved.id)}`);
     } catch (err) {
       let message = err instanceof ApiError ? err.message : t("agentForm.saveFailed");
       const conflict = err instanceof ApiError

@@ -14,6 +14,7 @@ import type {
   GatewayVirtualKeyPolicy,
 } from "../ports/deployment";
 import { AgentReleaseRegistry, type StoredAgentRelease } from "./agent-release-registry";
+import { DeploymentAccessRegistry } from "./deployment-access-registry";
 import { canonicalAgentValue } from "./agent-definitions";
 import {
   AgentDeploymentRegistry,
@@ -128,6 +129,20 @@ function routeView(value: unknown): unknown {
   };
 }
 
+export function deploymentAgentFingerprint(
+  value: unknown,
+  content: Pick<ContentRuntime, "hash">,
+): string {
+  return content.hash(canonicalAgentValue(agentView(value)));
+}
+
+export function deploymentRouteFingerprint(
+  value: unknown,
+  content: Pick<ContentRuntime, "hash">,
+): string {
+  return content.hash(canonicalAgentValue(routeView(value)));
+}
+
 function same(left: unknown, right: unknown): boolean {
   return canonicalAgentValue(left) === canonicalAgentValue(right);
 }
@@ -147,8 +162,15 @@ export function virtualKeyPolicyValue(value: GatewayVirtualKeyPolicy): GatewayVi
     allowed_route_ids: [...new Set(value.allowed_route_ids)].sort(),
     ...(value.rate_limits ? { rate_limits: value.rate_limits } : {}),
     ...(value.status_message ? { status_message: value.status_message } : {}),
-    ...(value.expires_at ? { expires_at: value.expires_at } : {}),
+    ...(value.expires_at && value.expires_at !== "0001-01-01T00:00:00Z"
+      ? { expires_at: value.expires_at } : {}),
   };
+}
+
+function virtualKeyExpired(expiresAt: string | undefined, now: number): boolean {
+  return Boolean(
+    expiresAt && expiresAt !== "0001-01-01T00:00:00Z" && Date.parse(expiresAt) <= now,
+  );
 }
 
 export function virtualKeyPolicyFingerprint(
@@ -530,14 +552,14 @@ export class AgentDeploymentService {
     const keys = await this.gateway.listVirtualKeys(deployment.target.gatewayId);
     const now = new Date(this.content.now()).getTime();
     for (const key of keys) {
-      const expired = key.expires_at !== undefined && Date.parse(key.expires_at) <= now;
+      const expired = virtualKeyExpired(key.expires_at, now);
       if (!key.disabled && !expired && key.allowed_route_ids.length === 0) {
         conflict("an enabled allow-all Virtual Key blocks platform route activation");
       }
     }
     const key = keys.find((candidate) => candidate.id === binding.keyId);
     if (!key || key.disabled ||
-      (key.expires_at !== undefined && Date.parse(key.expires_at) <= now) ||
+      virtualKeyExpired(key.expires_at, now) ||
       key.allowed_route_ids.length === 0 ||
       !key.allowed_route_ids.includes(deployment.target.gatewayRouteId)) {
       conflict("bound Virtual Key is not eligible for deployment");
@@ -546,6 +568,70 @@ export class AgentDeploymentService {
       conflict("bound Virtual Key policy changed; reconcile it before deployment");
     }
     return { binding, key };
+  }
+
+  private async cleanupInitialBindingConflict(
+    deployment: StoredAgentDeployment,
+  ): Promise<void> {
+    const access = new DeploymentAccessRegistry(this.registry.database);
+    if (!await access.startBindingConflictCleanup(deployment.id, this.content.now())) {
+      conflict("deployment binding conflict cleanup could not start");
+    }
+    const binding = await this.registry.binding(deployment.id);
+    if (!binding) conflict("deployment binding disappeared during conflict cleanup");
+    const key = await this.gateway.readVirtualKey(binding.gatewayId, binding.keyId);
+    if (!key) {
+      if (!await access.completeBindingConflictCleanup(deployment.id, this.content.now())) {
+        conflict("deployment binding conflict cleanup could not be committed");
+      }
+      return;
+    }
+    const allowed = key.allowed_route_ids.filter((id) => id !== binding.routeId);
+    const desired = virtualKeyPolicyValue({
+      ...key,
+      disabled: allowed.length === 0 ? true : key.disabled,
+      allowed_route_ids: allowed,
+    });
+    const token = `binding-conflict-cleanup:${deployment.id}:${this.content.id()}`;
+    if (!await access.beginKeyMutation({
+      gatewayId: binding.gatewayId,
+      keyId: binding.keyId,
+      desired,
+      operationKind: "binding_conflict_cleanup",
+      operationToken: token,
+      now: this.content.now(),
+    })) {
+      conflict("deployment binding key requires reconciliation before cleanup");
+    }
+    try {
+      await this.gateway.updateVirtualKey(binding.gatewayId, binding.keyId, desired);
+      const observed = await this.gateway.readVirtualKey(binding.gatewayId, binding.keyId);
+      const fingerprint = observed && virtualKeyPolicyFingerprint(observed, this.content);
+      if (!observed || fingerprint !== virtualKeyPolicyFingerprint(desired, this.content)) {
+        throw new Error("binding-conflict key cleanup could not be verified");
+      }
+      if (!await access.completeKeyMutation({
+        gatewayId: binding.gatewayId,
+        keyId: binding.keyId,
+        operationToken: token,
+        fingerprint,
+        now: this.content.now(),
+      })) {
+        throw new Error("binding-conflict key cleanup lost its state token");
+      }
+      if (!await access.completeBindingConflictCleanup(deployment.id, this.content.now())) {
+        throw new Error("binding-conflict cleanup could not release its reservation");
+      }
+    } catch (error) {
+      await access.failKeyMutation({
+        gatewayId: binding.gatewayId,
+        keyId: binding.keyId,
+        operationToken: token,
+        incident: error instanceof Error ? error.message : "binding conflict cleanup failed",
+        now: this.content.now(),
+      });
+      throw error;
+    }
   }
 
   private async proveFinalRoute(
@@ -982,7 +1068,8 @@ export class AgentDeploymentService {
         this.gateway.readAgentRoute(deployment.target.gatewayId, deployment.target.gatewayRouteId),
       ]);
       if (!retry && (remoteAgent || remoteRoute)) {
-        conflict("deployment target IDs must be absent before initial apply");
+        await this.cleanupInitialBindingConflict(deployment);
+        conflict("deployment target IDs were occupied; the key binding was safely removed");
       }
       if (retry) {
         const fence = await this.registry.pairFence(

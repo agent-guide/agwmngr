@@ -503,6 +503,69 @@ export class DeploymentAccessRegistry {
     });
   }
 
+  async startBindingConflictCleanup(deploymentId: string, now: string): Promise<boolean> {
+    return this.write(async (transaction) => {
+      const deployment = await this.deployments.get(deploymentId, transaction);
+      const binding = await this.deployments.binding(deploymentId, transaction);
+      if (!deployment || deployment.lifecycleState !== "ready_to_apply" ||
+        deployment.operationState !== "stable" || !binding || binding.status !== "bound") {
+        return false;
+      }
+      const [blocked] = await transaction.query<{ n: number }>(
+        `SELECT
+          (SELECT COUNT(*) FROM platform_deployment_operations WHERE deployment_id = ?) +
+          (SELECT COUNT(*) FROM platform_deployment_pair_fences WHERE deployment_id = ?) AS n`,
+        [deploymentId, deploymentId],
+      );
+      if (Number(blocked.n) !== 0) return false;
+      await transaction.query(
+        `UPDATE platform_deployment_key_bindings
+            SET status = 'cleanup_required', updated_at = ? WHERE deployment_id = ?`,
+        [now, deploymentId],
+      );
+      await transaction.query(
+        `UPDATE platform_agent_deployments
+            SET lifecycle_state = 'awaiting_key_binding',
+                invocation_epoch = invocation_epoch + 1,
+                failure_code = 'binding_conflict_cleanup', updated_at = ?
+          WHERE id = ?`,
+        [now, deploymentId],
+      );
+      return true;
+    });
+  }
+
+  async completeBindingConflictCleanup(deploymentId: string, now: string): Promise<boolean> {
+    return this.write(async (transaction) => {
+      const deployment = await this.deployments.get(deploymentId, transaction);
+      const binding = await this.deployments.binding(deploymentId, transaction);
+      if (!deployment || deployment.lifecycleState !== "awaiting_key_binding" ||
+        deployment.operationState !== "stable" || !binding ||
+        binding.status !== "cleanup_required") return false;
+      const [blocked] = await transaction.query<{ n: number }>(
+        `SELECT
+          (SELECT COUNT(*) FROM platform_deployment_operations WHERE deployment_id = ?) +
+          (SELECT COUNT(*) FROM platform_deployment_pair_fences WHERE deployment_id = ?) AS n`,
+        [deploymentId, deploymentId],
+      );
+      if (Number(blocked.n) !== 0) return false;
+      await transaction.query(
+        "DELETE FROM platform_deployment_key_bindings WHERE deployment_id = ?",
+        [deploymentId],
+      );
+      await transaction.query(
+        "DELETE FROM platform_deployment_route_reservations WHERE deployment_id = ?",
+        [deploymentId],
+      );
+      await transaction.query(
+        `UPDATE platform_agent_deployments
+            SET failure_code = NULL, updated_at = ? WHERE id = ?`,
+        [now, deploymentId],
+      );
+      return true;
+    });
+  }
+
   async completeUnbind(deploymentId: string, now: string): Promise<boolean> {
     return this.write(async (transaction) => {
       const deployment = await this.deployments.get(deploymentId, transaction);

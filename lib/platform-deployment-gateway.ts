@@ -72,7 +72,8 @@ function virtualKey(value: unknown): GatewayVirtualKeyPolicy {
     ...(row.rate_limits && typeof row.rate_limits === "object"
       ? { rate_limits: row.rate_limits } : {}),
     ...(typeof row.status_message === "string" ? { status_message: row.status_message } : {}),
-    ...(typeof row.expires_at === "string" ? { expires_at: row.expires_at } : {}),
+    ...(typeof row.expires_at === "string" && row.expires_at !== "0001-01-01T00:00:00Z"
+      ? { expires_at: row.expires_at } : {}),
   };
 }
 

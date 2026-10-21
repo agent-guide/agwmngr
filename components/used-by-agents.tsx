@@ -36,9 +36,10 @@ export function UsedByAgents({
     </span>
   );
 
-  if (ids.length === 1) {
+  if (ids.length === 1 && source !== "gateway") {
+    const href = `/dashboard/agents/${encodeURIComponent(ids[0])}`;
     return (
-      <Link href={`/dashboard/agents/${encodeURIComponent(ids[0])}${source === "gateway" ? "?source=gateway" : ""}`} className={className} title={t("attribution.usedBy", { agents: ids[0] })}>
+      <Link href={href} className={className} title={t("attribution.usedBy", { agents: ids[0] })}>
         {chip}
       </Link>
     );

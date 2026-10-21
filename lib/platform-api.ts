@@ -2,6 +2,8 @@ import {
   adminFetch,
   ApiError,
   type CreatedVirtualKey,
+  type Agent,
+  type AgentPayload,
   type VirtualKeyItem,
   type VirtualKeyPayload,
 } from "./api";
@@ -1078,6 +1080,15 @@ export async function abandonDeploymentKeyBinding(
   });
 }
 
+export async function retryDeploymentKeyBindingCleanup(
+  gatewayId: string,
+  deploymentId: string,
+): Promise<void> {
+  await adminFetch(`${gatewayDeploymentBindingsPath(gatewayId, deploymentId)}/cleanup`, {
+    method: "POST",
+  });
+}
+
 export async function listPlatformGatewayVirtualKeys(
   gatewayId: string,
 ): Promise<VirtualKeyItem[]> {
@@ -1107,6 +1118,30 @@ export function reconcilePlatformGatewayVirtualKeyContainment(
     `/api/platform/v1/gateways/${encodeURIComponent(gatewayId)}` +
       `/virtual-keys/${encodeURIComponent(keyId)}/containment/reconcile`,
     { method: "POST" },
+  );
+}
+
+export function reconcilePlatformGatewayVirtualKey(
+  gatewayId: string,
+  keyId: string,
+  resolution: "apply_desired" | "adopt_live" = "apply_desired",
+): Promise<DeploymentVirtualKeyReference> {
+  return adminFetch(
+    `/api/platform/v1/gateways/${encodeURIComponent(gatewayId)}` +
+      `/virtual-keys/${encodeURIComponent(keyId)}/reconcile`,
+    { method: "POST", body: JSON.stringify({ resolution }) },
+  );
+}
+
+export function decommissionAgentDeployment(
+  gatewayId: string,
+  deploymentId: string,
+  requestKey: string,
+): Promise<AgentDeploymentOperation> {
+  return adminFetch(
+    `/api/platform/v1/gateways/${encodeURIComponent(gatewayId)}` +
+      `/deployments/${encodeURIComponent(deploymentId)}/decommission`,
+    { method: "POST", body: JSON.stringify({ request_key: requestKey }) },
   );
 }
 
@@ -1241,5 +1276,98 @@ export function getPlatformGatewayRuntime(
 ): Promise<unknown> {
   return adminFetch(
     `/api/platform/v1/gateways/${encodeURIComponent(gatewayId)}/runtime/${runtime}`,
+  );
+}
+
+export function getPlatformGatewayObservability(
+  gatewayId: string,
+  path = "",
+): Promise<unknown> {
+  return adminFetch(
+    `/api/platform/v1/gateways/${encodeURIComponent(gatewayId)}/observability${path}`,
+  );
+}
+
+export async function listPlatformGatewayAgents(
+  gatewayId: string,
+  options: { includeClaimed?: boolean } = {},
+): Promise<Agent[]> {
+  const query = options.includeClaimed ? "?include_claimed=true" : "";
+  const result = await adminFetch<{ items: Agent[] }>(
+    `/api/platform/v1/gateways/${encodeURIComponent(gatewayId)}/agents${query}`,
+  );
+  return result.items ?? [];
+}
+
+export function getPlatformGatewayAgent(gatewayId: string, agentId: string): Promise<Agent> {
+  return adminFetch<Agent>(
+    `/api/platform/v1/gateways/${encodeURIComponent(gatewayId)}` +
+      `/agents/${encodeURIComponent(agentId)}`,
+  );
+}
+
+export function createPlatformGatewayAgent(
+  gatewayId: string,
+  payload: AgentPayload,
+): Promise<Agent> {
+  return adminFetch<Agent>(
+    `/api/platform/v1/gateways/${encodeURIComponent(gatewayId)}/agents`,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+export function updatePlatformGatewayAgent(
+  gatewayId: string,
+  agentId: string,
+  payload: AgentPayload,
+): Promise<Agent> {
+  return adminFetch<Agent>(
+    `/api/platform/v1/gateways/${encodeURIComponent(gatewayId)}` +
+      `/agents/${encodeURIComponent(agentId)}`,
+    { method: "PUT", body: JSON.stringify(payload) },
+  );
+}
+
+export function reconcilePlatformGatewayAgent(
+  gatewayId: string,
+  agentId: string,
+): Promise<{ gateway_id: string; agent_id: string; state: string; authority_epoch: number }> {
+  return adminFetch(
+    `/api/platform/v1/gateways/${encodeURIComponent(gatewayId)}` +
+      `/agents/${encodeURIComponent(agentId)}/reconcile`,
+    { method: "POST" },
+  );
+}
+
+export async function listPlatformGatewayAgentRoutes(gatewayId: string): Promise<unknown[]> {
+  const result = await adminFetch<{ items: unknown[] }>(
+    `/api/platform/v1/gateways/${encodeURIComponent(gatewayId)}/agents/routes`,
+  );
+  return result.items ?? [];
+}
+
+export interface GatewayCompatibilityInvocationContext {
+  id: string;
+  gatewayId: string;
+  gatewayAgentId: string;
+  gatewayRouteId: string;
+  keyId: string;
+  expiresAt: string;
+  completedAt: string | null;
+}
+
+export function createGatewayCompatibilityInvocation(
+  gatewayId: string,
+  agentId: string,
+  routeId: string,
+  keyId: string,
+): Promise<GatewayCompatibilityInvocationContext> {
+  return adminFetch(
+    `/api/platform/v1/gateways/${encodeURIComponent(gatewayId)}` +
+      `/agents/${encodeURIComponent(agentId)}/invocations`,
+    {
+      method: "POST",
+      body: JSON.stringify({ route_id: routeId, key_id: keyId }),
+    },
   );
 }

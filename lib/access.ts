@@ -2,7 +2,6 @@ import { getAuthToken } from "./require-auth";
 import { lookupSession, setActiveGateway, type SessionRecord } from "./session";
 import {
   getGateway,
-  getMembership,
   insertAudit,
   finalizeAudit,
   listGatewaysForUser,
@@ -154,9 +153,9 @@ export interface GatewayCompatibilityContext {
 }
 
 /**
- * Guard for gateway-scoped endpoints. Resolves the active gateway (session or
- * X-Gateway-Id override), enforces membership + role for the requested action,
- * blocks disabled gateways, decrypts admin credentials, and audits the decision.
+ * Guard for the explicitly retained legacy Gateway bridge. Step 6E permits
+ * only Platform Admin actors; stored Gateway memberships no longer authorize
+ * reads, writes, invocation or runtime actions.
  */
 export function requireGatewayCompatibilityAccess(
   req: Request,
@@ -193,6 +192,16 @@ export function requireGatewayCompatibilityAccess(
   const session = lookupSession(token);
   if (!session) return denyAudit(401, "invalid or expired session", "invalid_session", null, null);
 
+  if (!session.isPlatformAdmin) {
+    return denyAudit(
+      403,
+      "legacy Gateway membership authority has been retired",
+      "gateway_membership_retired",
+      session.userId,
+      null,
+    );
+  }
+
   let gatewayId = req.headers.get("X-Gateway-Id")?.trim() || session.activeGatewayId;
   if (!gatewayId) {
     // Self-heal sessions with no active gateway (e.g. created before the gateway
@@ -210,16 +219,7 @@ export function requireGatewayCompatibilityAccess(
   const row = getGateway(gatewayId);
   if (!row) return denyAudit(404, "gateway not found", "gateway_not_found", session.userId, gatewayId);
 
-  let role: EffectiveRole;
-  if (session.isPlatformAdmin) {
-    role = "admin";
-  } else {
-    const membership = getMembership(session.userId, gatewayId);
-    if (!membership) {
-      return denyAudit(403, "no membership for this gateway", "no_membership", session.userId, gatewayId);
-    }
-    role = membership.role;
-  }
+  const role: EffectiveRole = "admin";
 
   if (row.status === "disabled") {
     return denyAudit(403, "gateway is disabled", "gateway_disabled", session.userId, gatewayId);

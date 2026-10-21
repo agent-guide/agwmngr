@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { listAgents, type Agent } from "@/lib/api";
+import { type Agent } from "@/lib/api";
 import { collectBuiltinReferences } from "@/lib/agent-bindings";
+import { useCurrentUser } from "@/components/current-user-context";
+import { listPlatformGatewayAgents } from "@/lib/platform-api";
 
 /**
  * Reverse attribution: which agents reference a given resource. Built once from
- * `GET /admin/agents` — every Agent object already carries its resource/route
+ * the path-qualified Platform Gateway API — every Agent object already carries its resource/route
  * references, so no per-agent resource fetch is needed. Lets resource list
  * pages answer "used by N agents?" and highlight orphaned resources, closing
  * the loop between the shared resource library and the agent-centric IA.
@@ -52,13 +54,23 @@ function buildMap(agents: Agent[]): AttributionMap {
 }
 
 export function useAgentAttribution(): AttributionMap | null {
-  const [map, setMap] = useState<AttributionMap | null>(null);
+  const { activeGatewayId } = useCurrentUser();
+  const [result, setResult] = useState<{
+    gatewayId: string;
+    map: AttributionMap | null;
+  } | null>(null);
   useEffect(() => {
     let alive = true;
-    listAgents()
-      .then((agents) => { if (alive) setMap(buildMap(agents)); })
-      .catch(() => { if (alive) setMap(emptyMap()); });
+    if (!activeGatewayId) return () => { alive = false; };
+    // Attribution must include deployment-claimed agents as well as unfenced
+    // compatibility agents; both can reference shared Gateway infrastructure.
+    listPlatformGatewayAgents(activeGatewayId, { includeClaimed: true })
+      .then((agents) => {
+        if (alive) setResult({ gatewayId: activeGatewayId, map: buildMap(agents) });
+      })
+      // Unknown attribution must not be rendered as a confident "unused".
+      .catch(() => { if (alive) setResult({ gatewayId: activeGatewayId, map: null }); });
     return () => { alive = false; };
-  }, []);
-  return map;
+  }, [activeGatewayId]);
+  return result?.gatewayId === activeGatewayId ? result.map : null;
 }

@@ -1,4 +1,5 @@
 import type {
+  AgentDeploymentOperation,
   AgentDeploymentEndpoint,
   DeploymentInvocationContext,
   DeploymentKeyBinding,
@@ -6,8 +7,13 @@ import type {
   DeploymentVirtualKeyReference,
 } from "../../contracts/platform/deployments";
 import type { PlatformActorReference } from "../../contracts/platform/identity";
+import type { AgentPayload } from "../../contracts/gateway/agents";
 import type { ContentRuntime } from "../ports/content";
-import type { GatewayDeploymentAdapter, GatewayVirtualKeyPolicy } from "../ports/deployment";
+import type {
+  GatewayAgentRouteDocument,
+  GatewayDeploymentAdapter,
+  GatewayVirtualKeyPolicy,
+} from "../ports/deployment";
 import {
   DeploymentAccessRegistry,
   type StoredInvocationContext,
@@ -18,13 +24,21 @@ import {
   type DeploymentKeyBindingRecord,
   type DeploymentPairFence,
   type StoredAgentDeployment,
+  type StoredDeploymentOperation,
 } from "./deployment-registry";
 import {
   IdentityError,
   type PlatformIdentityService,
   type TenantInvocationAuthorization,
 } from "./identity";
-import { virtualKeyPolicyFingerprint, virtualKeyPolicyValue } from "./deployments";
+import {
+  deploymentAgentFingerprint,
+  deploymentRouteFingerprint,
+  conflictsWithFinalRoute,
+  virtualKeyPolicyFingerprint,
+  virtualKeyPolicyValue,
+} from "./deployments";
+import { canonicalAgentValue } from "./agent-definitions";
 
 function conflict(message: string): never {
   throw new IdentityError("conflict", message);
@@ -39,6 +53,12 @@ function keyExpired(key: GatewayVirtualKeyPolicy, now: string): boolean {
 function keyEligible(key: GatewayVirtualKeyPolicy, routeId: string, now: string): boolean {
   return !key.disabled && !keyExpired(key, now) && key.allowed_route_ids.length > 0 &&
     key.allowed_route_ids.includes(routeId);
+}
+
+function routeProtected(value: unknown): boolean {
+  const row = value && typeof value === "object" && !Array.isArray(value)
+    ? value as { auth_policy?: { require_virtual_key?: unknown } } : {};
+  return row.auth_policy?.require_virtual_key === true;
 }
 
 function contextProjection(value: StoredInvocationContext): DeploymentInvocationContext {
@@ -59,6 +79,23 @@ function routeId(value: unknown): string | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return typeof (value as Record<string, unknown>).id === "string"
     ? (value as Record<string, string>).id : null;
+}
+
+function operationProjection(value: StoredDeploymentOperation): AgentDeploymentOperation {
+  return {
+    id: value.id,
+    deploymentId: value.deploymentId,
+    kind: value.kind,
+    requestKey: value.requestKey,
+    releaseId: value.releaseId,
+    sequence: value.sequence,
+    status: value.status,
+    phase: value.phase,
+    failureCode: value.failureCode,
+    failureMessage: value.failureMessage,
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
+  };
 }
 
 export interface AuthorizedDeploymentInvocation {
@@ -182,6 +219,26 @@ export class DeploymentAccessService {
       });
       throw error;
     }
+  }
+
+  async keys(actor: PlatformActorReference, gatewayId: string): Promise<Array<
+    GatewayVirtualKeyPolicy & {
+      key_set: true;
+      manager_policy_status: "unmanaged" | StoredKeyPolicy["state"];
+      manager_policy_epoch?: number;
+    }
+  >> {
+    await this.identity.requirePlatformAdmin(actor);
+    const keys = await this.gateway.listVirtualKeys(gatewayId);
+    return Promise.all(keys.map(async (key) => {
+      const policy = await this.access.keyPolicy(gatewayId, key.id);
+      return {
+        ...key,
+        key_set: true,
+        manager_policy_status: policy?.state ?? "unmanaged",
+        ...(policy ? { manager_policy_epoch: policy.policyEpoch } : {}),
+      };
+    }));
   }
 
   async bindings(actor: PlatformActorReference, gatewayId: string): Promise<DeploymentKeyBinding[]> {
@@ -426,6 +483,80 @@ export class DeploymentAccessService {
     });
   }
 
+  async reconcileKey(
+    actor: PlatformActorReference,
+    gatewayId: string,
+    keyId: string,
+    resolution: "apply_desired" | "adopt_live",
+  ): Promise<DeploymentVirtualKeyReference> {
+    await this.identity.requirePlatformAdmin(actor);
+    return this.withGatewayLeases(gatewayId, async () => {
+      await this.identity.requirePlatformAdmin(actor);
+      const current = await this.access.keyPolicy(gatewayId, keyId);
+      if (!current || current.state !== "reconciliation_required" ||
+        !current.desiredPolicy) {
+        conflict("Virtual Key has no ordinary mutation to reconcile");
+      }
+      const live = await this.gateway.readVirtualKey(gatewayId, keyId);
+      if (!live) throw new IdentityError("not_found", "Virtual Key not found");
+      const desired = resolution === "adopt_live"
+        ? virtualKeyPolicyValue(live)
+        : virtualKeyPolicyValue(current.desiredPolicy);
+      if (!desired.disabled && desired.allowed_route_ids.length === 0) {
+        conflict("an enabled allow-all Virtual Key cannot be reconciled");
+      }
+      const bindings = (await this.access.bindingsForGateway(gatewayId))
+        .filter((item) => item.keyId === keyId && item.status === "bound");
+      if (bindings.some((item) => !desired.allowed_route_ids.includes(item.routeId))) {
+        conflict("reconciled policy must cover every bound deployment route");
+      }
+      const token = `ordinary-reconcile:${keyId}:${this.content.id()}`;
+      if (!await this.access.beginReconciliation({
+        gatewayId,
+        keyId,
+        desired,
+        operationToken: token,
+        containment: false,
+        now: this.content.now(),
+      })) conflict("Virtual Key reconciliation state changed");
+      try {
+        if (resolution === "apply_desired") {
+          await this.gateway.updateVirtualKey(gatewayId, keyId, desired);
+        }
+        const observed = await this.gateway.readVirtualKey(gatewayId, keyId);
+        const fingerprint = observed && virtualKeyPolicyFingerprint(observed, this.content);
+        if (!observed || fingerprint !== virtualKeyPolicyFingerprint(desired, this.content)) {
+          throw new Error("Virtual Key reconciliation could not be verified");
+        }
+        const completed = await this.access.completeKeyMutation({
+          gatewayId,
+          keyId,
+          operationToken: token,
+          fingerprint,
+          now: this.content.now(),
+        });
+        if (!completed) conflict("Virtual Key reconciliation lost its state token");
+        await this.access.refreshBindingsForKey({
+          gatewayId,
+          keyId,
+          policyEpoch: completed.policyEpoch,
+          fingerprint,
+          now: this.content.now(),
+        });
+        return this.keyReference(completed, observed);
+      } catch (error) {
+        await this.access.failKeyMutation({
+          gatewayId,
+          keyId,
+          operationToken: token,
+          incident: error instanceof Error ? error.message : "Virtual Key reconciliation failed",
+          now: this.content.now(),
+        });
+        throw error;
+      }
+    });
+  }
+
   async bindingCandidates(
     actor: PlatformActorReference,
     gatewayId: string,
@@ -560,6 +691,883 @@ export class DeploymentAccessService {
     });
   }
 
+  async retryBindingConflictCleanup(
+    actor: PlatformActorReference,
+    gatewayId: string,
+    deploymentId: string,
+  ): Promise<void> {
+    const deployment = await this.platformDeployment(actor, gatewayId, deploymentId);
+    return this.withGatewayLeases(gatewayId, async () => {
+      await this.platformDeployment(actor, gatewayId, deploymentId);
+      if (deployment.lifecycleState !== "awaiting_key_binding") {
+        conflict("only a failed prepublication binding can be cleaned up");
+      }
+      const binding = await this.deployments.binding(deploymentId);
+      if (!binding || binding.status !== "cleanup_required") {
+        conflict("deployment has no binding-conflict cleanup to retry");
+      }
+      let key = await this.gateway.readVirtualKey(gatewayId, binding.keyId);
+      if (key) {
+        const current = await this.access.keyPolicy(gatewayId, binding.keyId);
+        if (current && current.state !== "stable") {
+          if (current.operationKind !== "binding_conflict_cleanup" ||
+            !current.desiredPolicy ||
+            !["mutating", "reconciliation_required"].includes(current.state)) {
+            conflict("Virtual Key requires a separate reconciliation operation");
+          }
+          const desired = virtualKeyPolicyValue(current.desiredPolicy);
+          let token = current.operationToken;
+          if (current.state === "reconciliation_required") {
+            token = `binding-conflict-reconcile:${deploymentId}:${this.content.id()}`;
+            if (!await this.access.beginReconciliation({
+              gatewayId,
+              keyId: binding.keyId,
+              desired,
+              operationToken: token,
+              containment: false,
+              now: this.content.now(),
+            })) conflict("binding-conflict cleanup state changed");
+          }
+          if (!token) conflict("binding-conflict cleanup has no operation token");
+          await this.gateway.updateVirtualKey(gatewayId, binding.keyId, desired);
+          key = await this.gateway.readVirtualKey(gatewayId, binding.keyId);
+          const fingerprint = key && virtualKeyPolicyFingerprint(key, this.content);
+          if (!key || fingerprint !== virtualKeyPolicyFingerprint(desired, this.content) ||
+            !await this.access.completeKeyMutation({
+              gatewayId,
+              keyId: binding.keyId,
+              operationToken: token,
+              fingerprint,
+              now: this.content.now(),
+            })) {
+            conflict("binding-conflict key cleanup could not be recovered");
+          }
+        }
+        if (key.allowed_route_ids.includes(binding.routeId)) {
+          const desired = this.desiredKey(key, binding.routeId, false);
+          await this.mutateKey({
+            gatewayId,
+            keyId: binding.keyId,
+            desired,
+            operationKind: "binding_conflict_cleanup",
+            operationToken: `binding-conflict-retry:${deploymentId}:${this.content.id()}`,
+          });
+          key = await this.gateway.readVirtualKey(gatewayId, binding.keyId);
+        }
+        if (key && (key.allowed_route_ids.includes(binding.routeId) ||
+          (!key.disabled && key.allowed_route_ids.length === 0))) {
+          conflict("binding-conflict cleanup did not revoke the derived route");
+        }
+      }
+      if (!await this.access.completeBindingConflictCleanup(deploymentId, this.content.now())) {
+        conflict("binding-conflict cleanup could not release its reservation");
+      }
+    });
+  }
+
+  private async recoverDecommissionKeyState(
+    gatewayId: string,
+    keyId: string,
+  ): Promise<void> {
+    const current = await this.access.keyPolicy(gatewayId, keyId);
+    if (!current || current.state === "stable") return;
+    if (current.operationKind !== "decommission_cleanup" || !current.desiredPolicy) {
+      conflict("Virtual Key requires a separate reconciliation before decommission can continue");
+    }
+    const desired = virtualKeyPolicyValue(current.desiredPolicy);
+    if (current.state === "mutating" && current.operationToken) {
+      let observed = await this.gateway.readVirtualKey(gatewayId, keyId);
+      if (!observed || virtualKeyPolicyFingerprint(observed, this.content) !==
+        virtualKeyPolicyFingerprint(desired, this.content)) {
+        await this.gateway.updateVirtualKey(gatewayId, keyId, desired);
+        observed = await this.gateway.readVirtualKey(gatewayId, keyId);
+      }
+      const fingerprint = observed && virtualKeyPolicyFingerprint(observed, this.content);
+      if (!observed || fingerprint !== virtualKeyPolicyFingerprint(desired, this.content) ||
+        !await this.access.completeKeyMutation({
+          gatewayId,
+          keyId,
+          operationToken: current.operationToken,
+          fingerprint,
+          now: this.content.now(),
+        })) {
+        conflict("decommission Virtual Key mutation could not be recovered");
+      }
+      return;
+    }
+    if (current.state === "reconciliation_required") {
+      const token = `decommission-key-recovery:${keyId}:${this.content.id()}`;
+      if (!await this.access.beginReconciliation({
+        gatewayId,
+        keyId,
+        desired,
+        operationToken: token,
+        containment: false,
+        now: this.content.now(),
+      })) conflict("decommission Virtual Key reconciliation state changed");
+      await this.gateway.updateVirtualKey(gatewayId, keyId, desired);
+      const observed = await this.gateway.readVirtualKey(gatewayId, keyId);
+      const fingerprint = observed && virtualKeyPolicyFingerprint(observed, this.content);
+      if (!observed || fingerprint !== virtualKeyPolicyFingerprint(desired, this.content) ||
+        !await this.access.completeKeyMutation({
+          gatewayId,
+          keyId,
+          operationToken: token,
+          fingerprint,
+          now: this.content.now(),
+        })) {
+        conflict("decommission Virtual Key reconciliation could not be verified");
+      }
+      return;
+    }
+    conflict("Virtual Key containment must be resolved before decommission can continue");
+  }
+
+  private async cleanupDecommission(
+    deployment: StoredAgentDeployment,
+    fence: DeploymentPairFence,
+    operation: StoredDeploymentOperation,
+    reauthorize: () => Promise<void>,
+  ): Promise<AgentDeploymentOperation> {
+    const gatewayId = deployment.target.gatewayId;
+    try {
+      await reauthorize();
+      const keys = await this.gateway.listVirtualKeys(gatewayId);
+      for (const key of keys) {
+        const allowAll = !key.disabled && key.allowed_route_ids.length === 0;
+        const includesRoute = key.allowed_route_ids.includes(deployment.target.gatewayRouteId);
+        if (!allowAll && !includesRoute) continue;
+        await this.recoverDecommissionKeyState(gatewayId, key.id);
+        const allowed = includesRoute
+          ? key.allowed_route_ids.filter((id) => id !== deployment.target.gatewayRouteId)
+          : key.allowed_route_ids;
+        const desired = virtualKeyPolicyValue({
+          ...key,
+          disabled: allowAll || allowed.length === 0 ? true : key.disabled,
+          allowed_route_ids: allowed,
+        });
+        const current = await this.gateway.readVirtualKey(gatewayId, key.id);
+        if (current && virtualKeyPolicyFingerprint(current, this.content) ===
+          virtualKeyPolicyFingerprint(desired, this.content)) continue;
+        await this.mutateKey({
+          gatewayId,
+          keyId: key.id,
+          desired,
+          operationKind: "decommission_cleanup",
+          operationToken: `decommission-key:${operation.id}:${key.id}`,
+        });
+      }
+
+      await reauthorize();
+      const route = await this.gateway.readAgentRoute(
+        gatewayId,
+        deployment.target.gatewayRouteId,
+      );
+      if (route) {
+        if (route.agent_id !== deployment.target.gatewayAgentId ||
+          (fence.routeDigest &&
+            deploymentRouteFingerprint(route, this.content) !== fence.routeDigest)) {
+          conflict("Gateway Agent route changed during decommission");
+        }
+        await this.gateway.deleteAgentRoute(gatewayId, deployment.target.gatewayRouteId);
+        if (await this.gateway.readAgentRoute(gatewayId, deployment.target.gatewayRouteId)) {
+          throw new Error("Gateway Agent route removal could not be verified");
+        }
+      }
+
+      await reauthorize();
+      const agent = await this.gateway.readAgent(gatewayId, deployment.target.gatewayAgentId);
+      if (agent) {
+        if (fence.agentDigest &&
+          deploymentAgentFingerprint(agent, this.content) !== fence.agentDigest) {
+          conflict("Gateway Agent changed during decommission");
+        }
+        await this.gateway.deleteAgent(gatewayId, deployment.target.gatewayAgentId);
+        if (await this.gateway.readAgent(gatewayId, deployment.target.gatewayAgentId)) {
+          throw new Error("Gateway Agent removal could not be verified");
+        }
+      }
+      const completed = await this.deployments.completeDecommission({
+        operationId: operation.id,
+        now: this.content.now(),
+      });
+      if (!completed) conflict("decommission lost its operation token");
+      return operationProjection(completed);
+    } catch (error) {
+      await this.deployments.failDecommission({
+        operationId: operation.id,
+        code: "decommission_cleanup_failed",
+        message: error instanceof Error ? error.message : "decommission cleanup failed",
+        now: this.content.now(),
+      });
+      throw error;
+    }
+  }
+
+  async retryRouteContainment(
+    actor: PlatformActorReference,
+    gatewayId: string,
+    operationId: string,
+  ): Promise<AgentDeploymentOperation> {
+    await this.identity.authorizePlatformGateway(actor, gatewayId);
+    const initial = await this.deployments.operation(operationId);
+    if (!initial || initial.kind === "decommission") {
+      throw new IdentityError("not_found", "deployment containment operation not found");
+    }
+    const initialDeployment = await this.deployments.get(initial.deploymentId);
+    if (!initialDeployment || initialDeployment.target.gatewayId !== gatewayId) {
+      throw new IdentityError("not_found", "deployment containment operation not found");
+    }
+    return this.withGatewayLeases(gatewayId, async () => {
+      await this.identity.authorizePlatformGateway(actor, gatewayId);
+      const operation = await this.deployments.operation(operationId);
+      const deployment = await this.deployments.get(initial.deploymentId);
+      const fence = deployment && await this.deployments.pairFence(
+        gatewayId,
+        deployment.target.gatewayAgentId,
+      );
+      if (!operation || !deployment || !fence || fence.deploymentId !== deployment.id ||
+        operation.status !== "failed" ||
+        !["route_containment_failed", "route_quarantined_contained"].includes(operation.phase)) {
+        conflict("deployment route has no retryable containment token");
+      }
+      const staging = operation.desiredStagingRoute as GatewayAgentRouteDocument;
+      let route = await this.gateway.readAgentRoute(gatewayId, deployment.target.gatewayRouteId);
+      if (route) {
+        const digest = deploymentRouteFingerprint(route, this.content);
+        if (digest !== operation.desiredFinalRouteDigest &&
+          digest !== operation.desiredStagingRouteDigest) {
+          conflict("Gateway route no longer matches the containment journal");
+        }
+        if (digest !== operation.desiredStagingRouteDigest) {
+          await this.gateway.updateAgentRoute(gatewayId, deployment.target.gatewayRouteId, staging);
+          route = await this.gateway.readAgentRoute(gatewayId, deployment.target.gatewayRouteId);
+        }
+        if (!route || route.disabled !== true ||
+          deploymentRouteFingerprint(route, this.content) !== operation.desiredStagingRouteDigest) {
+          conflict("deployment route containment could not be verified");
+        }
+      }
+      if (!await this.deployments.markRouteContained({
+        operationId,
+        observedRoute: route,
+        routeDigest: route ? deploymentRouteFingerprint(route, this.content) : null,
+        now: this.content.now(),
+      })) conflict("deployment containment state changed");
+      return operationProjection((await this.deployments.operation(operationId))!);
+    });
+  }
+
+  async resolveDeploymentQuarantine(
+    actor: PlatformActorReference,
+    gatewayId: string,
+    operationId: string,
+  ): Promise<AgentDeploymentOperation> {
+    await this.identity.authorizePlatformGateway(actor, gatewayId);
+    const operation = await this.deployments.operation(operationId);
+    const deployment = operation && await this.deployments.get(operation.deploymentId);
+    if (!operation || !deployment || deployment.target.gatewayId !== gatewayId ||
+      operation.phase !== "route_quarantined_contained") {
+      throw new IdentityError("not_found", "contained deployment quarantine not found");
+    }
+    await this.withGatewayLeases(gatewayId, async () => {
+      await this.identity.requirePlatformAdmin(actor);
+      const current = await this.deployments.operation(operationId);
+      const item = await this.deployments.get(deployment.id);
+      const fence = item && await this.deployments.pairFence(
+        gatewayId,
+        item.target.gatewayAgentId,
+      );
+      if (!current || !item || !fence || fence.deploymentId !== item.id ||
+        fence.state !== "quarantined" || fence.operationId !== operationId) {
+        conflict("deployment quarantine state changed");
+      }
+      const [agent, route] = await Promise.all([
+        this.gateway.readAgent(gatewayId, item.target.gatewayAgentId),
+        this.gateway.readAgentRoute(gatewayId, item.target.gatewayRouteId),
+      ]);
+      if (route && deploymentRouteFingerprint(route, this.content) !==
+        current.desiredStagingRouteDigest) {
+        conflict("contained route no longer matches the operation journal");
+      }
+      if (!route && current.routeWriteAttempted) {
+        conflict("operation route provenance is ambiguous");
+      }
+      if (agent) {
+        const digest = deploymentAgentFingerprint(agent, this.content);
+        if (digest !== current.desiredAgentDigest && digest !== fence.agentDigest) {
+          conflict("Gateway Agent no longer matches the operation journal");
+        }
+      } else if (current.agentWriteAttempted) {
+        conflict("operation Agent provenance is ambiguous");
+      }
+      if (!await this.deployments.resumeQuarantinedOperation(operationId, this.content.now())) {
+        conflict("deployment quarantine state changed");
+      }
+    });
+    await this.recoverInterruptedOperations();
+    const resolved = await this.deployments.operation(operationId);
+    if (!resolved) conflict("deployment quarantine operation disappeared");
+    return operationProjection(resolved);
+  }
+
+  async decommission(
+    actor: PlatformActorReference,
+    gatewayId: string,
+    deploymentId: string,
+    requestKey: string,
+  ): Promise<AgentDeploymentOperation> {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/.test(requestKey)) {
+      throw new IdentityError("invalid_input", "request_key must be 1-100 safe characters");
+    }
+    await this.platformDeployment(actor, gatewayId, deploymentId);
+    return this.withGatewayLeases(gatewayId, async () => {
+      await this.identity.requirePlatformAdmin(actor);
+      const deployment = await this.deployments.get(deploymentId);
+      if (!deployment || deployment.target.gatewayId !== gatewayId ||
+        deployment.lifecycleState === "deleted") {
+        throw new IdentityError("not_found", "Agent deployment not found on this Gateway");
+      }
+      const fence = await this.deployments.pairFence(
+        gatewayId,
+        deployment.target.gatewayAgentId,
+      );
+      if (!fence || fence.deploymentId !== deployment.id ||
+        fence.gatewayRouteId !== deployment.target.gatewayRouteId) {
+        conflict("deployment cleanup fence is missing");
+      }
+      const [agentBefore, routeBefore] = await Promise.all([
+        this.gateway.readAgent(gatewayId, deployment.target.gatewayAgentId),
+        this.gateway.readAgentRoute(gatewayId, deployment.target.gatewayRouteId),
+      ]);
+      if (agentBefore && fence.agentDigest &&
+        deploymentAgentFingerprint(agentBefore, this.content) !== fence.agentDigest) {
+        conflict("Gateway Agent no longer matches the deployment cleanup journal");
+      }
+      if (routeBefore && (routeBefore.agent_id !== deployment.target.gatewayAgentId ||
+        (fence.routeDigest &&
+          deploymentRouteFingerprint(routeBefore, this.content) !== fence.routeDigest))) {
+        conflict("Gateway Agent route no longer matches the deployment cleanup journal");
+      }
+      const now = this.content.now();
+      const operation = await this.deployments.beginDecommission({
+        deploymentId,
+        requestKey,
+        operationId: `operation:${this.content.id()}`,
+        leaseUntil: new Date(Date.parse(now) + 5 * 60_000).toISOString(),
+        now,
+      });
+      if (!operation) conflict("deployment cannot enter remove-only decommission");
+      if (operation.status !== "applying") return operationProjection(operation);
+      return this.cleanupDecommission(
+        deployment,
+        fence,
+        operation,
+        () => this.identity.requirePlatformAdmin(actor).then(() => undefined),
+      );
+    });
+  }
+
+  async recoverDecommissions(gatewayId?: string): Promise<{
+    recovered: string[];
+    failed: Array<{ deploymentId: string; error: string }>;
+  }> {
+    const recovered: string[] = [];
+    const failed: Array<{ deploymentId: string; error: string }> = [];
+    for (const pending of await this.deployments.pendingDecommissions(gatewayId)) {
+      const deployment = await this.deployments.get(pending.deploymentId);
+      if (!deployment || deployment.lifecycleState !== "deleting") continue;
+      try {
+        await this.withGatewayLeases(deployment.target.gatewayId, async () => {
+          const current = await this.deployments.get(deployment.id);
+          const fence = await this.deployments.pairFence(
+            deployment.target.gatewayId,
+            deployment.target.gatewayAgentId,
+          );
+          if (!current || current.lifecycleState !== "deleting" || !fence ||
+            fence.deploymentId !== current.id) {
+            conflict("decommission recovery fence is missing");
+          }
+          let operation = pending;
+          if (operation.status !== "applying") {
+            const now = this.content.now();
+            const restarted = await this.deployments.beginDecommission({
+              deploymentId: current.id,
+              requestKey: `startup-recovery:${current.id}:${operation.sequence}`,
+              operationId: `operation:${this.content.id()}`,
+              leaseUntil: new Date(Date.parse(now) + 5 * 60_000).toISOString(),
+              now,
+            });
+            if (!restarted) conflict("decommission recovery could not acquire an operation token");
+            operation = restarted;
+          }
+          if (operation.status === "applying") {
+            await this.cleanupDecommission(current, fence, operation, async () => {});
+          }
+        });
+        recovered.push(deployment.id);
+      } catch (error) {
+        failed.push({
+          deploymentId: deployment.id,
+          error: error instanceof Error ? error.message : "decommission recovery failed",
+        });
+      }
+    }
+    return { recovered, failed };
+  }
+
+  private async proveRecoveryActivation(
+    deployment: StoredAgentDeployment,
+    desiredRoute: GatewayAgentRouteDocument,
+  ): Promise<void> {
+    await this.identity.requireDeploymentRecoveryAuthority({
+      tenantId: deployment.tenantId,
+      tenantAuthorityEpoch: deployment.tenantAuthorityEpoch,
+      gatewayId: deployment.target.gatewayId,
+      gatewayAuthorityEpoch: deployment.gatewayAuthorityEpoch,
+    });
+    const binding = await this.deployments.binding(deployment.id);
+    if (!binding || binding.status !== "bound" ||
+      binding.gatewayId !== deployment.target.gatewayId ||
+      binding.routeId !== deployment.target.gatewayRouteId ||
+      !binding.keyPolicyFingerprint) {
+      conflict("deployment recovery requires a verified Virtual Key binding");
+    }
+    const policy = await this.access.keyPolicy(binding.gatewayId, binding.keyId);
+    const keys = await this.gateway.listVirtualKeys(binding.gatewayId);
+    const now = this.content.now();
+    if (keys.some((key) => !key.disabled && !keyExpired(key, now) &&
+      key.allowed_route_ids.length === 0)) {
+      conflict("an enabled allow-all Virtual Key blocks recovered route activation");
+    }
+    const key = keys.find((candidate) => candidate.id === binding.keyId);
+    if (!policy || policy.state !== "stable" || !policy.observedFingerprint || !key ||
+      !keyEligible(key, binding.routeId, now) ||
+      virtualKeyPolicyFingerprint(key, this.content) !== policy.observedFingerprint ||
+      policy.observedFingerprint !== binding.keyPolicyFingerprint) {
+      conflict("deployment recovery key policy is not eligible");
+    }
+    const [agentRoutes, llmRoutes, mcpRoutes] = await Promise.all([
+      this.gateway.listAgentRoutes(deployment.target.gatewayId),
+      this.gateway.listLLMRoutes(deployment.target.gatewayId),
+      this.gateway.listMCPRoutes(deployment.target.gatewayId),
+    ]);
+    if ([...agentRoutes, ...llmRoutes, ...mcpRoutes]
+      .some((route) => conflictsWithFinalRoute(route, desiredRoute))) {
+      conflict("Gateway route namespace conflicts with recovered deployment ingress");
+    }
+  }
+
+  private async completeRecoveredOperation(
+    deployment: StoredAgentDeployment,
+    operation: StoredDeploymentOperation,
+    lifecycle: "active" | "offline",
+    expectedRouteDigest: string,
+  ): Promise<boolean> {
+    const [agent, route] = await Promise.all([
+      this.gateway.readAgent(deployment.target.gatewayId, deployment.target.gatewayAgentId),
+      this.gateway.readAgentRoute(deployment.target.gatewayId, deployment.target.gatewayRouteId),
+    ]);
+    if (!agent || !route ||
+      deploymentAgentFingerprint(agent, this.content) !== operation.desiredAgentDigest ||
+      deploymentRouteFingerprint(route, this.content) !== expectedRouteDigest ||
+      (lifecycle === "active" && !routeProtected(route))) return false;
+    return this.deployments.completeOperation({
+      operationId: operation.id,
+      lifecycle,
+      appliedReleaseId: operation.releaseId,
+      desiredDigest: this.content.hash(canonicalAgentValue({
+        agent: operation.desiredAgent,
+        route: operation.desiredFinalRoute,
+      })),
+      agentDigest: operation.desiredAgentDigest,
+      routeDigest: expectedRouteDigest,
+      now: this.content.now(),
+    });
+  }
+
+  private async containRecoveredOperation(
+    deployment: StoredAgentDeployment,
+    operation: StoredDeploymentOperation,
+    message: string,
+  ): Promise<void> {
+    try {
+      let route = await this.gateway.readAgentRoute(
+        deployment.target.gatewayId,
+        deployment.target.gatewayRouteId,
+      );
+      if (!await this.deployments.updateOperation({
+        operationId: operation.id,
+        phase: "route_containment_in_progress",
+        observedRoute: route ?? undefined,
+        routeWriteAttempted: Boolean(route && deploymentRouteFingerprint(route, this.content) !==
+          operation.desiredStagingRouteDigest),
+        now: this.content.now(),
+      })) {
+        throw new Error("recovered containment operation changed");
+      }
+      if (route && deploymentRouteFingerprint(route, this.content) !==
+        operation.desiredStagingRouteDigest) {
+        await this.gateway.updateAgentRoute(
+          deployment.target.gatewayId,
+          deployment.target.gatewayRouteId,
+          operation.desiredStagingRoute as GatewayAgentRouteDocument,
+        );
+        route = await this.gateway.readAgentRoute(
+          deployment.target.gatewayId,
+          deployment.target.gatewayRouteId,
+        );
+      }
+      if (route && (route.disabled !== true ||
+        deploymentRouteFingerprint(route, this.content) !==
+          operation.desiredStagingRouteDigest)) {
+        throw new Error("recovered route withdrawal could not be verified");
+      }
+      await this.deployments.quarantineOperation({
+        operationId: operation.id,
+        phase: "route_quarantined_contained",
+        message,
+        routeDigest: route ? deploymentRouteFingerprint(route, this.content) : null,
+        now: this.content.now(),
+      });
+    } catch {
+      await this.deployments.quarantineOperation({
+        operationId: operation.id,
+        phase: "route_containment_failed",
+        message: `${message}; public ingress withdrawal failed`,
+        routeDigest: null,
+        now: this.content.now(),
+      });
+    }
+  }
+
+  async recoverInterruptedOperations(): Promise<{
+    recovered: string[];
+    failed: Array<{ deploymentId: string; error: string }>;
+  }> {
+    const recovered: string[] = [];
+    const failed: Array<{ deploymentId: string; error: string }> = [];
+    for (const pending of await this.deployments.pendingApplyingOperations()) {
+      const deployment = await this.deployments.get(pending.deploymentId);
+      if (!deployment) continue;
+      try {
+        await this.withGatewayLeases(deployment.target.gatewayId, async () => {
+          const operation = await this.deployments.operation(pending.id);
+          const current = await this.deployments.get(deployment.id);
+          if (!operation || operation.status !== "applying" || !current ||
+            current.operationState !== "applying") {
+            return;
+          }
+          let route = await this.gateway.readAgentRoute(
+            current.target.gatewayId,
+            current.target.gatewayRouteId,
+          );
+          const routeDigest = route ? deploymentRouteFingerprint(route, this.content) : null;
+          const isFinal = routeDigest === operation.desiredFinalRouteDigest;
+          const isStaging = routeDigest === operation.desiredStagingRouteDigest;
+          if (route && !isFinal && !isStaging) {
+            await this.deployments.quarantineOperation({
+              operationId: operation.id,
+              phase: "route_containment_failed",
+              message: "startup recovery found a mismatched Gateway route",
+              routeDigest,
+              now: this.content.now(),
+            });
+            return;
+          }
+          if (operation.phase === "route_containment_in_progress") {
+            await this.containRecoveredOperation(
+              current,
+              operation,
+              "startup recovery resumed an interrupted route containment",
+            );
+            return;
+          }
+          if (operation.kind === "online") {
+            if (!route) {
+              await this.deployments.quarantineOperation({
+                operationId: operation.id,
+                phase: "route_quarantined_contained",
+                message: "startup recovery found the offline route missing",
+                routeDigest: null,
+                now: this.content.now(),
+              });
+              return;
+            }
+            const agent = await this.gateway.readAgent(
+              current.target.gatewayId,
+              current.target.gatewayAgentId,
+            );
+            if (!agent || deploymentAgentFingerprint(agent, this.content) !==
+              operation.desiredAgentDigest) {
+              await this.containRecoveredOperation(
+                current,
+                operation,
+                "startup recovery found offline Agent drift",
+              );
+              return;
+            }
+            try {
+              await this.proveRecoveryActivation(
+                current,
+                operation.desiredFinalRoute as GatewayAgentRouteDocument,
+              );
+            } catch {
+              if (isStaging && operation.phase !== "quarantine_resolved_retrying") return;
+              await this.containRecoveredOperation(
+                current,
+                operation,
+                "startup recovery activation proofs failed",
+              );
+              return;
+            }
+            try {
+              if (!isFinal) {
+                await this.deployments.updateOperation({
+                  operationId: operation.id,
+                  phase: operation.phase,
+                  routeWriteAttempted: true,
+                  now: this.content.now(),
+                });
+                await this.gateway.updateAgentRoute(
+                  current.target.gatewayId,
+                  current.target.gatewayRouteId,
+                  operation.desiredFinalRoute as GatewayAgentRouteDocument,
+                );
+              }
+              if (await this.completeRecoveredOperation(
+                current,
+                operation,
+                "active",
+                operation.desiredFinalRouteDigest,
+              )) return;
+            } catch {
+              // A failed/unknown final write must be treated as potentially public.
+            }
+            await this.containRecoveredOperation(
+              current,
+              operation,
+              "startup recovery could not verify online activation",
+            );
+            return;
+          }
+          const resumedQuarantine = operation.phase.startsWith("quarantine_resolved_");
+          const rollbackStagedPhase = resumedQuarantine
+            ? "quarantine_resolved_rollback_staged_awaiting_agent_update"
+            : "rollback_staged_awaiting_agent_update";
+          const rollbackActivationPhase = resumedQuarantine
+            ? "quarantine_resolved_rollback_agent_updated_awaiting_activation"
+            : "rollback_agent_updated_awaiting_activation";
+          const rollbackFinalActivationLanded = operation.kind === "rollback" && isFinal &&
+            operation.phase.endsWith("rollback_agent_updated_awaiting_activation");
+          if (isFinal && !rollbackFinalActivationLanded) {
+            await this.deployments.updateOperation({
+              operationId: operation.id,
+              phase: operation.phase,
+              routeWriteAttempted: true,
+              now: this.content.now(),
+            });
+            await this.gateway.updateAgentRoute(
+              current.target.gatewayId,
+              current.target.gatewayRouteId,
+              operation.desiredStagingRoute as GatewayAgentRouteDocument,
+            );
+            route = await this.gateway.readAgentRoute(
+              current.target.gatewayId,
+              current.target.gatewayRouteId,
+            );
+            if (!route || route.disabled !== true ||
+              deploymentRouteFingerprint(route, this.content) !==
+                operation.desiredStagingRouteDigest) {
+              await this.deployments.quarantineOperation({
+                operationId: operation.id,
+                phase: "route_containment_failed",
+                message: "startup recovery could not withdraw public ingress",
+                routeDigest: route ? deploymentRouteFingerprint(route, this.content) : null,
+                now: this.content.now(),
+              });
+              return;
+            }
+          }
+
+          if (["apply", "retry"].includes(operation.kind)) {
+            await this.deployments.failOperation({
+              operationId: operation.id,
+              phase: route ? "startup_recovered_to_staging" : "startup_recovered_no_ingress",
+              code: "startup_recovery_retry_required",
+              message: "startup recovery left publication non-public for an authorized retry",
+              now: this.content.now(),
+            });
+            return;
+          }
+          if (operation.kind === "rollback" && route) {
+            const desiredAgent = operation.desiredAgent;
+            let agent = await this.gateway.readAgent(
+              current.target.gatewayId,
+              current.target.gatewayAgentId,
+            );
+            if (!agent || deploymentAgentFingerprint(agent, this.content) !==
+              operation.desiredAgentDigest) {
+              await this.deployments.updateOperation({
+                operationId: operation.id,
+                phase: rollbackStagedPhase,
+                observedRoute: route,
+                agentWriteAttempted: true,
+                now: this.content.now(),
+              });
+              await this.gateway.updateAgent(
+                current.target.gatewayId,
+                current.target.gatewayAgentId,
+                desiredAgent as AgentPayload,
+              );
+              agent = await this.gateway.readAgent(
+                current.target.gatewayId,
+                current.target.gatewayAgentId,
+              );
+            }
+            if (!agent || deploymentAgentFingerprint(agent, this.content) !==
+              operation.desiredAgentDigest) {
+              await this.deployments.quarantineOperation({
+                operationId: operation.id,
+                phase: "route_quarantined_contained",
+                message: "startup recovery could not verify the rollback Agent",
+                routeDigest: operation.desiredStagingRouteDigest,
+                now: this.content.now(),
+              });
+              return;
+            }
+            await this.deployments.updateOperation({
+              operationId: operation.id,
+              phase: rollbackActivationPhase,
+              observedAgent: agent,
+              observedRoute: route,
+              now: this.content.now(),
+            });
+            try {
+              await this.proveRecoveryActivation(
+                current,
+                operation.desiredFinalRoute as GatewayAgentRouteDocument,
+              );
+            } catch {
+              if (!rollbackFinalActivationLanded && !resumedQuarantine) return;
+              await this.containRecoveredOperation(
+                current,
+                operation,
+                "startup recovery rollback activation proofs failed",
+              );
+              return;
+            }
+            try {
+              await this.deployments.updateOperation({
+                operationId: operation.id,
+                phase: rollbackActivationPhase,
+                routeWriteAttempted: true,
+                now: this.content.now(),
+              });
+              await this.gateway.updateAgentRoute(
+                current.target.gatewayId,
+                current.target.gatewayRouteId,
+                operation.desiredFinalRoute as GatewayAgentRouteDocument,
+              );
+              if (await this.completeRecoveredOperation(
+                current,
+                operation,
+                "active",
+                operation.desiredFinalRouteDigest,
+              )) return;
+            } catch {
+              // A failed/unknown final write must be treated as potentially public.
+            }
+            await this.containRecoveredOperation(
+              current,
+              operation,
+              "startup recovery could not verify rollback activation",
+            );
+            return;
+          }
+          if (operation.kind === "take_offline" && route) {
+            const agent = await this.gateway.readAgent(
+              current.target.gatewayId,
+              current.target.gatewayAgentId,
+            );
+            if (agent && deploymentAgentFingerprint(agent, this.content) ===
+              operation.desiredAgentDigest && await this.completeRecoveredOperation(
+              current,
+              operation,
+              "offline",
+              operation.desiredStagingRouteDigest,
+            )) return;
+          }
+          await this.deployments.quarantineOperation({
+            operationId: operation.id,
+            phase: "route_quarantined_contained",
+            message: route
+              ? "startup recovery withdrew incomplete lifecycle ingress"
+              : "startup recovery verified that incomplete lifecycle ingress is absent",
+            routeDigest: route ? deploymentRouteFingerprint(route, this.content) : null,
+            now: this.content.now(),
+          });
+        });
+        recovered.push(deployment.id);
+      } catch (error) {
+        failed.push({
+          deploymentId: deployment.id,
+          error: error instanceof Error ? error.message : "deployment startup recovery failed",
+        });
+      }
+    }
+    return { recovered, failed };
+  }
+
+  async decommissionSubject(
+    actor: PlatformActorReference,
+    subject: { gatewayId: string } | { tenantId: string },
+    requestKey: string,
+  ): Promise<{
+    completed: string[];
+    failed: Array<{ deploymentId: string; error: string }>;
+  }> {
+    await this.identity.requirePlatformAdmin(actor);
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/.test(requestKey)) {
+      throw new IdentityError("invalid_input", "request_key must be 1-100 safe characters");
+    }
+    const items = "gatewayId" in subject
+      ? await this.deployments.listForGateway(subject.gatewayId)
+      : await this.deployments.listForTenantSubject(subject.tenantId);
+    const completed: string[] = [];
+    const failed: Array<{ deploymentId: string; error: string }> = [];
+    for (const item of items) {
+      try {
+        if (!item.appliedReleaseId && item.operationState === "stable") {
+          if (item.lifecycleState === "ready_to_apply") {
+            await this.unbind(actor, item.target.gatewayId, item.id);
+          } else if (item.lifecycleState === "awaiting_key_binding" &&
+            await this.deployments.binding(item.id)) {
+            await this.abandonBinding(actor, item.target.gatewayId, item.id);
+          }
+          if (!await this.deployments.cancelAwaiting(item.id)) {
+            conflict("unpublished deployment intent could not be removed safely");
+          }
+          completed.push(item.id);
+          continue;
+        }
+        await this.decommission(
+          actor,
+          item.target.gatewayId,
+          item.id,
+          `subject:${this.content.hash(`${requestKey}:${item.id}`).slice(0, 48)}`,
+        );
+        completed.push(item.id);
+      } catch (error) {
+        failed.push({
+          deploymentId: item.id,
+          error: error instanceof Error ? error.message : "subject decommission failed",
+        });
+      }
+    }
+    return { completed, failed };
+  }
+
   private keyReference(
     policy: StoredKeyPolicy,
     key: GatewayVirtualKeyPolicy,
@@ -685,7 +1693,7 @@ export class DeploymentAccessService {
       const state = await this.invocationState(actor, tenantId, deploymentId, keyId);
       const now = this.content.now();
       const context = await this.access.createContext({
-        id: `invocation:${this.content.id()}`,
+        id: `invocation-${this.content.id()}`,
         principalId: state.authority.principal.id,
         principalAuthorityEpoch: state.authority.principalAuthorityEpoch,
         tenantId,

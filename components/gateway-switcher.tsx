@@ -20,7 +20,7 @@ function roleKey(role: "platform_admin" | "admin" | "member"): MessageKey {
 // Header dropdown to choose the active gateway. Lists the gateways the current
 // user can reach; selecting one repoints the session and reloads (§6.1).
 export function GatewaySwitcher() {
-  const { gateways, activeGatewayId, activeGateway, switchGateway } = useCurrentUser();
+  const { user, gateways, activeGatewayId, activeGateway, switchGateway } = useCurrentUser();
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -34,7 +34,7 @@ export function GatewaySwitcher() {
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
 
-  if (gateways.length === 0) return null;
+  if (!user?.is_platform_admin || gateways.length === 0) return null;
 
   const label = activeGateway?.name ?? t("gateway.select");
 

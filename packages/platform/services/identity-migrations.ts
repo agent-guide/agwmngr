@@ -630,6 +630,47 @@ const versionThirteenStatements = [
       (deployment_id, expires_at, completed_at)`,
 ];
 
+const versionFourteenStatements = [
+  `CREATE TABLE platform_gateway_compatibility_pairs (
+    gateway_id TEXT NOT NULL,
+    gateway_agent_id TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('stable','mutating','reconciliation_required')),
+    authority_epoch BIGINT NOT NULL CHECK (authority_epoch > 0),
+    agent_fingerprint TEXT,
+    operation_token TEXT,
+    incident TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (gateway_id, gateway_agent_id)
+  )`,
+  `CREATE TABLE platform_gateway_compatibility_invocation_contexts (
+    id TEXT PRIMARY KEY,
+    principal_id TEXT NOT NULL,
+    principal_authority_epoch BIGINT NOT NULL CHECK (principal_authority_epoch > 0),
+    gateway_id TEXT NOT NULL,
+    gateway_authority_epoch BIGINT NOT NULL CHECK (gateway_authority_epoch > 0),
+    gateway_agent_id TEXT NOT NULL,
+    gateway_route_id TEXT NOT NULL,
+    compatibility_pair_epoch BIGINT NOT NULL CHECK (compatibility_pair_epoch > 0),
+    agent_fingerprint TEXT NOT NULL,
+    route_fingerprint TEXT NOT NULL,
+    path_prefix TEXT NOT NULL,
+    key_id TEXT NOT NULL,
+    key_policy_epoch BIGINT NOT NULL CHECK (key_policy_epoch > 0),
+    key_policy_fingerprint TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    completed_at TEXT,
+    created_at TEXT NOT NULL,
+    last_used_at TEXT NOT NULL
+  )`,
+  `CREATE INDEX platform_compatibility_contexts_principal
+    ON platform_gateway_compatibility_invocation_contexts
+      (principal_id, gateway_id, expires_at, completed_at)`,
+  `CREATE INDEX platform_compatibility_contexts_pair
+    ON platform_gateway_compatibility_invocation_contexts
+      (gateway_id, gateway_agent_id, expires_at, completed_at)`,
+];
+
 export interface IdentityMigrationReport {
   from: number;
   to: number;
@@ -640,7 +681,7 @@ export async function migratePlatformIdentityDatabase(
   database: PlatformDatabase,
   dryRun = false,
 ): Promise<IdentityMigrationReport> {
-  let report: IdentityMigrationReport = { from: 0, to: 13, dryRun };
+  let report: IdentityMigrationReport = { from: 0, to: 14, dryRun };
   const rollback = new Error("platform identity migration dry-run rollback");
 
   try {
@@ -659,8 +700,8 @@ export async function migratePlatformIdentityDatabase(
         `SELECT version FROM platform_schema_lock WHERE id = 1${suffix}`,
       );
       const current = Number(row.version);
-      if (current > 13) throw new Error("platform schema is newer than this application");
-      report = { from: current, to: 13, dryRun };
+      if (current > 14) throw new Error("platform schema is newer than this application");
+      report = { from: current, to: 14, dryRun };
 
       if (current === 0) {
         for (const statement of versionOneStatements) await transaction.query(statement);
@@ -725,6 +766,11 @@ export async function migratePlatformIdentityDatabase(
       if (current < 13) {
         for (const statement of versionThirteenStatements) await transaction.query(statement);
         await transaction.query("UPDATE platform_schema_lock SET version = 13 WHERE id = 1");
+      }
+
+      if (current < 14) {
+        for (const statement of versionFourteenStatements) await transaction.query(statement);
+        await transaction.query("UPDATE platform_schema_lock SET version = 14 WHERE id = 1");
       }
 
       await validatePlatformIdentityReferences(transaction);

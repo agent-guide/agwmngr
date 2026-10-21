@@ -237,13 +237,11 @@ highlights missing/orphan references.
 | Knowledge bases | Tenant | Knowledge/document metadata and files; no fake retrieval state |
 | My files | Human within Tenant | Private upload, preview, download and deletion |
 
-The target upstream-credential page lives on the Platform Admin Gateway detail,
-not in Tenant Resources. During Steps 3–6D, the existing legacy credential page
-and handlers remain available to a current non-Platform Gateway Admin under the
-old membership/action checks; that actor is neither redirected to the target
-page nor treated as a Tenant role. Step 6E removes this compatibility path only
-after explicit reviewed operator assignment and parity acceptance. Credentials,
-Virtual Keys and service credentials stay distinct.
+The upstream-credential page lives on the Platform Admin Gateway detail, not in
+Tenant Resources. Step 6E removes the former non-Platform Gateway Admin
+credential compatibility path; continued operators require an explicit,
+reviewed Platform Admin assignment. Credentials, Virtual Keys and service
+credentials stay distinct.
 Models/Tools may use one compact view switch between Tenant-authored definitions
 and the Tenant-visible approved-offering projection; it never renders provider,
 credential, service, Gateway, upstream object or global route identifiers.
@@ -392,9 +390,9 @@ authorization.
 | `/dashboard/workbench` | Home/action queue |
 | `/dashboard/agents` | Unified inventory |
 | `/dashboard/agents/new` | Platform Agent wizard |
-| `/dashboard/agents/new/gateway` | Advanced direct Gateway creation |
+| `/dashboard/platform/gateways/{gateway_id}/agents/new` | Advanced direct Gateway creation; the legacy `/dashboard/agents/new/gateway` URL redirects here using the active Gateway |
 | `/dashboard/agents/{id}/{tab}` | Platform Agent contextual lifecycle workspace |
-| `/dashboard/agents/gateway/{gateway_id}/{agent_id}/{tab}` | Pair-qualified Platform Admin workspace for a Gateway-managed Agent |
+| `/dashboard/platform/gateways/{gateway_id}/agents/{agent_id}` | Pair-qualified Platform Admin workspace and protected Test flow for a Gateway-managed Agent |
 | `/dashboard/resources/{models,tools,skills,instructions,knowledge-bases,files}` | Tenant/resource pages |
 | `/dashboard/access/{endpoints,keys}` | Invocation exposure |
 | `/dashboard/tenant/{tenant_id}/{members,audit}` | Tenant-qualified administration and audit projection for Tenant Admins |
@@ -404,10 +402,8 @@ authorization.
 
 `/dashboard/platform/gateways/{id}/credentials` is the canonical upstream
 credential page. Tenant Admin and Tenant User sessions receive no navigation or
-direct-URL access to it. Through Step 6D, a current non-Platform legacy Gateway
-Admin keeps the existing credential page and handlers under their old checks;
-the Platform Admin-only canonical page does not absorb or silently revoke that
-workflow. Step 6E removes it only after explicit reviewed assignment and parity.
+direct-URL access to it. Step 6E removes the former non-Platform legacy
+credential workflow after explicit reviewed assignment and parity.
 `/dashboard/platform/gateways/{id}/virtual-keys` is the canonical Virtual Key
 lifecycle, one-time issuance, audited secret recovery, deployment-key binding
 and containment-reconciliation page, with the same Tenant direct-URL denial. A

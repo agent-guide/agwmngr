@@ -955,7 +955,7 @@ export default function RoutesPage() {
                         {" · "}{t("common.created")} {new Date(route.created_at).toLocaleDateString(locale)}
                         {" · "}{t("common.updated")} {new Date(route.updated_at).toLocaleDateString(locale)}
                       </span>
-                      <UsedByAgents agentIds={attribution?.llmRoute[route.id]} source="gateway" />
+                      <UsedByAgents agentIds={attribution ? attribution.llmRoute[route.id] ?? [] : null} source="gateway" />
                     </div>
                   </div>
                 )}

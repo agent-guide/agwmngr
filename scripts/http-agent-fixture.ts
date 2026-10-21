@@ -74,7 +74,7 @@ export async function startHTTPAgentFixture(sandbox: string, logFd: number) {
       },
       async verify(base: string, token: string, mode: string) {
         const call = async (path: string, method = "GET", body?: unknown, expected = 200) => {
-          const response = await fetch(`${base}/api/admin/${path}`, {
+          const response = await fetch(`${base}${path}`, {
             method, headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
             ...(body !== undefined && { body: JSON.stringify(body) }), signal: AbortSignal.timeout(30_000),
           });
@@ -84,30 +84,37 @@ export async function startHTTPAgentFixture(sandbox: string, logFd: number) {
           return response.json();
         };
         const id = `http-smoke-${mode}`;
+        const gateway = "/api/platform/v1/gateways/default";
+        const agents = `${gateway}/agents`;
         const http = httpAgentConfigFromForm({ cardUrl: `${fixtureBase}/.well-known/agent-card.json`, protocol: "a2a", authRef: "", timeoutSeconds: "45" });
         const payload = parseAgentPayloadYaml(agentPayloadYaml({ id, name: "HTTP smoke", runtime: { type: "http", http }, routes: {}, resources: {}, policy: {}, disabled: false }));
-        await call("agents", "POST", payload, 201);
-        const read = await call(`agents/${id}`);
+        await call(agents, "POST", payload, 201);
+        const read = await call(`${agents}/${id}`);
         assert.deepEqual(read.runtime.http, http);
         assert.deepEqual(httpAgentConfigFromForm(httpAgentFormValues(read.runtime.http)), http);
-        const caps = await call(`agents/${id}/capabilities`);
+        const caps = await call(`${agents}/${id}/capabilities`);
         assert.equal(supportsAgentChat(caps), true);
         assert.equal(caps.sessions.list, false);
         const updated = { ...payload, runtime: { type: "http", http: { ...http, timeout_seconds: 60 } } };
-        await call(`agents/${id}`, "PUT", updated);
-        assert.equal((await call(`agents/${id}`)).runtime.http.timeout_seconds, 60);
+        await call(`${agents}/${id}`, "PUT", updated);
+        assert.equal((await call(`${agents}/${id}`)).runtime.http.timeout_seconds, 60);
         const pathPrefix = `/agents/${id}`;
-        const route = await call("agents/routes", "POST", { id: `${id}-turn`, agent_id: id, protocol: "agent", match_policy: { host: "agent-smoke.invalid", path_prefix: pathPrefix }, auth_policy: { require_virtual_key: true }, disabled: false }, 201);
-        const native = await call("agents/routes", "POST", { id: `${id}-native`, agent_id: id, protocol: "a2a", match_policy: { host: "127.0.0.1", path_prefix: `/a2a/${id}` }, auth_policy: { require_virtual_key: true }, disabled: false }, 201);
-        const key = await call("virtual_keys", "POST", { id: `${id}-key`, allowed_route_ids: [route.id, native.id] }, 201);
+        const route = await call(`${agents}/routes`, "POST", { id: `${id}-turn`, agent_id: id, protocol: "agent", match_policy: { host: "agent-smoke.invalid", path_prefix: pathPrefix }, auth_policy: { require_virtual_key: true }, disabled: false }, 201);
+        const native = await call(`${agents}/routes`, "POST", { id: `${id}-native`, agent_id: id, protocol: "a2a", match_policy: { host: "127.0.0.1", path_prefix: `/a2a/${id}` }, auth_policy: { require_virtual_key: true }, disabled: false }, 201);
+        const key = await call(`${gateway}/virtual-keys`, "POST", { id: `${id}-key`, disabled: false, allowed_route_ids: [route.id, native.id] }, 201);
         assert.equal(typeof key.key, "string");
         assert.ok(key.key.length > 0);
-        const redacted = await call(`virtual_keys/${key.id}`);
+        const redacted = await call(`${gateway}/virtual-keys/${key.id}`);
         assert.equal(redacted.key, undefined);
-        await call("acp/chat/turn", "POST", { route_id: native.id, virtual_key_id: key.id, input: "must reject native route" }, 400);
-        const turn = await fetch(`${base}/api/admin/acp/chat/turn`, {
+        await call(`${agents}/${id}/invocations`, "POST", { route_id: native.id, key_id: key.id }, 409);
+        await call("/api/admin/acp/chat/turn", "POST", { route_id: route.id, virtual_key_id: key.id, input: "legacy path is retired" }, 410);
+        const context = await call(`${agents}/${id}/invocations`, "POST", {
+          route_id: route.id,
+          key_id: key.id,
+        }, 201);
+        const turn = await fetch(`${base}${gateway}/agent-invocations/${encodeURIComponent(context.id)}/turn`, {
           method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ route_id: route.id, virtual_key_id: key.id, input: "hello remote agent" }), signal: AbortSignal.timeout(30_000),
+          body: JSON.stringify({ input: "hello remote agent" }), signal: AbortSignal.timeout(30_000),
         });
         assert.equal(turn.status, 200);
         assert.ok(turn.headers.get("content-type")?.includes("text/event-stream"));
@@ -117,7 +124,7 @@ export async function startHTTPAgentFixture(sandbox: string, logFd: number) {
         assert.match(stream, /event: done/);
         assert.doesNotMatch(stream, /event: error/);
         assert.ok(!stream.includes(key.key), "SSE must not leak the VirtualKey");
-        console.log(`${mode}: Gateway ${REVISION.slice(0, 7)} HTTP Agent create/read/update, capabilities, native-route denial and authenticated SSE passed`);
+        console.log(`${mode}: Gateway ${REVISION.slice(0, 7)} scoped HTTP Agent CRUD, native-route denial and authenticated Test SSE passed`);
       },
     };
   } catch (error) {

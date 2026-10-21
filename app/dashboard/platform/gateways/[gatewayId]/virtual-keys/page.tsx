@@ -17,11 +17,14 @@ import {
   abandonDeploymentKeyBinding,
   bindDeploymentKey,
   createPlatformGatewayVirtualKey,
+  decommissionAgentDeployment,
   deletePlatformGatewayVirtualKey,
   listDeploymentKeyBindings,
   listPlatformGatewayVirtualKeys,
   reconcilePlatformGatewayVirtualKeyContainment,
+  reconcilePlatformGatewayVirtualKey,
   revealPlatformGatewayVirtualKey,
+  retryDeploymentKeyBindingCleanup,
   setPlatformGatewayVirtualKeyEnabled,
   unbindDeploymentKey,
   type DeploymentKeyBinding,
@@ -99,10 +102,38 @@ export default function PlatformGatewayVirtualKeysPage() {
     } catch (cause) { showToast(cause instanceof Error ? cause.message : t("deploymentKeys.reconcileFailed"), "error"); }
     finally { setSaving(false); }
   };
+  const reconcileOrdinary = async (key: VirtualKeyItem) => {
+    setSaving(true);
+    try {
+      await reconcilePlatformGatewayVirtualKey(gatewayId, key.id);
+      showToast(t("deploymentKeys.reconciled"), "success"); await load();
+    } catch (cause) { showToast(cause instanceof Error ? cause.message : t("deploymentKeys.reconcileFailed"), "error"); }
+    finally { setSaving(false); }
+  };
+  const decommission = async (item: DeploymentKeyBinding) => {
+    setSaving(true);
+    try {
+      await decommissionAgentDeployment(
+        gatewayId,
+        item.deploymentId,
+        `decommission:${crypto.randomUUID()}`,
+      );
+      showToast(t("deploymentKeys.decommissioned"), "success"); await load();
+    } catch (cause) { showToast(cause instanceof Error ? cause.message : t("deploymentKeys.decommissionFailed"), "error"); }
+    finally { setSaving(false); }
+  };
   const abandon = async (item: DeploymentKeyBinding) => {
     setSaving(true);
     try {
       await abandonDeploymentKeyBinding(gatewayId, item.deploymentId);
+      showToast(t("deploymentKeys.abandoned"), "success"); await load();
+    } catch (cause) { showToast(cause instanceof Error ? cause.message : t("deploymentKeys.abandonFailed"), "error"); }
+    finally { setSaving(false); }
+  };
+  const retryBindingCleanup = async (item: DeploymentKeyBinding) => {
+    setSaving(true);
+    try {
+      await retryDeploymentKeyBindingCleanup(gatewayId, item.deploymentId);
       showToast(t("deploymentKeys.abandoned"), "success"); await load();
     } catch (cause) { showToast(cause instanceof Error ? cause.message : t("deploymentKeys.abandonFailed"), "error"); }
     finally { setSaving(false); }
@@ -162,6 +193,9 @@ export default function PlatformGatewayVirtualKeysPage() {
           onClick={() => void toggleKey(key)}>{key.disabled ? t("deploymentKeys.enable") : t("deploymentKeys.disable")}</Button>
           <Button variant="ghost" className="px-2 py-1 text-xs" disabled={saving}
             onClick={() => void reveal(key)}>{t("deploymentKeys.reveal")}</Button>
+          {key.manager_policy_status === "reconciliation_required" && <Button
+            variant="secondary" className="px-2 py-1 text-xs" disabled={saving}
+            onClick={() => void reconcileOrdinary(key)}>{t("deploymentKeys.reconcile")}</Button>}
           <Button variant="danger" className="px-2 py-1 text-xs"
             disabled={saving || bindings.some((item) => item.keyId === key.id)}
             onClick={() => void removeKey(key)}>{t("common.delete")}</Button></div>
@@ -197,8 +231,12 @@ export default function PlatformGatewayVirtualKeysPage() {
             </div>
             {candidate?.lifecycleState === "ready_to_apply" && <Button variant="danger" className="mt-3 px-2 py-1 text-xs"
               disabled={saving} onClick={() => void unbind(item)}>{t("deploymentKeys.unbind")}</Button>}
-            {candidate?.lifecycleState === "awaiting_key_binding" && ["binding", "cleanup_required"].includes(item.status) && <Button variant="danger" className="mt-3 px-2 py-1 text-xs"
+            {candidate?.lifecycleState === "awaiting_key_binding" && item.status === "binding" && <Button variant="danger" className="mt-3 px-2 py-1 text-xs"
               disabled={saving} onClick={() => void abandon(item)}>{t("deploymentKeys.abandon")}</Button>}
+            {candidate?.lifecycleState === "awaiting_key_binding" && item.status === "cleanup_required" && <Button variant="danger" className="mt-3 px-2 py-1 text-xs"
+              disabled={saving} onClick={() => void retryBindingCleanup(item)}>{t("deploymentKeys.retryCleanup")}</Button>}
+            {candidate && ["active", "offline", "partial_failure", "deleting"].includes(candidate.lifecycleState) && <Button variant="danger" className="mt-3 px-2 py-1 text-xs"
+              disabled={saving} onClick={() => void decommission(item)}>{t("deploymentKeys.decommission")}</Button>}
             {["quarantined_contained", "containment_failed"].includes(item.keyPolicyStatus) && <Button className="mt-3 ml-2 px-2 py-1 text-xs"
               disabled={saving} onClick={() => void reconcile(item)}>{t("deploymentKeys.reconcile")}</Button>}
           </Card>;

@@ -19,10 +19,8 @@ import {
   getMCPServiceCapabilities,
   getMCPServiceSession,
   listMCPTools,
-  callMCPTool,
   listMCPResources,
   listMCPPrompts,
-  readMCPResource,
   type MCPService,
   type MCPServicePayload,
   type MCPTransport,
@@ -86,10 +84,6 @@ export default function MCPServicesPage() {
   const [prompts, setPrompts] = useState<MCPPrompt[]>([]);
   const [session, setSession] = useState<MCPSession | null>(null);
   const [expandedTool, setExpandedTool] = useState<string | null>(null);
-  const [toolArgs, setToolArgs] = useState("{}");
-  const [toolResult, setToolResult] = useState<string | null>(null);
-  const [toolCalling, setToolCalling] = useState(false);
-  const [resourceContent, setResourceContent] = useState<Record<string, string>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -251,50 +245,13 @@ export default function MCPServicesPage() {
     setInspectService(svc);
     setInspectTab("tools");
     setExpandedTool(null);
-    setToolResult(null);
-    setToolArgs("{}");
-    setResourceContent({});
     void loadInspectTab(svc, "tools");
   };
 
   const switchInspectTab = (tab: InspectTab) => {
     setInspectTab(tab);
     setExpandedTool(null);
-    setToolResult(null);
     if (inspectService) void loadInspectTab(inspectService, tab);
-  };
-
-  const handleCallTool = async (name: string) => {
-    if (!inspectService) return;
-    let parsed: Record<string, unknown> = {};
-    if (toolArgs.trim()) {
-      try {
-        parsed = JSON.parse(toolArgs);
-      } catch {
-        showToast(t("mcpServices.argumentsJson"), "error");
-        return;
-      }
-    }
-    setToolCalling(true);
-    setToolResult(null);
-    try {
-      const res = await callMCPTool(inspectService.id, { name, arguments: parsed });
-      setToolResult(JSON.stringify(res, null, 2));
-    } catch (err) {
-      setToolResult(err instanceof ApiError ? t("mcpServices.errorPrefix", { detail: err.message }) : t("mcpServices.callFailed"));
-    } finally {
-      setToolCalling(false);
-    }
-  };
-
-  const handleReadResource = async (uri: string) => {
-    if (!inspectService) return;
-    try {
-      const res = await readMCPResource(inspectService.id, uri);
-      setResourceContent((prev) => ({ ...prev, [uri]: JSON.stringify(res.contents, null, 2) }));
-    } catch (err) {
-      showToast(err instanceof ApiError ? err.message : t("mcpServices.readFailed"), "error");
-    }
   };
 
   const renderFormBody = (readonlyId: boolean) => (
@@ -482,7 +439,7 @@ export default function MCPServicesPage() {
                     <span className="text-sm font-semibold text-slate-100">{svc.name}</span>
                     <span className="font-mono text-[10px] text-slate-500">{svc.id}</span>
                     <span className={`inline-flex rounded-sm px-1.5 py-0.5 text-[10px] font-medium ${TRANSPORT_COLORS[svc.transport] ?? "bg-slate-700/40 text-slate-400"}`}>{svc.transport}</span>
-                    <UsedByAgents agentIds={attribution?.mcpService[svc.id]} source="gateway" />
+                    <UsedByAgents agentIds={attribution ? attribution.mcpService[svc.id] ?? [] : null} source="gateway" />
                     {svc.disabled && <span className="inline-flex rounded-sm bg-slate-700/40 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">{t("common.disabled")}</span>}
                     {svc.read_only && <span className="inline-flex rounded-sm bg-slate-700/40 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">{t("agentRoutes.readOnly")}</span>}
                   </div>
@@ -560,7 +517,7 @@ export default function MCPServicesPage() {
                   <div key={tool.name} className="rounded-md border border-slate-700/60 bg-slate-900/50">
                     <button
                       type="button"
-                      onClick={() => { setExpandedTool(expandedTool === tool.name ? null : tool.name); setToolResult(null); setToolArgs("{}"); }}
+                      onClick={() => setExpandedTool(expandedTool === tool.name ? null : tool.name)}
                       className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
                     >
                       <div className="min-w-0">
@@ -577,21 +534,6 @@ export default function MCPServicesPage() {
                             <pre className="max-h-40 overflow-auto rounded bg-slate-950/70 p-2 font-mono text-[10px] text-slate-400">{JSON.stringify(tool.input_schema, null, 2)}</pre>
                           </div>
                         )}
-                        <div>
-                          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">{t("mcpServices.arguments")}</p>
-                          <textarea
-                            value={toolArgs}
-                            onChange={(e) => setToolArgs(e.target.value)}
-                            rows={3}
-                            className="w-full rounded-md border border-slate-700/70 bg-slate-900/60 px-2 py-1.5 font-mono text-[11px] text-slate-100 focus:border-blue-500/60 focus:outline-none"
-                          />
-                        </div>
-                        <Button className="px-2.5 py-1 text-[11px]" disabled={toolCalling} onClick={() => handleCallTool(tool.name)}>
-                          {toolCalling ? t("mcpServices.calling") : t("mcpServices.callTool")}
-                        </Button>
-                        {toolResult && (
-                          <pre className="max-h-48 overflow-auto rounded bg-slate-950/70 p-2 font-mono text-[10px] text-slate-300">{toolResult}</pre>
-                        )}
                       </div>
                     )}
                   </div>
@@ -605,17 +547,9 @@ export default function MCPServicesPage() {
               <div className="space-y-2">
                 {resources.map((r) => (
                   <div key={r.uri} className="rounded-md border border-slate-700/60 bg-slate-900/50 px-3 py-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <span className="text-xs font-semibold text-slate-200">{r.name}</span>
-                        <p className="truncate font-mono text-[10px] text-slate-500">{r.uri}</p>
-                        {r.description && <p className="mt-0.5 text-[11px] text-slate-500">{r.description}</p>}
-                      </div>
-                      <Button variant="ghost" className="shrink-0 px-2 py-1 text-[10px]" onClick={() => handleReadResource(r.uri)}>{t("mcpServices.read")}</Button>
-                    </div>
-                    {resourceContent[r.uri] && (
-                      <pre className="mt-2 max-h-48 overflow-auto rounded bg-slate-950/70 p-2 font-mono text-[10px] text-slate-300">{resourceContent[r.uri]}</pre>
-                    )}
+                    <span className="text-xs font-semibold text-slate-200">{r.name}</span>
+                    <p className="truncate font-mono text-[10px] text-slate-500">{r.uri}</p>
+                    {r.description && <p className="mt-0.5 text-[11px] text-slate-500">{r.description}</p>}
                   </div>
                 ))}
               </div>

@@ -204,20 +204,21 @@ record actor Principal, Tenant, Gateway, requested access and exact target tuple
 
 ## 6. Explicit limits
 
-- Tenant Gateway grants authorize only future scoped deployment/query services;
-  no deployment or Gateway forwarding path consumes them yet.
-- This identity slice defines no Agent ownership or Agent CRUD. The accepted
-  Step 4 capability slices define their own resource ownership and CRUD without
-  deriving authority from manager identities alone.
+- Tenant Gateway grants authorize only the scoped deployment and observation
+  services documented in the Step 6 capability; they never grant general
+  Gateway forwarding or infrastructure authority.
+- Identity records do not themselves define Agent ownership or CRUD. Resource,
+  publication and deployment services revalidate their own Tenant ownership and
+  exact grant requirements.
 - The Step 3 Tenant Members, Platform Tenants and Service accounts pages are
   implemented. Service credentials are displayed only in the create response;
   subsequent Principal projections expose no token or credential identifier.
 - The Step 3 Gateway access page administers only Tenant Gateway grants. It
   exposes no general Gateway proxy access, administrator credential or secret.
-- Existing Gateway management continues to use current Gateway `admin/member`
-  compatibility checks through the explicitly named
-  `requireGatewayCompatibilityAccess`/`withGatewayCompatibilityAccess` surface.
-  These checks do not read or create Tenant Gateway grants.
+- Step 6E retires Gateway `admin/member` as content authority. The explicitly
+  named `requireGatewayCompatibilityAccess`/`withGatewayCompatibilityAccess`
+  surface now requires Platform Admin and remains independent of Tenant Gateway
+  grants.
 - The Step 3 identity administration pages project only implemented Step 2
   authority: active Tenant memberships, Platform identity administration and
   Tenant Gateway grants. Later Resource pages project the policies of their own

@@ -4,6 +4,8 @@ import {
   finalizeAccess,
 } from "@/lib/access";
 import { proxyToGateway } from "@/lib/gateway-proxy";
+import { gatewayCutoverDecision } from "@/lib/gateway-cutover";
+import { withPlatformRouteMutationSafety } from "@/lib/platform-route-mutation";
 
 async function handle(req: Request, { params }: { params: Promise<{ path?: string[] }> }) {
   const { path } = await params;
@@ -17,7 +19,31 @@ async function handle(req: Request, { params }: { params: Promise<{ path?: strin
   const guard = requireGatewayCompatibilityAccess(req, action);
   if (!guard.ok) return guard.res;
 
-  const res = await proxyToGateway(req, proxyPath, guard.ctx.gateway);
+  const cutover = gatewayCutoverDecision(req.method, proxyPath);
+  if (!cutover.allowed) {
+    const status = cutover.reason === "scoped_replacement_required" ||
+      cutover.reason === "runtime_execution_removed" ? 410 : 404;
+    finalizeAccess(guard.ctx, {
+      http_status: status,
+      duration_ms: Date.now() - start,
+      failure_reason: cutover.reason ?? "not_allowlisted",
+    });
+    return Response.json(
+      { error: "this legacy Gateway route was removed; use its scoped platform API" },
+      { status },
+    );
+  }
+
+  const forward = (request = req) => proxyToGateway(request, proxyPath, guard.ctx.gateway);
+  const res = cutover.routeMutation
+    ? await withPlatformRouteMutationSafety(
+      req,
+      guard.ctx.gateway.id,
+      guard.ctx.gateway,
+      proxyPath,
+      (signal) => forward(new Request(req, { signal })),
+    )
+    : await forward();
 
   // Finalize the open audit row (no-op for plain reads, which aren't audited).
   finalizeAccess(guard.ctx, { http_status: res.status, duration_ms: Date.now() - start });

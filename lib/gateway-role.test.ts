@@ -20,13 +20,13 @@ const PLATFORM_ONLY_ACTIONS: GatewayAction[] = [
 ];
 
 describe("legacy Gateway compatibility authority", () => {
-  test("has an explicit authority-mode marker", () => {
-    expect(GATEWAY_COMPATIBILITY_AUTHORITY).toBe("gateway_membership_compatibility");
+  test("has an explicit post-cutover authority-mode marker", () => {
+    expect(GATEWAY_COMPATIBILITY_AUTHORITY).toBe("platform_admin_gateway_compatibility");
   });
 
-  test("Gateway Admin receives ordinary gateway authority", () => {
+  test("stored Gateway Admin authority is retired", () => {
     for (const action of ORDINARY_ACTIONS) {
-      expect(canPerformGatewayCompatibilityAction("admin", false, action)).toBe(true);
+      expect(canPerformGatewayCompatibilityAction("admin", false, action)).toBe(false);
     }
   });
 

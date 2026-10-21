@@ -1,7 +1,7 @@
 # Agent Resource Platform API Ownership and Service Boundaries
 
 - Document type: **normative**
-- Status: **current through Steps 1B–4E**
+- Status: **current through Step 6E**
 - Applies to: `rebuild/agent-resource-platform` shared packages and APIs
 - Last reviewed: 2026-10-19
 
@@ -11,14 +11,15 @@ compatibility and canonical shell foundations. Step 4 adds the shared model/tool
 offering catalog, Step 4A adds Tenant/Platform Skills and instructions, and Step
 4B adds Tenant knowledge/document metadata plus a private object adapter, Step
 4C adds human-owned personal files, and Steps 4D–4E add Tenant model/tool
-definitions. Publication and deployment APIs remain pending.
+definitions. Steps 5–6 add publication, scoped deployment, invocation,
+observation, compatibility and recovery APIs.
 
 ## 1. Implemented shared modules
 
 | Module | Owner and responsibility | Allowed dependencies |
 | --- | --- | --- |
 | `packages/contracts/gateway/` | Canonical current Gateway Agent/runtime, capability, action/role and resolved-connection contracts | Other contracts and standard JavaScript values only |
-| `packages/platform/authorization/gateway.ts` | Explicit legacy Gateway-membership compatibility evaluation used only by retained `/api/admin/*` handlers | Gateway contracts only; Tenant contracts are rejected by the boundary check |
+| `packages/platform/authorization/gateway.ts` | Pure historical Gateway-role evaluator retained for tests/data interpretation; Step 6E no longer grants non-Platform actors Gateway content authority | Gateway contracts only; Tenant contracts are rejected by the boundary check |
 | `packages/contracts/platform/identity.ts` | Principal, Tenant, membership, Tenant Gateway grant and actor-reference contracts | Other contracts and standard JavaScript values only |
 | `packages/contracts/platform/catalog.ts` | Shared offering, availability, Tenant projection and immutable dependency-reference contracts | Other contracts and standard JavaScript values only |
 | `packages/contracts/platform/authored-resources.ts` | Skill/instruction ownership, bounded package and immutable revision contracts | Other contracts and standard JavaScript values only |
@@ -73,16 +74,17 @@ those environments therefore fails independently of the application build.
 
 ## 3. API authorities
 
-Retained `/api/admin/*` behavior is unchanged:
+Step 6E narrows retained `/api/admin/*` behavior:
 
 - manager identity, Gateway registry, memberships and audit remain manager
   authority;
-- Gateway content and runtime operations resolve the active/explicit Gateway
-  and use the existing Gateway action model;
+- historical Gateway membership rows no longer authorize Gateway content;
+- only a reviewed Platform Admin allowlist may use an active/explicit Gateway,
+  and unknown catch-all families are denied before forwarding;
 - Caddy, raw secrets and Gateway connection credentials retain their current
   Platform Admin restrictions; and
-- Gateway Agents, routes, providers, credentials, MCP resources and execution
-  remain Agent Gateway records.
+- legacy ACP chat is retired; scoped platform invocation contexts own browser
+  turn/resume authority.
 
 Platform access, identity administration and Tenant Gateway grant handlers are
 explicit under `/api/platform/v1/access` and `/api/platform/v1/identity/*`.
@@ -108,8 +110,9 @@ Step 3 also exposes the canonical Platform Admin upstream-credential adapter at
 provider projection). It resolves the upstream connection only from the route
 parameter and ignores session active-Gateway state and `X-Gateway-Id`. Manager-
 owned secret redaction and omitted-key merge behavior are shared with the legacy
-explicit handlers. The existing `/api/admin/credentials` workflow remains a
-separate Gateway-membership compatibility surface until the accepted cutover.
+explicit handlers. The existing `/api/admin/credentials` route remains only in
+the Platform Admin compatibility allowlist; non-Platform Gateway roles cannot
+use it after the Step 6E cutover.
 
 Client-provided Tenant, resource, owner, Principal, role or Gateway IDs are
 inputs to server-side resolution, never proof of permission. Later services
@@ -121,19 +124,12 @@ upstream bearer. Only its server-side Platform Admin projection contains the
 source Gateway ID and upstream stable ID. Tenant responses contain the offering
 ID, kind, version and digest but no infrastructure binding identifiers.
 
-## 4. What Steps 1B–5 do not establish
+## 4. Remaining release boundary
 
-The following remain unimplemented:
-
-- target deployment authorization (Tenant Gateway grant persistence and live
-  evaluation are implemented, but no deployment service consumes them yet);
-- deployment mappings; Step 5 definitions and immutable releases are owned by
-  explicit Tenant-scoped handlers and platform services;
-- workers, jobs or remote object storage; and
-- target authorization coverage for deployment, Access and Tenant-observability
-  UI; Agent publication and Workbench now use Tenant-readable platform APIs,
-  while delivered Step 3 administration and Step 4 Resource surfaces already
-  use the target vocabulary within their implemented slices.
+Steps 6A–6E implement target deployment authorization, mappings, scoped
+invocation/observation, Platform Admin compatibility and recovery. They do not
+establish workflow-engine workers, durable jobs or remote object storage. The
+real Gateway v0.7 and shared-Gateway isolation gate remains release acceptance.
 
 The old feature commit `ca12d554385efe84296bbd2b228d2190f5427ba3` was used as
 structural evidence. Its premature platform-resource types and its dependency on
@@ -146,15 +142,15 @@ the isolated Bun dev/build/start runtime smoke.
 
 Steps 2A–2B persistence and HTTP behavior are documented in
 [Platform identity persistence](../capabilities/platform-identity-persistence.md).
-Step 2C retains Gateway `admin/member`
-authorization only through the explicitly named compatibility guard. Platform
-services neither import it nor infer Tenant authority from its memberships.
+Step 2C introduced a deliberately named Gateway `admin/member` compatibility
+guard. Step 6E retires that user-facing authority; platform services never
+imported it or inferred Tenant authority from its memberships.
 Step 3 projects the identity administration pages delivered by those
 foundations. Accepted Step 4 slices add their own Resource APIs and canonical
 Skills, Instructions, Knowledge bases, My files, Models and Tools pages. Agent
 definition APIs are documented in
 [Platform Agent definitions and publication](../capabilities/platform-agent-publication.md).
-Steps 6A–6D add explicit Tenant-qualified deployment-intent/lifecycle handlers,
+Steps 6A–6E add explicit Tenant-qualified deployment-intent/lifecycle handlers,
 durable operation journals, scoped Access/invocation/observation handlers and the server-only Gateway deployment adapter documented in
 [Platform Agent deployments](../capabilities/platform-agent-deployments.md).
 Allocation remains local-only; only an explicit lifecycle request can use the
@@ -162,5 +158,6 @@ adapter, and it requires a verified binding record. Tenant endpoint discovery
 and invocation use platform-owned contexts and never expose a bearer. Tenant
 observation/runtime actions apply exact Tenant/Gateway grants; Platform Admin
 diagnostics and Gateway-only Agents use explicit Gateway-path handlers that
-filter deployment pair fences. Immutable release and Workbench surfaces landed
-in Step 5.
+filter deployment pair fences. Step 6E adds deny-before-forward cutover,
+specialized reconciliation, startup recovery and remove-only decommission.
+Immutable release and Workbench surfaces landed in Step 5.

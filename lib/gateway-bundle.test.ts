@@ -28,7 +28,7 @@ function snapshot(overrides: Partial<BundleSnapshot> = {}): BundleSnapshot {
 }
 
 describe("GatewayBundle serialization", () => {
-  test("exports supported families without view metadata or Virtual Key secrets", () => {
+  test("exports only cutover-safe families without view metadata or secrets", () => {
     const yaml = serializeGatewayBundle(bundleFromSnapshot(snapshot({
     providers: [{
       id: "openai",
@@ -49,12 +49,12 @@ describe("GatewayBundle serialization", () => {
       default_model: "gpt-4.1",
       network: { request_timeout_seconds: 120 },
     }]);
-    expect(value.virtualKeys).toEqual([{ id: "vk-one", disabled: false, allowed_route_ids: ["chat"] }]);
+    expect(value.virtualKeys).toBeUndefined();
     expect(yaml).not.toContain("secr…alue");
     expect(yaml).not.toContain("read_only");
   });
 
-  test("round-trips quoted and multiline values", () => {
+  test("rejects route, Agent and Virtual Key records", () => {
     const bundle: GatewayBundle = {
       apiVersion: "gateway.agw/v1alpha1",
       kind: "GatewayBundle",
@@ -66,7 +66,11 @@ describe("GatewayBundle serialization", () => {
         routes: {}, resources: {}, policy: {}, disabled: false,
       }],
     };
-    expect(parseGatewayBundle(serializeGatewayBundle(bundle))).toEqual(bundle);
+    expect(() => parseGatewayBundle(serializeGatewayBundle(bundle))).toThrow("protected families: agents");
+    expect(() => parseGatewayBundle("apiVersion: gateway.agw/v1alpha1\nkind: GatewayBundle\nvirtualKeys: []\n"))
+      .toThrow("protected families: virtualKeys");
+    expect(() => parseGatewayBundle("apiVersion: gateway.agw/v1alpha1\nkind: GatewayBundle\nllmRoutes: []\n"))
+      .toThrow("protected families: llmRoutes");
   });
 });
 
@@ -106,16 +110,14 @@ describe("GatewayBundle validation and planning", () => {
     ]);
   });
 
-  test("marks unavailable cross-object references as conflicts", () => {
+  test("keeps non-route safe-family reference validation", () => {
     const bundle: GatewayBundle = {
       apiVersion: "gateway.agw/v1alpha1",
       kind: "GatewayBundle",
-      mcpRoutes: [{ id: "tools", service_id: "missing", disabled: false, match_policy: {}, auth_policy: { require_virtual_key: false } }],
-      agentRoutes: [{ id: "chat", agent_id: "missing", disabled: false, match_policy: {}, auth_policy: { require_virtual_key: false } }],
+      managedModels: [{ provider_id: "missing", upstream_model: "model" }],
     };
     expect(planGatewayBundle(bundle, snapshot()).map(({ action, reason }) => ({ action, reason }))).toEqual([
-      { action: "conflict", reason: "Missing or unavailable: MCP service missing" },
-      { action: "conflict", reason: "Missing or unavailable: agent missing" },
+      { action: "conflict", reason: "Missing or unavailable: provider missing" },
     ]);
   });
 });

@@ -16,9 +16,6 @@ function IconHome({ className }: { className?: string }) {
 function IconLayers({ className }: { className?: string }) {
   return <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true"><polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" /></svg>;
 }
-function IconBarChart({ className }: { className?: string }) {
-  return <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true"><line x1="12" y1="20" x2="12" y2="10" /><line x1="18" y1="20" x2="18" y2="4" /><line x1="6" y1="20" x2="6" y2="16" /></svg>;
-}
 function IconKey({ className }: { className?: string }) {
   return <svg className={className} fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden="true"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" /></svg>;
 }
@@ -73,9 +70,7 @@ type NavGroup = {
 // day-to-day views for working with it. It stays always-visible at the top.
 const WORKSPACE_PRIMARY_ITEMS: NavItem[] = [
   { href: "/dashboard", labelKey: "nav.workbench", icon: IconHome },
-  { href: "/dashboard/general/overview", labelKey: "nav.overview", icon: IconHome },
   { href: "/dashboard/agents", labelKey: "nav.agents", icon: IconAgent },
-  { href: "/dashboard/agents/routes", labelKey: "nav.agentRoutes", icon: IconRoute },
 ];
 
 const ACCESS_ITEMS: NavItem[] = [
@@ -83,11 +78,7 @@ const ACCESS_ITEMS: NavItem[] = [
   { href: "/dashboard/access/keys", labelKey: "nav.invocationKeys", icon: IconKey },
 ];
 
-const WORKSPACE_ACTIVITY_ITEMS: NavItem[] = [
-  { href: "/dashboard/agents/interactions", labelKey: "nav.interactions", icon: IconActivity },
-  { href: "/dashboard/agents/usage", labelKey: "nav.usage", icon: IconBarChart },
-  { href: "/dashboard/general/virtual-keys", labelKey: "nav.virtualKeys", icon: IconKey },
-];
+const WORKSPACE_ACTIVITY_ITEMS: NavItem[] = [];
 
 // Credentials are shared by LLM, MCP, and other gateway capabilities, so they
 // live alongside the protocol groups instead of belonging to the LLM group.
@@ -131,15 +122,6 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/dashboard/mcp/services", labelKey: "nav.services", icon: IconPlug },
       { href: "/dashboard/mcp/routes", labelKey: "nav.routes", icon: IconRoute },
-    ],
-  },
-  {
-    key: "runtimes",
-    labelKey: "nav.runtimes",
-    icon: IconBot,
-    items: [
-      { href: "/dashboard/acp/runtime", labelKey: "nav.acpRuntime", icon: IconBot },
-      { href: "/dashboard/agents/runtimes/builtin", labelKey: "nav.builtinRuntime", icon: IconBrain },
     ],
   },
   {
@@ -193,11 +175,9 @@ export function resolveActiveHref(pathname: string, allHrefs: string[]): string 
 export function DashboardNav() {
   const pathname = usePathname();
   const { isOpen, isCollapsed, toggleCollapsed, close } = useMobileSidebar();
-  const { user, activeGateway, platformAccess, platformAccessError } = useCurrentUser();
+  const { user, platformAccess, platformAccessError } = useCurrentUser();
   const { t } = useI18n();
-  const hasGatewayContentAccess = Boolean(
-    user?.is_platform_admin || activeGateway?.role === "admin",
-  );
+  const hasGatewayContentAccess = Boolean(user?.is_platform_admin);
   const hasPlatformResourceAccess = Boolean(platformAccess?.memberships.length);
   const workspacePrimaryItems = WORKSPACE_PRIMARY_ITEMS.filter((item) => {
     if (item.href === "/dashboard" || item.href === "/dashboard/agents") {
@@ -207,10 +187,9 @@ export function DashboardNav() {
   });
   if (hasPlatformResourceAccess) workspacePrimaryItems.push(...ACCESS_ITEMS);
 
-  // Virtual Keys is no longer Platform-Admin-only: the manager's own handlers
-  // redact the bearer out of every list/get, so Gateway Admin may manage keys
-  // like any other gateway content. Recovering a key's value stays platform-only
-  // (app/api/admin/virtual_keys/[id]/reveal).
+  // Step 6E removed legacy Gateway activity links from the workspace. Scoped
+  // invocation endpoints/keys are added above for Tenant members; Gateway
+  // Virtual Keys now live only in the Platform Admin Gateway workspace.
   const workspaceActivityItems = hasGatewayContentAccess ? WORKSPACE_ACTIVITY_ITEMS : [];
 
   const baseGroups = NAV_GROUPS.filter(

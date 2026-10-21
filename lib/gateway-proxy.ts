@@ -52,6 +52,7 @@ async function forward(
     method: req.method,
     headers: outHeaders,
     body: req.method !== "GET" && req.method !== "HEAD" ? body : undefined,
+    signal: req.signal,
   });
 
   const resHeaders = new Headers();
@@ -77,6 +78,7 @@ export async function proxyToGateway(
       return res;
     } catch (e) {
       errors.push(`gateway unreachable (${baseURL}): ${String(e)}`);
+      if (req.signal.aborted) break;
     }
   }
   return Response.json({ error: `gateway request failed: ${errors.join("; ")}` }, { status: 502 });

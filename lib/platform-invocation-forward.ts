@@ -2,8 +2,14 @@ import { dataplaneFetch } from "./dataplane-fetch";
 import { dataplaneCandidates } from "./acp-dataplane";
 import { getGateway } from "./db";
 import { resolveGateway } from "./gateway-resolve";
-import type { AuthorizedDeploymentInvocation } from "@/packages/platform/services/deployment-access";
 import { IdentityError } from "@/packages/platform/services/identity";
+
+export interface AuthorizedGatewayInvocation {
+  gatewayId: string;
+  pathPrefix: string;
+  host?: string;
+  bearer: string;
+}
 
 function gatewayConnection(gatewayId: string) {
   const row = getGateway(gatewayId);
@@ -18,7 +24,7 @@ function gatewayConnection(gatewayId: string) {
 }
 
 async function forward(
-  authorized: AuthorizedDeploymentInvocation,
+  authorized: AuthorizedGatewayInvocation,
   suffix: "/turn" | "/permission",
   body: unknown,
   signal?: AbortSignal,
@@ -27,6 +33,7 @@ async function forward(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${authorized.bearer}`,
+    ...(authorized.host ? { Host: authorized.host } : {}),
     ...(suffix === "/turn" ? { Accept: "text/event-stream" } : {}),
   };
   let lastError = "data plane unavailable";
@@ -57,7 +64,7 @@ async function forward(
 }
 
 export function forwardPlatformTurn(
-  authorized: AuthorizedDeploymentInvocation,
+  authorized: AuthorizedGatewayInvocation,
   body: unknown,
   signal?: AbortSignal,
 ): Promise<Response> {
@@ -65,7 +72,7 @@ export function forwardPlatformTurn(
 }
 
 export function forwardPlatformPermission(
-  authorized: AuthorizedDeploymentInvocation,
+  authorized: AuthorizedGatewayInvocation,
   body: unknown,
   signal?: AbortSignal,
 ): Promise<Response> {

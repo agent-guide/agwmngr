@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { AgentForm } from "@/components/agent-form";
 import { PlatformAgentForm } from "@/components/platform-agent-form";
+import { LegacyGatewayRedirect } from "@/components/legacy-gateway-redirect";
 import { PageHeader } from "@/components/ui/page-header";
 import { useI18n } from "@/components/i18n-provider";
 
@@ -11,13 +11,14 @@ export default function NewAgentPage() {
   const { t } = useI18n();
   const searchParams = useSearchParams();
   const gatewayMode = searchParams.get("mode") === "gateway";
+  if (gatewayMode) return <LegacyGatewayRedirect target="agents" suffix="/new" />;
   return (
     <div className="space-y-4">
       <PageHeader
-        title={gatewayMode ? t("platformAgents.gatewayCreate") : t("agents.newTitle")}
+        title={t("agents.newTitle")}
         description={<Link href="/dashboard/agents" className="text-blue-400 hover:underline">{t("agents.back")}</Link>}
       />
-      {gatewayMode ? <AgentForm wizard /> : <PlatformAgentForm />}
+      <PlatformAgentForm />
     </div>
   );
 }

@@ -1,7 +1,7 @@
 # Agent Resource Platform Design
 
 - Document type: **normative**
-- Status: **accepted target; Steps 0–5 and Steps 6A–6B lifecycle core implemented**
+- Status: **accepted target; Steps 0–6E implemented, release acceptance pending**
 - Applies to: `rebuild/agent-resource-platform`
 - Last reviewed: 2026-10-21
 

@@ -314,6 +314,13 @@ export class IdentityRegistry {
     return row ? toTenant(row) : null;
   }
 
+  async tenantAuthorityEpoch(
+    id: string,
+    session: DatabaseSession = this.database,
+  ): Promise<number | null> {
+    return this.authorityEpoch("tenant", id, "", session);
+  }
+
   async tenants(): Promise<Tenant[]> {
     const rows = await this.database.query<TenantRow>(
       "SELECT id, name, status, created_at, updated_at FROM platform_tenants ORDER BY id",
@@ -401,6 +408,15 @@ export class IdentityRegistry {
       );
       return true;
     });
+  }
+
+  async hasLiveAgentDeploymentsForTenant(id: string): Promise<boolean> {
+    const [row] = await this.database.query<{ n: number }>(
+      `SELECT COUNT(*) AS n FROM platform_agent_deployments
+        WHERE tenant_id = ? AND lifecycle_state <> 'deleted'`,
+      [id],
+    );
+    return Number(row.n) > 0;
   }
 
   async membership(

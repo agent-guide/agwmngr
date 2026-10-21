@@ -1,16 +1,17 @@
 # Tenant Authorization Model
 
 - Document type: **normative**
-- Status: **accepted target; implemented incrementally as recorded by capability documents**
+- Status: **accepted target; implemented through scoped Gateway cutover on the rebuild branch**
 - Applies to: accepted target on `rebuild/agent-resource-platform`; `dev` only
   after it contains the corresponding server-side migration
 - Last reviewed: 2026-10-17
 
-This document defines the target authorization model for the Agent Resource
-Platform. Current `dev` still uses `is_platform_admin`, Gateway `admin/member`
-memberships and Gateway action checks. Those checks remain authoritative until a
-matching server-side migration is merged into `dev` or `dev` otherwise advances
-to contain it. Acceptance on the rebuild branch alone does not change `dev`.
+This document defines the authorization model implemented on
+`rebuild/agent-resource-platform`. Step 6E retires user-facing Gateway
+`admin/member` authority there; retained Gateway infrastructure and compatibility
+APIs require Platform Admin, while Tenant deployment authority uses live Tenant
+membership and exact per-admin Gateway grants. `dev` remains governed by the
+code it contains until this server-side migration is merged.
 
 ## 1. Principles
 

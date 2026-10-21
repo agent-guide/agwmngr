@@ -1,5 +1,7 @@
 import { withPlatformAccess } from "@/lib/access";
 import { getGateway, updateGateway, deleteGateway, toGatewaySummary } from "@/lib/db";
+import { getPlatformRuntime } from "@/lib/platform-identity";
+import { AgentDeploymentRegistry } from "@/packages/platform/services/deployment-registry";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -24,6 +26,15 @@ export const PUT = withPlatformAccess(async (req, _access, { params }: Params) =
   if (body.status !== undefined && body.status !== "active" && body.status !== "disabled") {
     return Response.json({ error: "status must be 'active' or 'disabled'" }, { status: 400 });
   }
+  if (body.status === "disabled") {
+    const { database } = await getPlatformRuntime();
+    if ((await new AgentDeploymentRegistry(database).listForGateway(id)).length > 0) {
+      return Response.json(
+        { error: "decommission every platform deployment before disabling this gateway" },
+        { status: 409 },
+      );
+    }
+  }
 
   // Only fields present in the body are updated. An empty/absent admin_password
   // leaves the stored ciphertext untouched (no accidental credential wipe).
@@ -45,6 +56,13 @@ export const DELETE = withPlatformAccess(async (_req, _access, { params }: Param
   const { id } = await params;
   if (!getGateway(id)) return Response.json({ error: "gateway not found" }, { status: 404 });
 
+  const { database } = await getPlatformRuntime();
+  if ((await new AgentDeploymentRegistry(database).listForGateway(id)).length > 0) {
+    return Response.json(
+      { error: "decommission every platform deployment before deleting this gateway" },
+      { status: 409 },
+    );
+  }
   // Memberships and any session pointers cascade / null via FK (PRAGMA on).
   deleteGateway(id);
   return Response.json({ status: "deleted", id });

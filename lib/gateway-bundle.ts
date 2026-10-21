@@ -1,38 +1,19 @@
 import { parseDocument, stringify } from "yaml";
 import {
-  createAgent,
-  createAgentRoute,
-  createLLMRoute,
-  createMCPRoute,
   createMCPService,
   createManagedModel,
   createProvider,
-  createVirtualKey,
-  listAgentRoutes,
-  listAgents,
-  listLLMRoutes,
-  listMCPRoutes,
   listMCPServices,
   listManagedModels,
   listProviders,
   listProviderTypes,
-  listVirtualKeys,
-  updateAgent,
-  updateAgentRoute,
-  updateLLMRoute,
-  updateMCPRoute,
   updateMCPService,
   updateManagedModel,
   updateProvider,
-  updateVirtualKey,
   type Agent,
-  type AgentPayload,
   type AgentRoute,
-  type AgentRoutePayload,
   type LLMRoute,
-  type LLMRoutePayload,
   type MCPRoute,
-  type MCPRoutePayload,
   type MCPService,
   type MCPServicePayload,
   type ManagedConcreteModel,
@@ -41,7 +22,6 @@ import {
   type ProviderPayload,
   type ProviderTypeItem,
   type VirtualKeyItem,
-  type VirtualKeyPayload,
 } from "@/lib/api";
 import { agentPayload } from "@/lib/agent-yaml";
 import { validateHTTPAgentConfig } from "@/lib/agent-http";
@@ -54,6 +34,20 @@ export const BUNDLE_FAMILIES = [
   "managedModels",
   "llmRoutes",
   "mcpServices",
+  "mcpRoutes",
+  "agents",
+  "agentRoutes",
+  "virtualKeys",
+] as const;
+
+const CUTOVER_BUNDLE_FAMILIES = [
+  "providers",
+  "managedModels",
+  "mcpServices",
+] as const satisfies readonly BundleFamily[];
+
+const CUTOVER_REJECTED_FAMILIES = [
+  "llmRoutes",
   "mcpRoutes",
   "agents",
   "agentRoutes",
@@ -232,24 +226,23 @@ function isReadOnly(item: unknown): boolean {
 }
 
 export async function loadBundleSnapshot(): Promise<BundleSnapshot> {
-  const [providerTypes, providers, managedModels, llmRoutes, virtualKeys, mcpServices, mcpRoutes, agentRoutes, agents] =
+  const [providerTypes, providers, managedModels, mcpServices] =
     await Promise.all([
       listProviderTypes(),
       listProviders(),
       listManagedModels(),
-      listLLMRoutes(),
-      listVirtualKeys(),
       listMCPServices(),
-      listMCPRoutes(),
-      listAgentRoutes(),
-      listAgents(),
     ]);
-  return { providerTypes, providers, managedModels, llmRoutes, virtualKeys, mcpServices, mcpRoutes, agentRoutes, agents };
+  return {
+    providerTypes, providers, managedModels, mcpServices,
+    llmRoutes: [], mcpRoutes: [],
+    virtualKeys: [], agentRoutes: [], agents: [],
+  };
 }
 
 export function bundleFromSnapshot(snapshot: BundleSnapshot): GatewayBundle {
   const bundle: GatewayBundle = { apiVersion: GATEWAY_BUNDLE_API_VERSION, kind: GATEWAY_BUNDLE_KIND };
-  for (const family of BUNDLE_FAMILIES) {
+  for (const family of CUTOVER_BUNDLE_FAMILIES) {
     const items = snapshot[family] as unknown[];
     if (!items.length) continue;
     bundle[family] = items
@@ -272,8 +265,12 @@ export function parseGatewayBundle(text: string): GatewayBundle {
   if (unknown.length) throw new Error(`Unsupported top-level field${unknown.length > 1 ? "s" : ""}: ${unknown.join(", ")}`);
   if (value.apiVersion !== GATEWAY_BUNDLE_API_VERSION) throw new Error(`apiVersion must be ${GATEWAY_BUNDLE_API_VERSION}`);
   if (value.kind !== GATEWAY_BUNDLE_KIND) throw new Error(`kind must be ${GATEWAY_BUNDLE_KIND}`);
+  const rejected = CUTOVER_REJECTED_FAMILIES.filter((family) => value[family] !== undefined);
+  if (rejected.length) {
+    throw new Error(`Step 6E bundle import rejects protected families: ${rejected.join(", ")}`);
+  }
 
-  for (const family of BUNDLE_FAMILIES) {
+  for (const family of CUTOVER_BUNDLE_FAMILIES) {
     const items = value[family];
     if (items === undefined) continue;
     if (!Array.isArray(items)) throw new Error(`${family} must be a list`);
@@ -295,7 +292,7 @@ export function parseGatewayBundle(text: string): GatewayBundle {
 
 export function planGatewayBundle(bundle: GatewayBundle, snapshot: BundleSnapshot): BundlePlanItem[] {
   const plan: BundlePlanItem[] = [];
-  for (const family of BUNDLE_FAMILIES) {
+  for (const family of CUTOVER_BUNDLE_FAMILIES) {
     const currentItems = snapshot[family] as unknown[];
     const current = new Map(currentItems.map((item) => [identity(family, item as BundleObject), item]));
     for (const raw of bundle[family] ?? []) {
@@ -418,28 +415,18 @@ export async function applyBundlePlanItem(item: BundlePlanItem): Promise<void> {
       return;
     }
     case "llmRoutes":
-      if (item.action === "create") await createLLMRoute(desired as unknown as LLMRoutePayload);
-      else await updateLLMRoute(item.id, desired as unknown as LLMRoutePayload);
-      return;
+      throw new Error("Step 6E bundle import rejects LLM route records");
     case "mcpServices":
       if (item.action === "create") await createMCPService(desired as unknown as MCPServicePayload);
       else await updateMCPService(item.id, desired as unknown as MCPServicePayload);
       return;
     case "mcpRoutes":
-      if (item.action === "create") await createMCPRoute(desired as unknown as MCPRoutePayload);
-      else await updateMCPRoute(item.id, desired as unknown as MCPRoutePayload);
-      return;
+      throw new Error("Step 6E bundle import rejects MCP route records");
     case "agents":
-      if (item.action === "create") await createAgent(desired as unknown as AgentPayload);
-      else await updateAgent(item.id, desired as unknown as AgentPayload);
-      return;
+      throw new Error("Step 6E bundle import rejects protected Agent records");
     case "agentRoutes":
-      if (item.action === "create") await createAgentRoute(desired as unknown as AgentRoutePayload);
-      else await updateAgentRoute(item.id, desired as unknown as AgentRoutePayload);
-      return;
+      throw new Error("Step 6E bundle import rejects protected Agent-route records");
     case "virtualKeys":
-      if (item.action === "create") await createVirtualKey(desired as unknown as VirtualKeyPayload);
-      else await updateVirtualKey(item.id, desired as unknown as VirtualKeyPayload);
-      return;
+      throw new Error("Step 6E bundle import rejects protected Virtual Key records");
   }
 }

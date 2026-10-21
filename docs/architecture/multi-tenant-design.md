@@ -1,7 +1,7 @@
 # Multi-User & Multi-Gateway Design
 
 - Document type: **normative**
-- Status: **current compatibility architecture**
+- Status: **historical compatibility architecture; user-facing Gateway roles retired by Step 6E**
 - Applies to: manager authentication, sessions and Gateway access
 - Last reviewed: 2026-10-20
 
@@ -9,7 +9,9 @@
 > Scope: introduce multiple manager users (with per-gateway roles) and management of multiple agent-gateways from one manager
 > Last updated: 2026-08-08
 
-> **Implementation note:** Gateway-root `admin/member` is implemented.
+> **Implementation note:** Gateway-root `admin/member` storage remains for
+> history and migration, but Step 6E no longer accepts it as user-facing Gateway
+> content authority on `rebuild/agent-resource-platform`.
 > Domain/resource grants remain proposed in
 > [Hierarchical Resource RBAC Design](resource-rbac-design.md). One deviation
 > from the locked storage decision is that `bun:sqlite` is wrapped by a
@@ -18,12 +20,14 @@
 > when the adapter runs under Bun. Server code must continue to import the
 > adapter rather than either runtime-specific module directly.
 
-> **Rebuild compatibility naming:** On `rebuild/agent-resource-platform`, Step
-> 2C retains this model only for existing Gateway screens and deliberately names
+> **Rebuild compatibility naming:** Step 2C retained this model for existing
+> Gateway screens and deliberately named
 > its entry points `requireGatewayCompatibilityAccess` and
 > `withGatewayCompatibilityAccess`, with a
-> `gateway_membership_compatibility` context. The current `dev` implementation
-> still uses `requireGatewayAccess` and `withGatewayAccess`. References below to
+> `gateway_membership_compatibility` context. Step 6E makes that compatibility
+> Platform Admin-only and denies unknown proxy families before forwarding. The
+> current `dev` implementation may still use `requireGatewayAccess` and
+> `withGatewayAccess`. References below to
 > `requireGatewayAccess`/`withAccess` describe that same historical flow; they
 > are not Tenant Gateway grant authorization.
 
@@ -296,7 +300,9 @@ Phase 1 is a prerequisite for everything else; ship it with **no externally visi
 - **P3 — Multi-gateway + membership enforcement.** Introduce `MANAGER_SECRET_KEY` + credential encryption; `gateways` registry + seed-from-env; `lib/gateway-resolve.ts`; refactor proxy / caddy-manager / acp-dataplane to take a gateway record; header switcher + gateway-keyed SWR (§6.1); "Platform → Gateways" page **plus `user_gateways` assignment API/UI**. The `requireGatewayAccess` guard is wired into **all** gateway entry points (catch-all, Caddy, ACP chat) and **enforces membership** here.
 - **P4 — Action-level RBAC + audit.** Add action-based enforcement (§2.1), the path override table, `audit_log` open→finalize writes for allow + deny, and a read-only audit view. The original P4 roles were superseded by Gateway-root `admin/member` on 2026-08-08.
 
-> Membership enforcement lands in **P3** alongside multi-gateway. The current Gateway Admin/Member distinction is enforced at the Gateway root; Member has no implicit content actions.
+> Membership enforcement landed in **P3** alongside multi-gateway. This table
+> records the historical compatibility period; Step 6E later retired Gateway
+> Admin/Member as user-facing content authority.
 
 ## 10. Security Notes & Open Questions
 

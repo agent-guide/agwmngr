@@ -1,24 +1,21 @@
-import { withPlatformAccess } from "@/lib/access";
 import { getPlatformDeploymentAccess } from "@/lib/platform-deployment-access";
 import { platformIdentityBody, requiredText, withPlatformIdentity } from "@/lib/platform-access";
-import { resolvePlatformGatewayScope } from "@/lib/platform-gateway-scope";
-import { proxySecretResource } from "@/lib/secret-resource-proxy";
 import { IdentityError } from "@/packages/platform/services/identity";
 
 type Context = { params: Promise<{ gatewayId: string }> };
 export const dynamic = "force-dynamic";
 
-export const GET = withPlatformAccess(async (request, _access, context: Context) => {
-  const { gatewayId } = await context.params;
-  const scope = resolvePlatformGatewayScope(gatewayId);
-  if (!scope.ok) return scope.response;
-  return proxySecretResource(
-    request,
-    scope.gateway,
-    "/admin/virtual_keys",
-    "virtualKey",
-  );
-});
+export const GET = async (request: Request, context: Context) =>
+  withPlatformIdentity(request, async (_identity, actor, audit) => {
+    const { gatewayId } = await context.params;
+    audit.set({
+      action: "platform:virtual_key_list",
+      gatewayId,
+      targetKind: "virtual_key",
+      effectiveAccess: "platform_admin",
+    });
+    return Response.json({ items: await (await getPlatformDeploymentAccess()).keys(actor, gatewayId) });
+  });
 
 export const POST = async (request: Request, context: Context) =>
   withPlatformIdentity(request, async (_identity, actor, audit) => {
