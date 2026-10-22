@@ -1,12 +1,14 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { getServerEnv } from "../lib/server-env";
+import { getCommandEnv, requireCommandEnvIsolation } from "../lib/server-env";
 import { openDatabase } from "../lib/sqlite";
 import {
   openPostgresPlatformDatabase,
   sqlitePlatformDatabase,
 } from "../lib/platform-database";
 import { migratePlatformIdentityDatabase } from "../packages/platform/services/identity-migrations";
+
+requireCommandEnvIsolation();
 
 const apply = process.argv.includes("--apply");
 const invalid = process.argv.slice(2).some((argument) => !["--apply", "--dry-run"].includes(argument));
@@ -15,7 +17,7 @@ if (invalid || (apply && process.argv.includes("--dry-run"))) {
 }
 
 const managerPath =
-  getServerEnv("MANAGER_DB_PATH") || join(process.cwd(), "data", "manager.db");
+  getCommandEnv("MANAGER_DB_PATH") || join(process.cwd(), "data", "manager.db");
 if (!existsSync(managerPath)) {
   throw new Error("initialize the manager database before the platform identity migration");
 }
@@ -23,7 +25,7 @@ if (!existsSync(managerPath)) {
 const manager = openDatabase(managerPath);
 manager.exec("PRAGMA foreign_keys = ON");
 manager.exec("PRAGMA busy_timeout = 5000");
-const databaseUrl = getServerEnv("PLATFORM_DATABASE_URL");
+const databaseUrl = getCommandEnv("PLATFORM_DATABASE_URL");
 const postgres = databaseUrl ? openPostgresPlatformDatabase(databaseUrl) : null;
 const database = postgres ?? sqlitePlatformDatabase(manager);
 

@@ -63,6 +63,7 @@ into `dev` or `dev` otherwise advances to contain it.
 ## Operational runbooks
 
 - [Database migrations](operations/database-migrations.md)
+- [Agent resource platform cutover](operations/platform-cutover-runbook.md)
 
 ## Archived delivery documents
 

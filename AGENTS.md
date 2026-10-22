@@ -54,6 +54,8 @@ their Tenant projections.
 Read `docs/operations/database-migrations.md` before changing either schema
 migration series, and regenerate the checked-in manifest with
 `bun run generate:migrations`.
+Read `docs/operations/platform-cutover-runbook.md` before changing the active-
+writer map, backup/restore tooling or the initial release-acceptance gate.
 
 ## Build and Run
 
@@ -65,6 +67,7 @@ bun run start        # production server
 bun run lint         # ESLint
 bun run typecheck    # TypeScript including Bun scripts and tests
 bun run check:migrations # executable migration ordering/digest manifest
+bun run inspect:cutover # row/reference/object and source-mapping report
 bun run smoke:http-agent # pinned real Gateway + local A2A integration (Go required)
 ```
 

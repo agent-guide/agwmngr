@@ -42,3 +42,24 @@ const rawEnv = parseEnvFile(join(process.cwd(), ".env.local"));
 export function getServerEnv(key: string): string {
   return rawEnv[key] ?? process.env[key] ?? "";
 }
+
+/**
+ * Read an environment variable for an operator-invoked command. Explicit shell
+ * assignments must override repository defaults so cutover and migration
+ * commands cannot silently target the database named in .env.local.
+ */
+export function getCommandEnv(
+  key: string,
+  explicitEnvironment: Record<string, string | undefined> = process.env,
+  fileEnvironment: Record<string, string | undefined> = rawEnv,
+): string {
+  return explicitEnvironment[key] ?? fileEnvironment[key] ?? "";
+}
+
+export function requireCommandEnvIsolation(execArguments: readonly string[] = process.execArgv): void {
+  if (!execArguments.includes("--no-env-file")) {
+    throw new Error(
+      "operator commands must run through their package script or bun --no-env-file",
+    );
+  }
+}

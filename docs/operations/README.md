@@ -15,3 +15,5 @@ belong here.
 
 - [Database migrations](database-migrations.md) defines the frozen migration
   manifest and forward-only update procedure.
+- [Agent resource platform cutover](platform-cutover-runbook.md) defines the
+  active-writer map, backup/restore rehearsal, rollback and release gate.
