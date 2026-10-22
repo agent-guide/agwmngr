@@ -60,6 +60,10 @@ into `dev` or `dev` otherwise advances to contain it.
 - [Approved migration source inventory](plans/active/agent-resource-platform-source-inventory.md)
 - [Manager v0.1.0 release plan](plans/active/v0.1.0-release-plan.md)
 
+## Operational runbooks
+
+- [Database migrations](operations/database-migrations.md)
+
 ## Archived delivery documents
 
 - [Gateway v0.5.0 alignment plan](plans/archive/gateway-v0.5-alignment-plan.md)

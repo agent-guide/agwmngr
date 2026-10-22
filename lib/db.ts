@@ -17,7 +17,14 @@ function dbPath(): string {
 
 // Migrations are an ordered list of SQL scripts. The applied count is tracked
 // via PRAGMA user_version, so each script runs exactly once across restarts.
-const MIGRATIONS: string[] = [
+export const MANAGER_MIGRATION_NAMES = [
+  "initial-multi-tenant",
+  "gateway-role-normalization",
+  "user-id-reservations",
+  "gateway-id-authority-fences",
+] as const;
+
+export const MANAGER_MIGRATIONS: readonly string[] = [
   // 1: initial multi-tenant schema (§3 of docs/architecture/multi-tenant-design.md)
   `
   CREATE TABLE users (
@@ -175,12 +182,12 @@ export function migrateDatabase(db: SqlConnection): void {
       // committed by the first process instead of racing the table rebuild.
       const row = db.get<{ user_version: number }>("PRAGMA user_version");
       const current = row?.user_version ?? 0;
-      if (current >= MIGRATIONS.length) {
+      if (current >= MANAGER_MIGRATIONS.length) {
         complete = true;
         return;
       }
 
-      db.exec(MIGRATIONS[current]);
+      db.exec(MANAGER_MIGRATIONS[current]);
       if (current === 2) {
         // An account may have been deleted before permanent reservations were
         // introduced. Successful manager user-deletion audits are the only

@@ -51,6 +51,10 @@ and the Step 7 canonical operational UI are complete. Read both before changing
 Agent drafts, dependency snapshots, deployment mappings, Gateway adapters or
 their Tenant projections.
 
+Read `docs/operations/database-migrations.md` before changing either schema
+migration series, and regenerate the checked-in manifest with
+`bun run generate:migrations`.
+
 ## Build and Run
 
 ```bash
@@ -60,6 +64,7 @@ bun run build        # production build
 bun run start        # production server
 bun run lint         # ESLint
 bun run typecheck    # TypeScript including Bun scripts and tests
+bun run check:migrations # executable migration ordering/digest manifest
 bun run smoke:http-agent # pinned real Gateway + local A2A integration (Go required)
 ```
 

@@ -1,0 +1,128 @@
+{
+  "formatVersion": 1,
+  "manager": {
+    "dialects": [
+      "sqlite"
+    ],
+    "schemaVersion": 4,
+    "migrations": [
+      {
+        "version": 1,
+        "name": "initial-multi-tenant",
+        "statementCount": 1,
+        "sha256": "a70b2fb0020792532ebbb52c9fd19adf2ea71be4e998ea0851dc4472feeeadec"
+      },
+      {
+        "version": 2,
+        "name": "gateway-role-normalization",
+        "statementCount": 1,
+        "sha256": "00eed5c79e3d278836660f94c6c37f958c4e3e1362472647b24a18b7a3a359d3"
+      },
+      {
+        "version": 3,
+        "name": "user-id-reservations",
+        "statementCount": 1,
+        "sha256": "b72444d6c835bbd3d707b511c247e4749a141f7e6edea306bffce03610f3ab46"
+      },
+      {
+        "version": 4,
+        "name": "gateway-id-authority-fences",
+        "statementCount": 1,
+        "sha256": "0ae9318e7e3f0578d98e5c46b527729546a591bccf5c53a91ac5428ebcae0cc0"
+      }
+    ]
+  },
+  "platform": {
+    "dialects": [
+      "sqlite",
+      "postgres"
+    ],
+    "schemaVersion": 14,
+    "migrations": [
+      {
+        "version": 1,
+        "name": "identity",
+        "statementCount": 6,
+        "sha256": "5bf446c8721969d94f576f29e5f8607915ab5f1183bfbe2b8ab70fb4a33a1f0e"
+      },
+      {
+        "version": 2,
+        "name": "authority-grants",
+        "statementCount": 9,
+        "sha256": "ffbf66f0b3004afcc9297f988ab2f8510a63550ca7affac90a3dfe66e2c0042d"
+      },
+      {
+        "version": 3,
+        "name": "membership-receipts",
+        "statementCount": 2,
+        "sha256": "38b185e28313fb2641f8481f28bb0c109bd9979469d6dad428f62649b1b23165"
+      },
+      {
+        "version": 4,
+        "name": "catalog",
+        "statementCount": 4,
+        "sha256": "20c538118c3c527dfb7820f1a4276367b1bb6d5ef5ed762473f08d9ce9ab97ae"
+      },
+      {
+        "version": 5,
+        "name": "authored-resources",
+        "statementCount": 9,
+        "sha256": "205d8988c03ca6e53ed488fdef9d89843fbf1c7b7d6e290f515a2157750a03ee"
+      },
+      {
+        "version": 6,
+        "name": "knowledge-documents",
+        "statementCount": 8,
+        "sha256": "43a51807ca9a945b52d033d0af633525d526cd8c6146445c755f3e54f8e77480"
+      },
+      {
+        "version": 7,
+        "name": "personal-files",
+        "statementCount": 6,
+        "sha256": "77a78a22e220da7351470c1fa1ff46c489be607e5c058e842bfd6d716e24e87d"
+      },
+      {
+        "version": 8,
+        "name": "tenant-models",
+        "statementCount": 5,
+        "sha256": "4bb56d156ef92ee2b88bf2195e3b9720d3d417820db618d46f0985154f067bfd"
+      },
+      {
+        "version": 9,
+        "name": "tenant-tools",
+        "statementCount": 5,
+        "sha256": "f6ad73308c4e5088fefb0a18b86bb9fc0049224c8712e733710a601f2b057f34"
+      },
+      {
+        "version": 10,
+        "name": "agent-definitions",
+        "statementCount": 2,
+        "sha256": "d1d22eeab13c82d76fa24417db20036d376cf372ecfb70818c65683e35dea116"
+      },
+      {
+        "version": 11,
+        "name": "agent-releases",
+        "statementCount": 2,
+        "sha256": "508802e87ec702998955b98bef9de805eb4a4089d6f1b1e611e48edaf9ce742f"
+      },
+      {
+        "version": 12,
+        "name": "agent-deployments",
+        "statementCount": 10,
+        "sha256": "95b571ae4608a37eb34f93ab2595f32259c71689cc1e3818d2c13bc346fdcab3"
+      },
+      {
+        "version": 13,
+        "name": "deployment-access",
+        "statementCount": 4,
+        "sha256": "c7f2fbebabf35214d382bd9723983406129ae3a20cfe4c7a2a084e0bc1874776"
+      },
+      {
+        "version": 14,
+        "name": "gateway-agent-compatibility",
+        "statementCount": 4,
+        "sha256": "ec61c7ce1c4fddf106affbb9d7ff4ef7a5be7bfd8f79644383a45a9d713e7b7c"
+      }
+    ]
+  }
+}

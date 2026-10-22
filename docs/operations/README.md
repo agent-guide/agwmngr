@@ -11,5 +11,7 @@ destructive steps, rollback path, verification commands and supported storage or
 runtime variants.
 
 Release-specific sequencing belongs in `../plans/active/`; reusable procedures
-belong here. No standalone operational runbook has been accepted on the current
-rebuild baseline yet.
+belong here.
+
+- [Database migrations](database-migrations.md) defines the frozen migration
+  manifest and forward-only update procedure.

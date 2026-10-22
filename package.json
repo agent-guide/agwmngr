@@ -9,6 +9,8 @@
     "lint": "eslint",
     "test": "bun test",
     "migrate:platform": "bun scripts/migrate-platform.ts",
+    "generate:migrations": "bun scripts/generate-migration-manifest.ts",
+    "check:migrations": "bun scripts/check-migration-manifest.ts",
     "typecheck": "bun --bun tsc --noEmit",
     "smoke:runtime": "bun scripts/smoke-runtime.ts",
     "smoke:http-agent": "bun scripts/smoke-http-agent.ts",
