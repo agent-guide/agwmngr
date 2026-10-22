@@ -14,6 +14,7 @@
     "backup:platform": "bun --no-env-file scripts/backup-platform.ts",
     "restore:platform": "bun --no-env-file scripts/restore-platform.ts",
     "inspect:cutover": "bun --no-env-file scripts/inspect-platform-cutover.ts",
+    "verify:step8": "bun scripts/verify-step8.ts",
     "typecheck": "bun --bun tsc --noEmit",
     "smoke:runtime": "bun scripts/smoke-runtime.ts",
     "smoke:http-agent": "bun scripts/smoke-http-agent.ts",

@@ -160,21 +160,18 @@ The initial delivery is accepted only when all commands pass at the same
 revision:
 
 ```bash
-bun run check:migrations
-bun test
-bun run lint
-bun run typecheck
-bun run typecheck:contracts
-bun run check:boundaries
-bun run build
-bun run smoke:runtime
-PLATFORM_TEST_POSTGRES_URL=... bun test lib/platform-persistence.test.ts
-bun run smoke:step6-gateway
+PLATFORM_TEST_POSTGRES_URL=... bun run verify:step8
 ```
 
+The command requires PostgreSQL instead of silently skipping that adapter. It
+runs the migration manifest check, complete test suite, lint, application and
+contract typechecks, package-boundary check, production build, isolated Bun
+development/production startup, SQLite/PostgreSQL migration parity and the
+pinned real-Gateway gate. The PostgreSQL URL must identify a disposable
+administrative database because the persistence test creates and drops a
+temporary database.
+
 In addition, archive the successful isolated restore report described above.
-The PostgreSQL URL must identify a disposable administrative database because
-the persistence test creates and drops a temporary database.
 
 ## 7. Accepted, deferred and excluded capability record
 

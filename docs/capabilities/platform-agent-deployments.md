@@ -1,7 +1,7 @@
 # Platform Agent deployments
 
 - Document type: **normative**
-- Status: **Steps 6A–6E implemented; real-Gateway release acceptance and Step 7 UI projection passed**
+- Status: **Steps 6A–6E implemented; Step 8 initial delivery acceptance passed**
 - Applies to: `feature/agent-resource-platform` deployment-intent APIs
 - Last reviewed: 2026-10-22
 
@@ -180,5 +180,6 @@ Gateway v0.7.0 commit `3d04b7a0207a6d31746a1b196ae9d82097c2087c`.
 It covers real create/invoke/observe/rollback, two-Tenant shared-Gateway
 isolation, differing grants, revocation before retry, recovery from a partial
 remote write, and Virtual-Key/service-credential separation. The delivery plan
-records the detailed acceptance evidence; only Step 8 operational acceptance
-remains in the initial delivery plan.
+records the detailed acceptance evidence. Step 8 subsequently accepted the
+migration, backup/restore and complete release gate, closing the initial
+delivery plan.

@@ -3,7 +3,7 @@
 - Document type: **normative**
 - Status: **current**
 - Applies to: repository documentation
-- Last reviewed: 2026-10-20
+- Last reviewed: 2026-10-22
 
 The documentation is organized by authority and lifecycle. A delivery plan can
 record how a capability is built, but it does not override the current code or
@@ -56,7 +56,6 @@ into `dev` or `dev` otherwise advances to contain it.
 
 ## Active delivery documents
 
-- [Agent resource platform rebuild plan](plans/active/agent-resource-platform-integration-plan.md)
 - [Approved migration source inventory](plans/active/agent-resource-platform-source-inventory.md)
 - [Manager v0.1.0 release plan](plans/active/v0.1.0-release-plan.md)
 
@@ -68,6 +67,7 @@ into `dev` or `dev` otherwise advances to contain it.
 ## Archived delivery documents
 
 - [Gateway v0.5.0 alignment plan](plans/archive/gateway-v0.5-alignment-plan.md)
+- [Agent resource platform rebuild plan](plans/archive/agent-resource-platform-integration-plan.md)
 
 ## Required metadata
 

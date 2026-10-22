@@ -29,7 +29,7 @@ The multi-user / multi-gateway design (data model, permission model, request flo
 The accepted target, source allowlist and ordered rebuild are documented in
 `docs/architecture/agent-resource-platform-design.md`,
 `docs/plans/active/agent-resource-platform-source-inventory.md` and
-`docs/plans/active/agent-resource-platform-integration-plan.md`. The permission
+`docs/plans/archive/agent-resource-platform-integration-plan.md`. The permission
 model and dashboard information architecture are in
 `docs/architecture/tenant-authorization-design.md` and
 `docs/architecture/dashboard-information-architecture.md`.
@@ -47,9 +47,10 @@ verified lifecycle, key binding, server-managed invocation, scoped observation
 runtime administration, compatibility cutover, recovery and remove-only
 decommission are documented in
 `docs/capabilities/platform-agent-deployments.md`; the real-Gateway release gate
-and the Step 7 canonical operational UI are complete. Read both before changing
-Agent drafts, dependency snapshots, deployment mappings, Gateway adapters or
-their Tenant projections.
+and the Step 7 canonical operational UI are complete. Step 8 migration,
+backup/restore and initial release acceptance are also complete. Read both
+before changing Agent drafts, dependency snapshots, deployment mappings,
+Gateway adapters or their Tenant projections.
 
 Read `docs/operations/database-migrations.md` before changing either schema
 migration series, and regenerate the checked-in manifest with
@@ -68,6 +69,7 @@ bun run lint         # ESLint
 bun run typecheck    # TypeScript including Bun scripts and tests
 bun run check:migrations # executable migration ordering/digest manifest
 bun run inspect:cutover # row/reference/object and source-mapping report
+bun run verify:step8 # full release gate; requires disposable PostgreSQL
 bun run smoke:http-agent # pinned real Gateway + local A2A integration (Go required)
 ```
 

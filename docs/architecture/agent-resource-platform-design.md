@@ -1,9 +1,9 @@
 # Agent Resource Platform Design
 
 - Document type: **normative**
-- Status: **accepted target; Steps 0–7 implemented and Step 6 release acceptance passed**
+- Status: **current; Steps 0–8 implemented and initial delivery accepted**
 - Applies to: `feature/agent-resource-platform`
-- Last reviewed: 2026-10-21
+- Last reviewed: 2026-10-22
 
 The historical replay started from a release candidate named `v0.2.0`. That tag
 was removed and its intermediate release commits were consolidated. As a
@@ -18,7 +18,7 @@ This document defines the product and service boundaries for rebuilding the
 Agent resource platform in `agwmngr`. It deliberately describes the target, not
 the completed `v0.1.0` release baseline. The ordered migration and proof required for
 each step live in
-[the integration plan](../plans/active/agent-resource-platform-integration-plan.md).
+[the archived integration plan](../plans/archive/agent-resource-platform-integration-plan.md).
 
 The Bun runtime and shared contract/service boundaries described in Step 1,
 the Principal/Tenant/membership/grant foundation in Step 2, the canonical
@@ -28,6 +28,11 @@ invocation, observation and cutover services, and the Step 7 Agent-first
 operational UI are implemented on the feature branch. A completed release alone
 still creates no Gateway object; publication requires the explicit Step 6C
 key-binding and lifecycle path.
+
+Step 8 freezes the executable migration manifests and accepts the active-writer,
+backup/restore, rollback and full SQLite/PostgreSQL/object/real-Gateway/
+production-Bun release gate. Optional chat/history or durable controlled Agent
+work is not part of this completed initial delivery.
 
 ## 1. Objective
 
@@ -586,7 +591,7 @@ For the rebuild:
 2. `tenant-authorization-design.md` owns target authority;
 3. `dashboard-information-architecture.md` owns navigation and page responsibility;
 4. `../plans/active/agent-resource-platform-source-inventory.md` owns source selection; and
-5. `../plans/active/agent-resource-platform-integration-plan.md` owns delivery order and gates.
+5. `../plans/archive/agent-resource-platform-integration-plan.md` records the completed delivery order and gates.
 
 Current `dev` behavior remains authoritative for `dev` until `dev` contains the
 corresponding migration step through a merge or another deliberate advance.

@@ -1,7 +1,7 @@
 # Agent Resource Platform Rebuild Plan
 
 - Document type: **delivery**
-- Status: **active; Steps 0–7 are complete; Step 8 remains; Step 9 is post-delivery optional work**
+- Status: **archived; Steps 0–8 accepted; Step 9 requires a separate optional delivery plan**
 - Applies to: `feature/agent-resource-platform`
 - Last reviewed: 2026-10-22
 
@@ -1931,10 +1931,33 @@ Completing this step closes the initial Agent resource/deployment delivery plan.
 The optional Step 9 work below does not block migration, release acceptance or
 completion of the initial plan.
 
+Completed (2026-10-22): manager schema v4 and platform schema v14 are frozen in
+a generated SHA-256 migration manifest checked against the executable SQL.
+Operational tooling now produces a private SQLite/PostgreSQL/object snapshot,
+records source/account/resource mappings plus every table count, validates
+structural references and active object size/hash, rejects symlinks or artifact
+tampering, and restores only to new isolated targets. The restore must reproduce
+the source row/reference/object inventory exactly. The accepted cutover runbook
+declares one active writer per domain, stop/rollback criteria and accepted,
+deferred and excluded capability sets.
+
+A real SQLite/object backup of the repository's current manager store was
+restored into isolated paths with identical schema versions, 8 manager-table
+counts, 40 platform-table counts, human/Gateway mapping counts and zero
+reference/object violations. The complete `bun run verify:step8` gate then ran
+against an isolated PostgreSQL 16 instance without skips: 155 tests passed,
+followed by ESLint, application and contract TypeScript checks, package-boundary
+checks, a production build, Bun development/production startup, explicit
+SQLite/PostgreSQL migration parity, and the real Agent Gateway v0.7.0 commit
+`3d04b7a0207a6d31746a1b196ae9d82097c2087c` deployment/invocation/observation/
+rollback gate. All temporary databases, processes, build copies and the
+PostgreSQL container were removed after acceptance.
+
 ## 11. Step 9 — optional chat/history and controlled execution
 
-This is post-delivery optional work and is not part of the initial
-resource/deployment acceptance.
+This is post-delivery optional work and is not part of the completed initial
+resource/deployment acceptance. Starting it requires a new active delivery plan;
+its presence in this archived plan is not implementation authority.
 
 ### 9A. Product chat/history
 
